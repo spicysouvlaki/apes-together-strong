@@ -15,11 +15,18 @@ export default defineConfig({
   plugins: [
     preact(),
     VitePWA({
-      registerType: 'autoUpdate',
+      // 'prompt': a new version waits for src/platform/pwa.ts applyUpdate() instead of
+      // reloading the page mid-game.
+      registerType: 'prompt',
+      // 'auto': src/platform/pwa.ts imports virtual:pwa-register, so no extra script is injected.
       includeAssets: ['icon.svg'],
       workbox: {
+        // Content JSON is bundled into the JS chunks and the sim worker is its own .js chunk,
+        // so this glob covers everything a full offline game needs.
         globPatterns: ['**/*.{js,css,html,svg,png,webp,json,glb,opus,woff2}'],
         maximumFileSizeToCacheInBytes: 20 * 1024 * 1024,
+        navigateFallback: 'index.html',
+        cleanupOutdatedCaches: true,
       },
       manifest: {
         name: 'Apes Together Strong',
@@ -29,7 +36,12 @@ export default defineConfig({
         orientation: 'any',
         background_color: '#f3ede1',
         theme_color: '#5b7f5a',
-        icons: [{ src: 'icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' }],
+        icons: [
+          { src: 'icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' },
+          { src: 'icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+          { src: 'icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+          { src: 'icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+        ],
       },
     }),
   ],

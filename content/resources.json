@@ -7,5 +7,16 @@
   { "id": "tea", "name": "Tea", "class": "luxury", "yields": { "gold": 1, "happiness": 2 }, "terrains": ["grassland", "plains"] },
   { "id": "silk", "name": "Silk", "class": "luxury", "yields": { "gold": 2, "happiness": 2 }, "terrains": ["grassland", "floodplain"] },
   { "id": "incense", "name": "Incense", "class": "luxury", "yields": { "gold": 1, "faith": 1, "happiness": 2 }, "terrains": ["desert"] },
-  { "id": "furs", "name": "Furs", "class": "luxury", "yields": { "gold": 2, "happiness": 2 }, "terrains": ["tundra", "snow"] }
+  { "id": "furs", "name": "Furs", "class": "luxury", "yields": { "gold": 2, "happiness": 2 }, "terrains": ["tundra", "snow"] },
+  { "id": "cattle", "name": "Cattle", "class": "bonus", "yields": { "food": 1, "production": 1 }, "terrains": ["grassland", "steppe"] },
+  { "id": "deer", "name": "Deer and caribou", "class": "bonus", "yields": { "food": 2 }, "terrains": ["tundra", "plains"] },
+  { "id": "dates", "name": "Dates", "class": "bonus", "yields": { "food": 2 }, "terrains": ["desert", "floodplain"] },
+  { "id": "copper", "name": "Copper", "class": "bonus", "yields": { "production": 1, "gold": 1 }, "terrains": ["desert", "plains", "steppe"] },
+  { "id": "whales", "name": "Whales", "class": "bonus", "yields": { "food": 1, "production": 1 }, "terrains": ["ocean", "coast"] },
+  { "id": "salt", "name": "Salt", "class": "luxury", "yields": { "food": 1, "gold": 1, "happiness": 2 }, "terrains": ["desert", "steppe"] },
+  { "id": "walrus_ivory", "name": "Walrus ivory", "class": "luxury", "yields": { "gold": 2, "happiness": 2 }, "terrains": ["snow", "coast"] },
+  { "id": "amber", "name": "Amber", "class": "luxury", "yields": { "gold": 2, "happiness": 2 }, "terrains": ["coast", "tundra"] },
+  { "id": "olives", "name": "Olives", "class": "luxury", "yields": { "food": 1, "gold": 1, "happiness": 2 }, "terrains": ["plains"] },
+  { "id": "wine", "name": "Wine", "class": "luxury", "yields": { "culture": 1, "gold": 1, "happiness": 2 }, "terrains": ["grassland", "plains"] },
+  { "id": "gold_ore", "name": "Gold", "class": "luxury", "yields": { "gold": 3, "happiness": 2 }, "terrains": ["desert", "steppe", "tundra"] }
 ]

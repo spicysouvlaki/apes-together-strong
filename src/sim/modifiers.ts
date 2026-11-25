@@ -7,8 +7,17 @@
  * Shared by src/sim, src/sim/ages and src/emergence. Owned by the sim core workstream:
  * extend it there, keep these exported signatures stable.
  */
-import type { ContentBundle, Effect, GpKind, Modifier } from '@contracts/content-schemas';
-import type { GameState, PlayerId } from '@contracts/sim-api';
+import type {
+  Condition,
+  ContentBundle,
+  Effect,
+  GpKind,
+  Modifier,
+  UnitClass,
+  YieldType,
+} from '@contracts/content-schemas';
+import type { GameState, PlayerId, Settlement, Tile } from '@contracts/sim-api';
+import { ci, isWater, neighborTiles } from './lookup';
 
 type EffectOf<K extends Effect['kind']> = Extract<Effect, { kind: K }>;
 
@@ -105,3 +114,150 @@ export const hasIgnoreCold = (mods: readonly Modifier[]): boolean => mods.some((
 
 export const hasUnlock = (mods: readonly Modifier[], what: EffectOf<'unlock'>['what'], id: string): boolean =>
   effectsOfKind(mods, 'unlock').some((e) => e.what === what && e.id === id);
+
+// ---------------------------------------------------------------------------
+// Scoped evaluation with `when` conditions. This is the ONE place conditions are
+// interpreted (CLAUDE.md rule 4); yields, combat, movement, vision and costs all go
+// through it.
+// ---------------------------------------------------------------------------
+
+/** What a condition is evaluated against. Fields that do not apply are left out. */
+export interface CondEnv {
+  state: GameState;
+  content: ContentBundle;
+  player: PlayerId;
+  /** The tile in question: the worked tile, the settlement's center, or the unit's tile. */
+  tile?: Tile;
+  /** The settlement in question (for tile scope: the settlement working the tile). */
+  settlement?: Settlement;
+  unitClass?: UnitClass;
+}
+
+/** True when `player` is at war with anyone (players or city-states; raiders don't count). */
+export const atWarWithAnyone = (state: GameState, player: PlayerId): boolean => {
+  for (const key of Object.keys(state.wars)) {
+    const [a, b] = key.split('|');
+    if (a === player || b === player) return true;
+  }
+  return false;
+};
+
+const tileIsCoastal = (env: CondEnv, tile: Tile): boolean =>
+  neighborTiles(env.state.map, tile).some((t) => isWater(t, env.content));
+
+export const conditionMatches = (when: Condition | undefined, env: CondEnv): boolean => {
+  if (!when) return true;
+  const { tile, settlement } = env;
+  if (when.terrain && !(tile && when.terrain.includes(tile.terrain))) return false;
+  if (when.feature && !(tile && tile.feature !== null && when.feature.includes(tile.feature))) return false;
+  if (when.resource && !(tile && tile.resource !== null && when.resource.includes(tile.resource))) return false;
+  if (when.climate && !(tile && when.climate.includes(tile.climate))) return false;
+  if (when.river !== undefined && !(tile && tile.river === when.river)) return false;
+  if (when.coastal !== undefined && !(tile && tileIsCoastal(env, tile) === when.coastal)) return false;
+  if (
+    when.adjacentTerrain &&
+    !(tile && neighborTiles(env.state.map, tile).some((n) => when.adjacentTerrain?.includes(n.terrain)))
+  )
+    return false;
+  if (when.cityMinPop !== undefined && !(settlement && settlement.population >= when.cityMinPop)) return false;
+  if (when.cityMaxPop !== undefined && !(settlement && settlement.population <= when.cityMaxPop)) return false;
+  if (when.settlementKind !== undefined && !(settlement && settlement.kind === when.settlementKind)) return false;
+  if (when.capital !== undefined && !(settlement && settlement.isCapital === when.capital)) return false;
+  if (when.unitClass && !(env.unitClass && when.unitClass.includes(env.unitClass))) return false;
+  if (when.age && !when.age.includes(env.state.age)) return false;
+  if (when.atWar !== undefined && atWarWithAnyone(env.state, env.player) !== when.atWar) return false;
+  if (when.minTradeRoutes !== undefined) {
+    let n = 0;
+    for (const r of env.state.tradeRoutes) if (r.owner === env.player) n++;
+    if (n < when.minTradeRoutes) return false;
+  }
+  return true;
+};
+
+/**
+ * `playerModifiers` plus the empire- and unit-scoped modifiers of buildings in the player's
+ * settlements (a building's settlement/tile-scoped modifiers stay local to its settlement).
+ */
+export const empireModifiers = (state: GameState, playerId: PlayerId, content: ContentBundle): Modifier[] => {
+  const out = playerModifiers(state, playerId, content);
+  const buildings = ci(content).buildings;
+  for (const sid of Object.keys(state.settlements)) {
+    const s = state.settlements[sid];
+    if (!s || s.owner !== playerId) continue;
+    for (const b of s.buildings) {
+      const def = buildings[b];
+      if (!def) continue;
+      for (const m of def.modifiers) if (m.scope === 'empire' || m.scope === 'unit') out.push(m);
+    }
+  }
+  return out;
+};
+
+/** Modifiers of the buildings in one settlement (all scopes). */
+export const buildingModifiers = (settlement: Settlement, content: ContentBundle): Modifier[] => {
+  const out: Modifier[] = [];
+  const buildings = ci(content).buildings;
+  for (const b of settlement.buildings) {
+    const def = buildings[b];
+    if (def) out.push(...def.modifiers);
+  }
+  return out;
+};
+
+export interface YieldMods {
+  add: Partial<Record<YieldType, number>>;
+  percent: Partial<Record<YieldType, number>>;
+}
+
+/** Sum the `yield` effects among `mods` with the given scope whose conditions hold in `env`. */
+export const yieldMods = (mods: readonly Modifier[], scope: Modifier['scope'], env: CondEnv): YieldMods => {
+  const out: YieldMods = { add: {}, percent: {} };
+  for (const m of mods) {
+    if (m.scope !== scope || m.effect.kind !== 'yield') continue;
+    if (!conditionMatches(m.when, env)) continue;
+    const e = m.effect;
+    if (e.add !== undefined) out.add[e.yield] = (out.add[e.yield] ?? 0) + e.add;
+    if (e.percent !== undefined) out.percent[e.yield] = (out.percent[e.yield] ?? 0) + e.percent;
+  }
+  return out;
+};
+
+/** Unit-level effects (combat, movement, vision) count from 'unit' and 'empire' scope. */
+const unitLevel = (m: Modifier): boolean => m.scope === 'unit' || m.scope === 'empire';
+
+/** Sum of `combat` effects applying to a unit in `env`, against an opponent of class `vs` (null = a settlement). */
+export const combatBonus = (mods: readonly Modifier[], env: CondEnv, vs: UnitClass | null): number => {
+  let sum = 0;
+  for (const m of mods) {
+    if (!unitLevel(m) || m.effect.kind !== 'combat') continue;
+    if (m.effect.vs !== undefined && m.effect.vs !== vs) continue;
+    if (!conditionMatches(m.when, env)) continue;
+    sum += m.effect.add;
+  }
+  return sum;
+};
+
+/** Sum of an additive unit-level effect (movement, vision) whose conditions hold. */
+export const unitAdd = (mods: readonly Modifier[], kind: 'movement' | 'vision', env: CondEnv): number => {
+  let sum = 0;
+  for (const m of mods) {
+    if (!unitLevel(m) || m.effect.kind !== kind) continue;
+    if (!conditionMatches(m.when, env)) continue;
+    sum += m.effect.add;
+  }
+  return sum;
+};
+
+/** `costPercent` restricted to modifiers whose conditions hold for `env` (e.g. capital-only discounts). */
+export const costPercentIn = (mods: readonly Modifier[], target: EffectOf<'cost'>['target'], env: CondEnv): number => {
+  let sum = 0;
+  for (const m of mods) {
+    if (m.effect.kind !== 'cost' || m.effect.target !== target) continue;
+    if (!conditionMatches(m.when, env)) continue;
+    sum += m.effect.percent;
+  }
+  return sum;
+};
+
+/** Embark is unlocked by a `unlock embark` modifier from any source (leader, tech, tradition). */
+export const canEmbark = (mods: readonly Modifier[]): boolean => effectsOfKind(mods, 'unlock').some((e) => e.what === 'embark');

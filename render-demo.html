@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+    <title>Renderer demo</title>
+    <style>
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #f3ede1; font: 13px -apple-system, system-ui, sans-serif; }
+      #map { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+      #hud { position: fixed; left: 0; right: 0; top: 0; padding: calc(env(safe-area-inset-top) + 6px) 8px 6px; pointer-events: none; }
+      #stats, #info { background: rgba(255, 252, 244, 0.85); color: #2f2a24; border-radius: 8px; padding: 4px 8px; display: inline-block; margin-bottom: 4px; }
+      #buttons { position: fixed; left: 8px; bottom: calc(env(safe-area-inset-bottom) + 8px); display: flex; gap: 6px; flex-wrap: wrap; }
+      #buttons button { min-width: 44px; min-height: 44px; border: 0; border-radius: 10px; background: #fffaf0; color: #2f2a24; box-shadow: 0 1px 3px rgba(0,0,0,.2); font: inherit; padding: 0 10px; }
+    </style>
+  </head>
+  <body>
+    <canvas id="map"></canvas>
+    <div id="hud"><div id="stats">loading…</div><br /><div id="info">tap a blue unit</div></div>
+    <div id="buttons">
+      <button id="fog">Fog</button>
+      <button id="capital">Capital</button>
+      <button id="flash">Flash</button>
+      <button id="bench">Bench</button>
+    </div>
+    <script type="module" src="/src/render/demo.ts"></script>
+  </body>
+</html>

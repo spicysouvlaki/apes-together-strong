@@ -1,123 +1,103 @@
 [
- {
-  "id": "collapse",
-  "name": "Collapse",
-  "age": "ancient",
-  "description": "Trade falters, harvests fail and raiders gather at the edges of the settled world.",
-  "pressure": [
-   {
-    "scope": "settlement",
-    "when": {
-     "settlementKind": "town"
-    },
-    "effect": {
-     "kind": "yield",
-     "yield": "happiness",
-     "add": -2
-    }
-   }
-  ],
-  "behaviors": [
-   "raiders"
-  ],
-  "stages": [
-   {
-    "at": 70,
-    "text": "Refugees arrive with stories of burned towns.",
-    "options": [
-     {
-      "id": "collapse_shelter",
-      "label": "Shelter them",
-      "description": "-30 gold; +1 happiness in every settlement.",
-      "stock": {
-       "gold": -30
+  {
+    "id": "collapse",
+    "name": "Collapse",
+    "age": "ancient",
+    "description": "Trade falters, harvests fail and raiders gather at the edges of the settled world.",
+    "pressure": [
+      { "scope": "settlement", "when": { "settlementKind": "town" }, "effect": { "kind": "yield", "yield": "happiness", "add": -2 } }
+    ],
+    "behaviors": ["raiders"],
+    "stages": [
+      {
+        "at": 70,
+        "text": "Refugees arrive with stories of burned towns.",
+        "options": [
+          { "id": "collapse_shelter", "label": "Shelter them", "description": "-30 gold; +1 happiness in every settlement.",
+            "stock": { "gold": -30 },
+            "modifiers": [{ "scope": "settlement", "effect": { "kind": "yield", "yield": "happiness", "add": 1 } }] },
+          { "id": "collapse_levy", "label": "Raise a levy", "description": "Units cost 15% less.",
+            "modifiers": [{ "scope": "empire", "effect": { "kind": "cost", "target": "unit", "percent": -15 } }] }
+        ]
       },
-      "modifiers": [
-       {
-        "scope": "settlement",
-        "effect": {
-         "kind": "yield",
-         "yield": "happiness",
-         "add": 1
-        }
-       }
-      ]
-     },
-     {
-      "id": "collapse_levy",
-      "label": "Raise a levy",
-      "description": "Units cost 20% less.",
-      "modifiers": [
-       {
-        "scope": "empire",
-        "effect": {
-         "kind": "cost",
-         "target": "unit",
-         "percent": -20
-        }
-       }
-      ]
-     }
-    ]
-   },
-   {
-    "at": 80,
-    "text": "The old trade roads are no longer safe.",
-    "options": [
-     {
-      "id": "collapse_hoard",
-      "label": "Hoard grain",
-      "description": "+10% food.",
-      "modifiers": [
-       {
-        "scope": "settlement",
-        "effect": {
-         "kind": "yield",
-         "yield": "food",
-         "percent": 10
-        }
-       }
-      ]
-     },
-     {
-      "id": "collapse_patrol",
-      "label": "Patrol the roads",
-      "description": "+2 combat strength.",
-      "modifiers": [
-       {
-        "scope": "unit",
-        "effect": {
-         "kind": "combat",
-         "add": 2
-        }
-       }
-      ]
-     }
-    ]
-   },
-   {
-    "at": 90,
-    "text": "Neighbors look to you, or past you.",
-    "options": [
-     {
-      "id": "collapse_rally",
-      "label": "Rally the elders",
-      "description": "+40 culture.",
-      "stock": {
-       "culture": 40
+      {
+        "at": 80,
+        "text": "The old trade roads are no longer safe.",
+        "options": [
+          { "id": "collapse_hoard", "label": "Hoard grain", "description": "+10% food; -1 trade route capacity.",
+            "modifiers": [
+              { "scope": "settlement", "effect": { "kind": "yield", "yield": "food", "percent": 10 } },
+              { "scope": "empire", "effect": { "kind": "tradeRoutes", "add": -1 } }
+            ] },
+          { "id": "collapse_patrol", "label": "Patrol the roads", "description": "+2 combat strength for all units.",
+            "modifiers": [{ "scope": "unit", "effect": { "kind": "combat", "add": 2 } }] }
+        ]
+      },
+      {
+        "at": 90,
+        "text": "Neighbors look to you, or past you.",
+        "options": [
+          { "id": "collapse_rally", "label": "Rally the elders", "description": "+40 culture.",
+            "stock": { "culture": 40 } },
+          { "id": "collapse_tribute", "label": "Pay tribute", "description": "-40 gold; +30 influence.",
+            "stock": { "gold": -40, "influence": 30 } }
+        ]
       }
-     },
-     {
-      "id": "collapse_tribute",
-      "label": "Pay tribute",
-      "description": "-40 gold; +30 influence.",
-      "stock": {
-       "gold": -40,
-       "influence": 30
-      }
-     }
     ]
-   }
-  ]
- }
+  },
+  {
+    "id": "plague",
+    "name": "Plague",
+    "age": "classical",
+    "description": "An epidemic moves along the trade roads. Settlements lose population over time, faster for players with trade routes.",
+    "pressure": [
+      { "scope": "settlement", "when": { "cityMinPop": 8 }, "effect": { "kind": "yield", "yield": "happiness", "add": -1 } }
+    ],
+    "behaviors": ["popLoss"],
+    "stages": [
+      {
+        "at": 70,
+        "text": "Ships and caravans arrive carrying a sickness no physician recognizes.",
+        "options": [
+          { "id": "plague_quarantine", "label": "Quarantine arrivals", "description": "-1 trade route capacity; +1 happiness in every settlement.",
+            "modifiers": [
+              { "scope": "empire", "effect": { "kind": "tradeRoutes", "add": -1 } },
+              { "scope": "settlement", "effect": { "kind": "yield", "yield": "happiness", "add": 1 } }
+            ] },
+          { "id": "plague_open_ports", "label": "Keep the ports open", "description": "+10% gold; -1 happiness in every settlement.",
+            "modifiers": [
+              { "scope": "empire", "effect": { "kind": "yield", "yield": "gold", "percent": 10 } },
+              { "scope": "settlement", "effect": { "kind": "yield", "yield": "happiness", "add": -1 } }
+            ] }
+        ]
+      },
+      {
+        "at": 80,
+        "text": "The sick fill the streets, and physicians disagree about the cause.",
+        "options": [
+          { "id": "plague_hospitals", "label": "Fund physicians and hospitals", "description": "-50 gold; +10% food.",
+            "stock": { "gold": -50 },
+            "modifiers": [{ "scope": "settlement", "effect": { "kind": "yield", "yield": "food", "percent": 10 } }] },
+          { "id": "plague_processions", "label": "Hold processions and fasts", "description": "+1 faith and +1 happiness in every settlement; -10% science.",
+            "modifiers": [
+              { "scope": "settlement", "effect": { "kind": "yield", "yield": "faith", "add": 1 } },
+              { "scope": "settlement", "effect": { "kind": "yield", "yield": "happiness", "add": 1 } },
+              { "scope": "empire", "effect": { "kind": "yield", "yield": "science", "percent": -10 } }
+            ] }
+        ]
+      },
+      {
+        "at": 90,
+        "text": "Fields lie unworked, and the survivors ask for higher wages.",
+        "options": [
+          { "id": "plague_raise_wages", "label": "Pay the higher wages", "description": "-40 gold; +10% production.",
+            "stock": { "gold": -40 },
+            "modifiers": [{ "scope": "settlement", "effect": { "kind": "yield", "yield": "production", "percent": 10 } }] },
+          { "id": "plague_fix_wages", "label": "Fix wages by law", "description": "+40 gold; -1 happiness in every settlement.",
+            "stock": { "gold": 40 },
+            "modifiers": [{ "scope": "settlement", "effect": { "kind": "yield", "yield": "happiness", "add": -1 } }] }
+        ]
+      }
+    ]
+  }
 ]

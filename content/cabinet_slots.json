@@ -6,5 +6,7 @@
   { "id": "marshal", "name": "Marshal", "accepts": ["general"] },
   { "id": "laureate", "name": "Laureate", "accepts": ["thinker"] },
   { "id": "envoy", "name": "Envoy", "accepts": ["statesman", "explorer"] },
-  { "id": "steward", "name": "Steward", "accepts": ["statesman", "builder"] }
+  { "id": "steward", "name": "Steward", "accepts": ["statesman", "builder"] },
+  { "id": "consul", "name": "Consul", "accepts": ["statesman", "general"] },
+  { "id": "treasurer", "name": "Treasurer", "accepts": ["statesman", "builder", "explorer"] }
 ]

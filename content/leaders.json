@@ -1,6 +1,44 @@
 [
-  { "id": "builder", "name": "The Builder", "ability": "Wonders cost 15% less and give +2 culture.", "modifiers": [{ "scope": "empire", "effect": { "kind": "cost", "target": "wonder", "percent": -15 } }] },
-  { "id": "conqueror", "name": "The Conqueror", "ability": "+3 combat strength; military great-people points +25%.", "modifiers": [{ "scope": "unit", "effect": { "kind": "combat", "add": 3 } }, { "scope": "empire", "effect": { "kind": "gpPoints", "gp": "military", "percent": 25 } }] },
-  { "id": "sage", "name": "The Sage", "ability": "Thought great-people points +30%; +10% science.", "modifiers": [{ "scope": "empire", "effect": { "kind": "gpPoints", "gp": "thought", "percent": 30 } }, { "scope": "empire", "effect": { "kind": "yield", "yield": "science", "percent": 10 } }] },
-  { "id": "navigator", "name": "The Navigator", "ability": "Embark from the start; exploration points +30%.", "modifiers": [{ "scope": "empire", "effect": { "kind": "unlock", "what": "embark", "id": "embark" } }, { "scope": "empire", "effect": { "kind": "gpPoints", "gp": "exploration", "percent": 30 } }] }
+  { "id": "builder", "name": "The Builder", "ability": "Wonders cost 15% less; building great-people points +20%.",
+    "modifiers": [
+      { "scope": "empire", "effect": { "kind": "cost", "target": "wonder", "percent": -15 } },
+      { "scope": "empire", "effect": { "kind": "gpPoints", "gp": "building", "percent": 20 } }
+    ],
+    "aiAgendaBias": ["builder", "collector"] },
+  { "id": "conqueror", "name": "The Conqueror", "ability": "+3 combat strength for all units; military great-people points +25%.",
+    "modifiers": [
+      { "scope": "unit", "effect": { "kind": "combat", "add": 3 } },
+      { "scope": "empire", "effect": { "kind": "gpPoints", "gp": "military", "percent": 25 } }
+    ],
+    "aiAgendaBias": ["warmonger", "expansionist"] },
+  { "id": "sage", "name": "The Sage", "ability": "Thought great-people points +30%; +10% science.",
+    "modifiers": [
+      { "scope": "empire", "effect": { "kind": "gpPoints", "gp": "thought", "percent": 30 } },
+      { "scope": "empire", "effect": { "kind": "yield", "yield": "science", "percent": 10 } }
+    ],
+    "aiAgendaBias": ["scholar", "builder"] },
+  { "id": "navigator", "name": "The Navigator", "ability": "Land units may embark from the start; exploration great-people points +30%.",
+    "modifiers": [
+      { "scope": "empire", "effect": { "kind": "unlock", "what": "embark", "id": "embark" } },
+      { "scope": "empire", "effect": { "kind": "gpPoints", "gp": "exploration", "percent": 30 } }
+    ],
+    "aiAgendaBias": ["seafarer", "expansionist"] },
+  { "id": "merchant", "name": "The Merchant", "ability": "+1 trade route capacity; +10% gold.",
+    "modifiers": [
+      { "scope": "empire", "effect": { "kind": "tradeRoutes", "add": 1 } },
+      { "scope": "empire", "effect": { "kind": "yield", "yield": "gold", "percent": 10 } }
+    ],
+    "aiAgendaBias": ["opportunist", "seafarer"] },
+  { "id": "prophet", "name": "The Prophet", "ability": "Faith great-people points +30%; +1 faith in every settlement.",
+    "modifiers": [
+      { "scope": "empire", "effect": { "kind": "gpPoints", "gp": "faith", "percent": 30 } },
+      { "scope": "settlement", "effect": { "kind": "yield", "yield": "faith", "add": 1 } }
+    ],
+    "aiAgendaBias": ["zealot", "builder"] },
+  { "id": "diplomat", "name": "The Diplomat", "ability": "+2 influence per turn; statesman great-people points +30%.",
+    "modifiers": [
+      { "scope": "empire", "effect": { "kind": "yield", "yield": "influence", "add": 2 } },
+      { "scope": "empire", "effect": { "kind": "gpPoints", "gp": "statesman", "percent": 30 } }
+    ],
+    "aiAgendaBias": ["collector", "opportunist"] }
 ]

@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # validate:content + typecheck + tests
+      - run: npm run check
+      # Headless AI-vs-AI games; prints the balance/emergence report and fails on stuck games.
+      - run: npm run autoplay -- --games 2 --turns 60 --json autoplay-report.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: autoplay-report
+          path: autoplay-report.json
+          if-no-files-found: ignore

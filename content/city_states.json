@@ -1,23 +1,118 @@
 [
- {
-  "id": "ugarit",
-  "name": "Ugarit",
-  "culture": "arab",
-  "type": "trade",
-  "suzerainModifiers": [
-   {
-    "scope": "empire",
-    "effect": {
-     "kind": "yield",
-     "yield": "gold",
-     "add": 3
-    }
-   }
-  ],
-  "description": "Suzerain: +3 gold.",
-  "history": {
-   "note": "Bronze Age port on the Syrian coast whose scribes used one of the earliest alphabets; destroyed around 1185 BCE.",
-   "source": "Encyclopaedia Britannica, 'Ugarit'"
-  }
- }
+  { "id": "ugarit", "name": "Ugarit", "culture": "arab", "type": "scholarly",
+    "suzerainModifiers": [
+      { "scope": "empire", "effect": { "kind": "yield", "yield": "science", "add": 2 } },
+      { "scope": "empire", "effect": { "kind": "gpPoints", "gp": "thought", "percent": 15 } }
+    ],
+    "description": "Suzerain: +2 science; thought great-people points +15%.",
+    "history": {
+      "note": "Bronze Age port on the Syrian coast whose scribes wrote a 30-sign cuneiform alphabet; destroyed around 1185 BCE. Its people spoke Ugaritic, a Northwest Semitic language: a relative of Arabic, not its ancestor.",
+      "source": "Encyclopaedia Britannica, 'Ugarit'"
+    } },
+  { "id": "petra", "name": "Petra", "culture": "arab", "type": "trade",
+    "suzerainModifiers": [
+      { "scope": "tile", "when": { "terrain": ["desert"] }, "effect": { "kind": "yield", "yield": "gold", "add": 1 } }
+    ],
+    "description": "Suzerain: +1 gold on desert tiles.",
+    "history": {
+      "note": "Rock-cut capital of the Nabataean Arabs in today's Jordan, which grew rich on the incense caravan trade and stored water in cisterns and channels. Rome annexed the kingdom in 106 CE.",
+      "source": "UNESCO, 'Petra'; Encyclopaedia Britannica, 'Petra'"
+    } },
+  { "id": "siwa", "name": "Siwa", "culture": "egyptian", "type": "sacred",
+    "suzerainModifiers": [
+      { "scope": "empire", "effect": { "kind": "yield", "yield": "faith", "add": 3 } },
+      { "scope": "empire", "effect": { "kind": "gpPoints", "gp": "faith", "percent": 15 } }
+    ],
+    "description": "Suzerain: +3 faith; faith great-people points +15%.",
+    "history": {
+      "note": "Western desert oasis whose oracle of Amun drew pilgrims from Egypt and Greece; Alexander the Great consulted it in 331 BCE. The remote oasis was often only loosely under Egyptian rule.",
+      "source": "Encyclopaedia Britannica, 'Siwa Oasis'"
+    } },
+  { "id": "sais", "name": "Sais", "culture": "egyptian", "type": "cultural",
+    "suzerainModifiers": [
+      { "scope": "empire", "effect": { "kind": "yield", "yield": "culture", "add": 2 } },
+      { "scope": "empire", "effect": { "kind": "cost", "target": "wonder", "percent": -10 } }
+    ],
+    "description": "Suzerain: +2 culture; wonders cost 10% less.",
+    "history": {
+      "note": "Delta city of the goddess Neith. Its princes ruled independently from about 730 BCE and, as the 26th Dynasty (664-525 BCE), led a revival of Old Kingdom art and writing styles.",
+      "source": "Encyclopaedia Britannica, 'Sais'; I. Shaw (ed.), The Oxford History of Ancient Egypt (2000)"
+    } },
+  { "id": "sparta", "name": "Sparta", "culture": "greek", "type": "military",
+    "suzerainModifiers": [
+      { "scope": "unit", "when": { "unitClass": ["infantry"] }, "effect": { "kind": "combat", "add": 3 } }
+    ],
+    "description": "Suzerain: infantry +3 combat strength.",
+    "history": {
+      "note": "Peloponnesian city whose citizens trained for war from boyhood. That way of life rested on the helots, a conquered population forced to farm for Spartans and often brutally repressed.",
+      "source": "Encyclopaedia Britannica, 'Sparta'; P. Cartledge, The Spartans (2003)"
+    } },
+  { "id": "massalia", "name": "Massalia", "culture": "greek", "type": "trade",
+    "suzerainModifiers": [
+      { "scope": "empire", "effect": { "kind": "tradeRoutes", "add": 1 } },
+      { "scope": "empire", "effect": { "kind": "gpPoints", "gp": "exploration", "percent": 15 } }
+    ],
+    "description": "Suzerain: +1 trade route capacity; exploration great-people points +15%.",
+    "history": {
+      "note": "Greek colony founded about 600 BCE by sailors from Phocaea, today's Marseille. It traded wine and goods up the Rhône; its citizen Pytheas sailed to Britain and the far north around 325 BCE.",
+      "source": "Encyclopaedia Britannica, 'Marseille'; Encyclopaedia Britannica, 'Pytheas'"
+    } },
+  { "id": "qufu", "name": "Qufu", "culture": "chinese", "type": "scholarly",
+    "suzerainModifiers": [
+      { "scope": "empire", "effect": { "kind": "yield", "yield": "culture", "percent": 5 } },
+      { "scope": "empire", "effect": { "kind": "gpPoints", "gp": "statesman", "percent": 20 } }
+    ],
+    "description": "Suzerain: +5% culture; statesman great-people points +20%.",
+    "history": {
+      "note": "Capital of the Zhou-era state of Lu for some eight centuries until 249 BCE. Lu's court chronicle, the Spring and Autumn Annals (722-481 BCE), named a whole era of Chinese history.",
+      "source": "Encyclopaedia Britannica, 'Lu'; UNESCO, 'Temple and Cemetery of Confucius and the Kong Family Mansion in Qufu'"
+    } },
+  { "id": "visby", "name": "Visby", "culture": "norse", "type": "trade",
+    "suzerainModifiers": [
+      { "scope": "settlement", "when": { "coastal": true }, "effect": { "kind": "yield", "yield": "gold", "add": 2 } }
+    ],
+    "description": "Suzerain: +2 gold in coastal settlements.",
+    "history": {
+      "note": "Port of Gotland that grew from Viking-Age trade into a walled Hanseatic hub of the Baltic in the 12th-14th centuries. Valdemar IV of Denmark took the island in 1361 after a bloody battle outside its walls.",
+      "source": "UNESCO, 'Hanseatic Town of Visby'"
+    } },
+  { "id": "lejre", "name": "Lejre", "culture": "norse", "type": "sacred",
+    "suzerainModifiers": [
+      { "scope": "empire", "effect": { "kind": "yield", "yield": "faith", "add": 2 } },
+      { "scope": "empire", "effect": { "kind": "yield", "yield": "influence", "add": 2 } }
+    ],
+    "description": "Suzerain: +2 faith, +2 influence.",
+    "history": {
+      "note": "Royal and cult seat on Zealand with great halls from the 6th-10th centuries, remembered in legend as home of the Skjöldung kings. Thietmar of Merseburg described mass sacrifices there; historians treat this cautiously.",
+      "source": "T. Christensen, Lejre: Fact and Fable (2007); Thietmar of Merseburg, Chronicon I.17"
+    } },
+  { "id": "naujan", "name": "Naujan", "culture": "inuit", "type": "cultural",
+    "suzerainModifiers": [
+      { "scope": "tile", "when": { "terrain": ["tundra", "snow"] }, "effect": { "kind": "yield", "yield": "food", "add": 1 } },
+      { "scope": "unit", "effect": { "kind": "vision", "add": 1 } }
+    ],
+    "description": "Suzerain: +1 food on tundra and snow tiles; all units +1 vision.",
+    "history": {
+      "note": "Thule winter village near Naujaat (Repulse Bay) in Nunavut, with houses framed in whale bone. Therkel Mathiassen's excavations there in the 1920s helped define the Thule culture, ancestors of the Inuit.",
+      "source": "T. Mathiassen, Archaeology of the Central Eskimos (Report of the Fifth Thule Expedition, 1927)"
+    } },
+  { "id": "sarai", "name": "Sarai", "culture": "mongol", "type": "trade",
+    "suzerainModifiers": [
+      { "scope": "tile", "when": { "terrain": ["steppe"] }, "effect": { "kind": "yield", "yield": "gold", "add": 1 } },
+      { "scope": "empire", "effect": { "kind": "tradeRoutes", "add": 1 } }
+    ],
+    "description": "Suzerain: +1 gold on steppe tiles; +1 trade route capacity.",
+    "history": {
+      "note": "Capital of the Golden Horde on the lower Volga, founded by Batu in the 1240s. A Mongol elite ruled a mostly Turkic-speaking population; Ibn Battuta found it a great market city. Timur sacked it in 1395.",
+      "source": "Encyclopaedia Britannica, 'Golden Horde'; Ibn Battuta, Travels, trans. H. A. R. Gibb"
+    } },
+  { "id": "numantia", "name": "Numantia", "culture": "spanish", "type": "military",
+    "suzerainModifiers": [
+      { "scope": "unit", "effect": { "kind": "combat", "add": 4, "vs": "siege" } }
+    ],
+    "description": "Suzerain: all units +4 combat strength against siege units.",
+    "history": {
+      "note": "Celtiberian hill town that resisted Rome for two decades. Scipio Aemilianus besieged it in 134-133 BCE; starving, many defenders killed themselves, and Rome sold the survivors into slavery.",
+      "source": "Appian, Iberian Wars 76-98; Encyclopaedia Britannica, 'Numantia'"
+    } }
 ]
