@@ -23,9 +23,20 @@ export const METER_PER_TURN: Record<GameSpeed, number> = {
 
 /** Meter gain per source (GDD §5). Callers outside src/sim/ages pass these to addAgeProgress. */
 export const METER_PER_TREE_COMPLETED = 4;
-export const METER_PER_MILESTONE = 3;
+/**
+ * GDD §5 says +3 per milestone; autoplay (3 AIs) reached ~18–21 milestone tiers per age, i.e.
+ * 55–65 meter on top of the per-turn tick, ending ages after ~35 turns. 1.25 brings ages back
+ * to ~45–60 turns.
+ */
+export const METER_PER_MILESTONE = 1.25;
 export const METER_PER_WONDER = 1;
 export const METER_PER_FIGURE = 0.5;
+
+/**
+ * Achievement-driven meter gains are tuned for this many players; with more living players
+ * each gain is scaled by REFERENCE / living so bigger maps keep the same age length.
+ */
+export const METER_REFERENCE_PLAYERS = 3;
 
 /** Meter values are kept to 2 decimals so fractional gains stay readable in saves and the HUD. */
 export const METER_PRECISION = 100;

@@ -1,5 +1,5 @@
 /** Legacy milestones (GDD §8 table): award tiers as stats cross thresholds. */
-import type { ContentBundle } from '@contracts/content-schemas';
+import type { ContentBundle, LegacyMilestone } from '@contracts/content-schemas';
 import type { GameState, MilestoneProgress, PlayerId } from '@contracts/sim-api';
 import type { SimCtx } from '../ctx';
 import { statValue } from '../stats';
@@ -8,6 +8,33 @@ import { addAgeProgress } from './meter';
 import { score } from './score';
 
 export const milestoneKey = (id: string, tier: number): string => `${id}:${tier}`;
+
+/**
+ * Value of a milestone's measure. Rule: legacy milestones are per-age achievements (GDD §8
+ * is a per-age table), so counters that would otherwise carry over from earlier ages are
+ * scoped to the current age here: battles won (`stats.battlesWonThisAge`) and figures
+ * activated this age (every figure retires at a transition, so an activated figure recruited
+ * this age was activated this age). Everything else uses
+ * `statValue` unchanged — deeds keep lifetime counters, which suits once-per-world story beats.
+ */
+export const milestoneValue = (state: GameState, player: PlayerId, m: LegacyMilestone, content: ContentBundle): number => {
+  const p = state.players[player];
+  if (!p) return 0;
+  switch (m.measure) {
+    case 'battlesWon':
+      return p.stats.battlesWonThisAge;
+    case 'figuresActivated': {
+      let n = 0;
+      for (const id of Object.keys(state.figures)) {
+        const f = state.figures[id];
+        if (f && f.owner === player && f.activated && f.recruitedAge === state.age) n++;
+      }
+      return n;
+    }
+    default:
+      return statValue(state, player, m.measure, m.param, content);
+  }
+};
 
 /** Tiers (1–3) of `id` the player holds. */
 const achievedTiers = (milestones: readonly string[], id: string): number => {
@@ -29,7 +56,7 @@ export const updateMilestones = (ctx: SimCtx, player: PlayerId): void => {
   if (state.phase === 'playing') {
     for (const m of content.legacy) {
       if (m.age !== state.age) continue;
-      const value = statValue(state, player, m.measure, m.param, content);
+      const value = milestoneValue(state, player, m, content);
       for (let tier = 1; tier <= 3; tier++) {
         const key = milestoneKey(m.id, tier);
         const threshold = m.thresholds[tier - 1] as number;
@@ -57,7 +84,7 @@ export const milestones = (state: GameState, player: PlayerId, content: ContentB
       id: m.id,
       track: m.track,
       description: m.description.replace('{n}', String(shown)),
-      value: statValue(state, player, m.measure, m.param, content),
+      value: milestoneValue(state, player, m, content),
       thresholds: [m.thresholds[0], m.thresholds[1], m.thresholds[2]],
       achieved,
     });

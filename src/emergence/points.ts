@@ -68,7 +68,7 @@ export const gpGain = (
 
   const mods = playerModifiers(state, player, content);
   for (const k of GP_KINDS) {
-    const raw = base + K.GP_SCALE * play[k] + K.GP_PER_BUILDING_POINT * fromBuildings[k];
+    const raw = base + K.GP_AGE_SCALE[state.age] * (K.GP_SCALE * play[k] + K.GP_PER_BUILDING_POINT * fromBuildings[k]);
     out[k] = raw * Math.max(0, 1 + gpPercent(mods, k) / 100);
   }
   return out;

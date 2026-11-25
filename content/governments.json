@@ -12,7 +12,7 @@
   { "id": "despotism", "name": "Despotism", "age": "ancient", "cabinetSlots": ["warleader", "warleader"], "policySlots": 2,
     "modifiers": [{ "scope": "empire", "effect": { "kind": "cost", "target": "unit", "percent": -20 } }] },
   { "id": "monarchy", "name": "Monarchy", "age": "classical", "cabinetSlots": ["chancellor", "marshal", "high_priest"], "policySlots": 3,
-    "modifiers": [{ "scope": "settlement", "effect": { "kind": "yield", "yield": "happiness", "add": 2 } }] },
+    "modifiers": [{ "scope": "settlement", "when": { "settlementKind": "city" }, "effect": { "kind": "yield", "yield": "happiness", "add": 1 } }] },
   { "id": "republic", "name": "Republic", "age": "classical", "cabinetSlots": ["chancellor", "consul", "laureate"], "policySlots": 3,
     "modifiers": [
       { "scope": "empire", "effect": { "kind": "tradeRoutes", "add": 1 } },

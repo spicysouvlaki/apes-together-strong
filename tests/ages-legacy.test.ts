@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { agesWorldPhase, handleAgesCommand, milestones, refinementOptions, score, updateMilestones } from '../src/sim/ages';
 import { loadContent } from '../src/content';
+import { METER_PER_MILESTONE } from '../src/sim/ages/constants';
 import { nameOptions } from '../src/sim/ages/naming';
 import {
   addFigure,
@@ -21,7 +22,7 @@ vi.mock('../src/sim/units', async () => await import('./helpers/ages'));
 beforeEach(resetFakes);
 
 describe('milestones', () => {
-  it('awards each tier once, adds legacy points and +3 meter, refreshes score', () => {
+  it('awards each tier once, adds legacy points and METER_PER_MILESTONE meter, refreshes score', () => {
     const state = makeState(['p1']);
     const ctx = makeCtx(state);
     fakeStats['p1'] = { figuresRecruited: 4, culturesRefined: 9 };
@@ -29,7 +30,7 @@ describe('milestones', () => {
     const p = player(state, 'p1');
     expect(p.milestones).toEqual(['anc_legacy:1', 'anc_legacy:2']); // classical row ignored
     expect(p.legacyPoints).toBe(15);
-    expect(state.ageProgress).toBe(6);
+    expect(state.ageProgress).toBe(2 * METER_PER_MILESTONE);
     expect(eventsOf(ctx, 'milestoneReached')).toEqual([
       { type: 'milestoneReached', player: 'p1', milestone: 'anc_legacy:1', track: 'legacy' },
       { type: 'milestoneReached', player: 'p1', milestone: 'anc_legacy:2', track: 'legacy' },
@@ -38,13 +39,13 @@ describe('milestones', () => {
 
     updateMilestones(ctx, 'p1');
     expect(p.milestones).toHaveLength(2);
-    expect(state.ageProgress).toBe(6);
+    expect(state.ageProgress).toBe(2 * METER_PER_MILESTONE);
 
     fakeStats['p1'] = { figuresRecruited: 6, settlementCount: 3 };
     updateMilestones(ctx, 'p1');
     expect(p.milestones).toEqual(['anc_legacy:1', 'anc_legacy:2', 'anc_legacy:3', 'anc_military:1']);
     expect(p.legacyPoints).toBe(15 + 15 + 5);
-    expect(state.ageProgress).toBe(12);
+    expect(state.ageProgress).toBe(4 * METER_PER_MILESTONE);
   });
 
   it('progress rows for the current age show the next threshold', () => {

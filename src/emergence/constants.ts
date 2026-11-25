@@ -4,7 +4,7 @@
  * a focused player reaches ~100 affinity in their main culture by mid-age, the first offer
  * arrives around turn 8, and a normal player sees roughly 8–12 offers per ~50-turn age.
  */
-import type { ActivateEffect, FigureKind, YieldType } from '@contracts/content-schemas';
+import type { ActivateEffect, Age, FigureKind, YieldType } from '@contracts/content-schemas';
 
 // --- Affinity (GDD §4 "Affinity engine") ---
 
@@ -38,8 +38,19 @@ export const GP_BANK_MAX_THRESHOLDS = 2;
 export const SKIP_REFUND_SHARE = 0.25;
 /** Points every pool gets per turn while the player has a settlement (the court's renown). */
 export const GP_BASE_PER_POOL = 1.1;
-/** Global multiplier on the play-derived points below. */
-export const GP_SCALE = 1;
+/**
+ * Global multiplier on the play-derived points below. Autoplay balance pass: at 1, AI
+ * players saw 10–14 offers in a ~50-turn ancient age (target ~8, GDD §4) because real
+ * empires out-produce the scripted scenario of tests/emergence.check.test.ts.
+ */
+export const GP_SCALE = 0.55;
+/**
+ * Multiplier per age on play-derived and building/wonder points (not the base). Yields and
+ * buildings multiply each age while thresholds only grow per offer, so without this the
+ * classical age produced ~2× the offers of the ancient one (autoplay: 13–20 per AI).
+ * Keeps every age near the same offer count.
+ */
+export const GP_AGE_SCALE: Record<Age, number> = { ancient: 1, classical: 0.4, exploration: 0.3, modern: 0.25 };
 export const GP_MILITARY_PER_UNIT = 0.4;
 export const GP_MILITARY_PER_BATTLE_WON = 3;
 export const GP_MILITARY_PER_CITY_CAPTURED = 8;

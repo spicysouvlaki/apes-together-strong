@@ -241,7 +241,12 @@ const chooseOffer = (ctx: SimCtx, player: PlayerId, offerId: string, figureId: F
     age: state.age,
     kind: 'figure',
     ref: figureId,
-    text: reason ? `${def.name} joined us, ${reason}.` : `${def.name} joined us.`,
+    // Deed offers carry the deed's full story beat as their reason; name the deed instead.
+    text: offer.deed
+      ? `${def.name} joined us after ${content.deeds.find((d) => d.id === offer.deed)?.name ?? 'a great deed'}.`
+      : reason
+        ? `${def.name} joined us, ${reason}.`
+        : `${def.name} joined us.`,
   });
   dropOffer(state, offer.id, false);
   ctx.events.push({ type: 'figureRecruited', figure: figureId, player });

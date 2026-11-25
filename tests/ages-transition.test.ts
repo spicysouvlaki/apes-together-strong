@@ -212,7 +212,7 @@ describe('game end', () => {
     });
     expect(eventsOf(ctx, 'ageEnded')).toEqual([{ type: 'ageEnded', age: 'classical' }]);
     expect(eventsOf(ctx, 'gameEnded')).toEqual([{ type: 'gameEnded', winner: 'p2' }]);
-    expect(player(state, 'p2').chronicle.at(-1)?.text).toContain('the Sinic Pax finished with a legacy score of 50');
+    expect(player(state, 'p2').chronicle.at(-1)?.text).toContain('The Sinic Pax finished with a legacy score of 50');
     for (const id of ['p1', 'p2', 'p3', 'p4']) expect(player(state, id).chronicle).toHaveLength(1);
     agesWorldPhase(ctx);
     expect(eventsOf(ctx, 'gameEnded')).toHaveLength(1);

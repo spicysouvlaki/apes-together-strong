@@ -545,6 +545,11 @@ describe('turn structure', () => {
 
   it('endTurn is blocked only by open offers and owed crisis responses', () => {
     const state = fixtureState();
+    // An offer blocks only a player with a settlement to host the figure (autoplay fix).
+    state.offers.push({ id: 'o0', player: 'p1', source: 'military', candidates: [], reasons: {}, deed: null, createdTurn: 1 });
+    expect(applyCommand(state, 'p1', { type: 'endTurn' }, content).ok).toBe(true);
+    state.offers = [];
+    addSettlement(state, 'p1', at(3, 3));
     state.offers.push({ id: 'o1', player: 'p1', source: 'military', candidates: [], reasons: {}, deed: null, createdTurn: 1 });
     expect(fail(state, 'p1', { type: 'endTurn' })).toMatch(/offer/);
     state.offers = [];

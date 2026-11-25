@@ -12,11 +12,11 @@ import { attackTargetsOf, checkEliminations, isHostile, planAttack, resolveAttac
 import { WALL_HEAL_PER_TURN } from './constants';
 import type { SimCtx } from './ctx';
 import { pruneTradeRoutes } from './diplomacy';
-import { hexOfIndex, playerSettlements, unitsAt } from './lookup';
+import { ci, hexOfIndex, playerSettlements, unitsAt } from './lookup';
 import { empireModifiers } from './modifiers';
 import { advanceResearch } from './research';
 import { growSettlement, produceInSettlement } from './settlements';
-import { findPaths, refreshUnitsOf, unitUpkeep, updateExplored } from './units';
+import { findPaths, refreshUnitsOf, removeUnit, unitUpkeep, updateExplored } from './units';
 import { STOCK_YIELDS, computeEmpire, computeHappiness } from './yields';
 
 const hostileAdjacent = (state: GameState, owner: PlayerId, at: { q: number; r: number }): boolean => {
@@ -24,6 +24,31 @@ const hostileAdjacent = (state: GameState, owner: PlayerId, at: { q: number; r: 
     for (const u of unitsAt(state, n)) if (u.unitClass !== 'civilian' && isHostile(state, owner, u.owner)) return true;
   }
   return false;
+};
+
+/**
+ * The treasury is empty and the army's upkeep is unpaid: gold resets to 0 and the weakest
+ * (then newest) non-figure military unit deserts. One per turn, so a player can react.
+ */
+export const desertForUpkeep = (ctx: SimCtx, player: PlayerId): void => {
+  const { state, content } = ctx;
+  const p = state.players[player];
+  if (!p) return;
+  p.stock.gold = 0;
+  let pick: Unit | null = null;
+  let pickStr = Infinity;
+  for (const id of Object.keys(state.units)) {
+    const u = state.units[id];
+    if (!u || u.owner !== player || u.unitClass === 'civilian' || u.figure) continue;
+    const str = ci(content).units[u.type]?.strength ?? 0;
+    if (str < pickStr || (str === pickStr && pick !== null && u.id > pick.id)) {
+      pickStr = str;
+      pick = u;
+    }
+  }
+  if (!pick) return;
+  removeUnit(ctx, pick.id);
+  ctx.events.push({ type: 'notice', player, text: 'Unpaid soldiers deserted: the treasury is empty.' });
 };
 
 /** Start-of-turn sim for one player (GDD §5 "start-of-turn sim"). */
@@ -40,6 +65,7 @@ export const startOfTurnForPlayer = (ctx: SimCtx, player: PlayerId): void => {
   p.happiness = computeHappiness(state, player, content, emp);
   const { income, perSettlement } = computeEmpire(state, player, content, emp);
   for (const y of STOCK_YIELDS) p.stock[y] = Math.round((p.stock[y] + income[y]) * 100) / 100;
+  if (p.stock.gold < 0) desertForUpkeep(ctx, player);
   const nextIncome = {} as typeof income;
   for (const y of YIELDS) nextIncome[y] = income[y];
   p.income = nextIncome;
@@ -178,9 +204,13 @@ export const worldPhase = (ctx: SimCtx): void => {
   agesWorldPhase(ctx);
 };
 
-/** A player is blocked from ending the turn only by an open offer or an owed crisis response. */
+/**
+ * A player is blocked from ending the turn only by an open offer or an owed crisis response.
+ * Offers do not block a player with no settlement: they cannot be accepted (no home for the
+ * figure) and are withdrawn at the player's next turn start (src/emergence emergenceTick).
+ */
 export const endTurnBlocker = (state: GameState, player: PlayerId): string | null => {
-  if (state.offers.some((o) => o.player === player)) return 'Answer the figure offer first';
+  if (state.offers.some((o) => o.player === player) && playerSettlements(state, player).length > 0) return 'Answer the figure offer first';
   if (state.crisis?.awaiting.includes(player)) return 'Choose a crisis response first';
   return null;
 };

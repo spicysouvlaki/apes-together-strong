@@ -102,7 +102,7 @@ Elcano; reach a pole → Amundsen or Rasmussen). Target ~3 deeds per culture per
 **Ages** (figure date boundaries): Ancient (to ~500 BCE) · Classical/Medieval (~500 BCE–1450) ·
 Exploration (1450–1800) · Modern (1800–present). No living people.
 
-**Age meter** 0–100: +1/turn, +4 per tree completed, +3 per legacy milestone, +1 per wonder, +0.5 per figure recruited anywhere. Crisis starts at 70; age ends for everyone at 100.
+**Age meter** 0–100: +1/turn, +4 per tree completed, +1.25 per legacy milestone (tuned down from 3 after autoplay: at 3 an age ended in ~35 turns), +1 per wonder, +0.5 per figure recruited anywhere. Crisis starts at 70; age ends for everyone at 100.
 
 | Ending age | Crisis | Pressure |
 | --- | --- | --- |

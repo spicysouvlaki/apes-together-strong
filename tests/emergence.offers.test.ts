@@ -54,9 +54,10 @@ describe('great-people points', () => {
     state.settlements.cap1!.buildings.push('monument'); // gp: building 1
     p.effects.push({ source: 't', untilTurn: -1, modifiers: [{ scope: 'empire', effect: { kind: 'gpPoints', gp: 'thought', percent: 100 } }] });
     const g = gpGain(state, 'p1', content, measurePlayer(state, 'p1', content));
-    expect(g.thought).toBeCloseTo(2 * (K.GP_BASE_PER_POOL + K.GP_THOUGHT_PER_SCIENCE * 10), 10);
-    expect(g.faith).toBeCloseTo(K.GP_BASE_PER_POOL + K.GP_FAITH_PER_FAITH * 5, 10);
-    expect(g.military).toBeCloseTo(K.GP_BASE_PER_POOL + K.GP_MILITARY_PER_UNIT + K.GP_MILITARY_PER_BATTLE_WON, 10);
+    // Play-derived points are scaled by GP_SCALE (and GP_AGE_SCALE, 1 in the ancient age).
+    expect(g.thought).toBeCloseTo(2 * (K.GP_BASE_PER_POOL + K.GP_SCALE * K.GP_THOUGHT_PER_SCIENCE * 10), 10);
+    expect(g.faith).toBeCloseTo(K.GP_BASE_PER_POOL + K.GP_SCALE * K.GP_FAITH_PER_FAITH * 5, 10);
+    expect(g.military).toBeCloseTo(K.GP_BASE_PER_POOL + K.GP_SCALE * (K.GP_MILITARY_PER_UNIT + K.GP_MILITARY_PER_BATTLE_WON), 10);
     expect(g.building).toBeCloseTo(K.GP_BASE_PER_POOL + 1, 10);
   });
 
@@ -71,7 +72,7 @@ describe('great-people points', () => {
     expect(offers[0]?.source).toBe('statesman');
     expect(offers[0]?.candidates).toHaveLength(3);
     expect(p.gpThreshold.statesman).toBeCloseTo(60 * 1.4, 10);
-    expect(p.gp.statesman).toBeCloseTo(70 + K.GP_BASE_PER_POOL + K.GP_STATESMAN_PER_SETTLEMENT - 60, 10);
+    expect(p.gp.statesman).toBeCloseTo(70 + K.GP_BASE_PER_POOL + K.GP_SCALE * K.GP_STATESMAN_PER_SETTLEMENT - 60, 10);
     expect(ctx.events.some((e) => e.type === 'offerCreated' && e.player === 'p1')).toBe(true);
   });
 

@@ -100,7 +100,8 @@ export const endGame = (ctx: SimCtx): void => {
     const p = state.players[id];
     if (!p) continue;
     const rank = ranked.filter((o) => (scores[o] ?? 0) > (scores[id] ?? 0)).length + 1;
-    const who = p.civName ?? 'Your people';
+    const name = p.civName ?? 'Your people';
+    const who = name.charAt(0).toUpperCase() + name.slice(1);
     addChronicle(
       state,
       id,

@@ -13,9 +13,10 @@ import type { SimCtx } from '../sim/ctx';
 import { updateAffinity } from './affinity';
 import { GP_START_THRESHOLD } from './constants';
 import { tickSeatedTurns } from './lifecycle';
-import { checkDeeds, createPointsOffers, maybeOfferLegend } from './offers';
+import { checkDeeds, createPointsOffers, dropOffer, maybeOfferLegend } from './offers';
 import { accrueGp, gpGain } from './points';
 import { measurePlayer, signalContributions } from './signals';
+import { homeSettlement } from './util';
 
 export { addAffinity } from './affinity';
 export { handleFigureCommand } from './figures';
@@ -63,6 +64,15 @@ export const emergenceTick = (ctx: SimCtx, player: PlayerId): void => {
   const contributions = signalContributions(state, player, content, measures);
   updateAffinity(ctx, player, contributions);
   accrueGp(state, player, gpGain(state, player, content, measures));
+  // A player without a settlement cannot host a figure (`chooseOffer` needs a home), and an
+  // offer it cannot accept would block `endTurn` forever. So: no offers or deeds while
+  // homeless, and offers left over from before the last settlement fell are withdrawn
+  // (points offers refund their threshold).
+  if (!homeSettlement(state, player)) {
+    for (const o of state.offers.slice()) if (o.player === player) dropOffer(state, o.id, true);
+    tickSeatedTurns(state, player, content);
+    return;
+  }
   checkDeeds(ctx, player);
   createPointsOffers(ctx, player, contributions);
   maybeOfferLegend(ctx, player, contributions);

@@ -14,6 +14,7 @@ import {
   CITY_BASE_YIELDS,
   CITY_CENTER_MIN_YIELDS,
   FEATURE_YIELDS,
+  FREE_MILITARY_UNITS,
   GROWTH_BASE,
   GROWTH_EXPONENT,
   GROWTH_LINEAR,
@@ -31,6 +32,7 @@ import {
   TRADE_ROUTE_GOLD,
   UNHAPPY_YIELD_PERCENT_MAX,
   UNHAPPY_YIELD_PERCENT_PER_POINT,
+  UNIT_GOLD_UPKEEP,
   WAR_WEARINESS_PER_WAR,
   WORK_RADIUS,
 } from './constants';
@@ -296,9 +298,20 @@ export const computeEmpire = (state: GameState, player: PlayerId, content: Conte
     const p = em.percent[y];
     if (p) income[y] *= 1 + p / 100;
   }
+  income.gold -= militaryUpkeep(state, player);
   income.happiness = state.players[player]?.happiness ?? 0;
   for (const y of YIELDS) income[y] = round2(income[y]);
   return { income, perSettlement };
+};
+
+/** Gold per turn the player's army costs: UNIT_GOLD_UPKEEP per non-figure military unit beyond the free allowance. */
+export const militaryUpkeep = (state: GameState, player: PlayerId): number => {
+  let n = 0;
+  for (const id of Object.keys(state.units)) {
+    const u = state.units[id];
+    if (u && u.owner === player && u.unitClass !== 'civilian' && !u.figure) n++;
+  }
+  return Math.max(0, n - FREE_MILITARY_UNITS) * UNIT_GOLD_UPKEEP;
 };
 
 /** Food needed for the next population point: 5 + 4·pop + pop^1.4 (GDD §7). */

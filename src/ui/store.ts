@@ -1,0 +1,208 @@
+/**
+ * UI state shared by the shell (HUD, map, panels) and the screens (src/ui/screens).
+ * Signals only; no game rules here. The UI never mutates GameState: it reads the latest
+ * snapshot in `game` and sends Commands with `dispatch` (CLAUDE.md rule 1).
+ *
+ * Seam between the two UI tasks: the SHELL owns this file's wiring (src/ui/app-wiring.ts
+ * calls `bindClient`), the SCREENS only import from here. Keep exported names stable.
+ */
+import { computed, signal } from '@preact/signals';
+import type { ContentBundle } from '@contracts/content-schemas';
+import type { Hex } from '@contracts/hex';
+import type {
+  Command,
+  FigureId,
+  GameSetup,
+  GameState,
+  OfferId,
+  PlayerId,
+  PlayerState,
+  SaveMeta,
+  SettlementId,
+  SimEvent,
+  UnitId,
+} from '@contracts/sim-api';
+import { byId, loadContent } from '../content';
+import { queries } from '../sim/queries';
+
+/** Full-screen or sheet overlays. One at a time; `null` = the map. */
+export type Modal =
+  // Owned by the SCREENS task (src/ui/screens):
+  | { kind: 'offer'; offer: OfferId }
+  | { kind: 'roster' }
+  | { kind: 'figure'; figure: FigureId }
+  | { kind: 'cabinet' }
+  | { kind: 'government' }
+  | { kind: 'tree'; tree: 'tech' | 'civic' }
+  | { kind: 'diplomacy' }
+  | { kind: 'crisis' }
+  | { kind: 'transition' }
+  | { kind: 'legacy' }
+  | { kind: 'chronicle' }
+  // Owned by the SHELL task (src/ui/shell):
+  | { kind: 'city'; settlement: SettlementId }
+  | { kind: 'tileInfo'; hex: Hex }
+  | { kind: 'menu' }
+  | { kind: 'saves' }
+  | { kind: 'settings' };
+
+export type ModalKind = Modal['kind'];
+
+export interface Toast {
+  id: number;
+  text: string;
+  /** Tapping the toast opens this. */
+  action: Modal | null;
+  tone: 'info' | 'good' | 'bad' | 'culture';
+}
+
+export interface Selection {
+  unit: UnitId | null;
+  settlement: SettlementId | null;
+  tile: Hex | null;
+}
+
+// --- Static ---------------------------------------------------------------
+
+export const content: ContentBundle = loadContent();
+/** Read-only rule queries (legal moves, costs, options). Never mutate through these. */
+export const q = queries;
+
+/** id -> entry lookups, built once. */
+export const lookup = {
+  cultures: byId(content.cultures),
+  figures: byId(content.figures),
+  traditions: byId(content.traditions),
+  hybrids: byId(content.hybrids),
+  terrain: byId(content.terrain),
+  resources: byId(content.resources),
+  leaders: byId(content.leaders),
+  dreams: byId(content.dreams),
+  governments: byId(content.governments),
+  cabinetSlots: byId(content.cabinetSlots),
+  units: byId(content.units),
+  buildings: byId(content.buildings),
+  wonders: byId(content.wonders),
+  techs: byId(content.techs),
+  deeds: byId(content.deeds),
+  cityStates: byId(content.cityStates),
+  crises: byId(content.crises),
+};
+
+// --- Signals --------------------------------------------------------------
+
+export const route = signal<'title' | 'setup' | 'game'>('title');
+/** Latest snapshot from the worker (affinity is always empty here by design). */
+export const game = signal<GameState | null>(null);
+/** Events that arrived with the latest snapshot. */
+export const lastEvents = signal<SimEvent[]>([]);
+/** Set while rival turns are being computed. */
+export const thinking = signal<PlayerId | null>(null);
+export const saves = signal<SaveMeta[]>([]);
+export const modal = signal<Modal | null>(null);
+export const selection = signal<Selection>({ unit: null, settlement: null, tile: null });
+export const toasts = signal<Toast[]>([]);
+export const lastError = signal<string | null>(null);
+
+/** The human player's id (first human in playerOrder). */
+export const me = computed<PlayerId | null>(() => {
+  const g = game.value;
+  if (!g) return null;
+  return g.playerOrder.find((id) => g.players[id]?.isHuman) ?? null;
+});
+
+export const myPlayer = computed<PlayerState | null>(() => {
+  const g = game.value;
+  const id = me.value;
+  return g && id ? (g.players[id] ?? null) : null;
+});
+
+/** True when the human may issue turn commands right now. */
+export const myTurn = computed<boolean>(() => {
+  const g = game.value;
+  return !!g && g.phase === 'playing' && g.currentPlayer === me.value && thinking.value === null;
+});
+
+// --- Actions (wired to the worker client by the shell via bindClient) ------
+
+interface ClientBinding {
+  command(player: PlayerId, command: Command): void;
+  newGame(setup: GameSetup): void;
+  save(slot: string): void;
+  load(slot: string): void;
+  deleteSave(slot: string): void;
+  listSaves(): void;
+}
+
+let client: ClientBinding | null = null;
+export const bindClient = (c: ClientBinding): void => {
+  client = c;
+};
+
+/** Send a command as the human player. Errors come back through `lastError` and a toast. */
+export const dispatch = (command: Command): void => {
+  const id = me.value;
+  if (!client || !id) return;
+  lastError.value = null;
+  client.command(id, command);
+};
+
+export const startNewGame = (setup: GameSetup): void => client?.newGame(setup);
+export const saveGame = (slot: string): void => client?.save(slot);
+export const loadGame = (slot: string): void => client?.load(slot);
+export const deleteSave = (slot: string): void => client?.deleteSave(slot);
+export const refreshSaves = (): void => client?.listSaves();
+
+export const openModal = (m: Modal): void => {
+  modal.value = m;
+};
+export const closeModal = (): void => {
+  modal.value = null;
+};
+
+let toastId = 1;
+export const pushToast = (text: string, tone: Toast['tone'] = 'info', action: Modal | null = null): void => {
+  const id = toastId++;
+  toasts.value = [...toasts.value.slice(-3), { id, text, action, tone }];
+};
+export const dismissToast = (id: number): void => {
+  toasts.value = toasts.value.filter((t) => t.id !== id);
+};
+
+// --- Added by the shell (stable; screens may use these) ---------------------
+
+/** A yes/no question shown over everything (rendered by the shell). */
+export interface ConfirmRequest {
+  title: string;
+  body?: string;
+  confirmLabel: string;
+  cancelLabel?: string;
+  /** Red confirm button for destructive or war actions. */
+  danger?: boolean;
+  onConfirm: () => void;
+  onCancel?: () => void;
+}
+export const confirmRequest = signal<ConfirmRequest | null>(null);
+export const askConfirm = (req: ConfirmRequest): void => {
+  confirmRequest.value = req;
+};
+
+let mapFocusHandler: ((hex: Hex) => void) | null = null;
+/** Called by the map view when its renderer is ready (null on unmount). */
+export const setMapFocusHandler = (fn: ((hex: Hex) => void) | null): void => {
+  mapFocusHandler = fn;
+};
+/** Center the map camera on a hex (no-op before the map exists). */
+export const focusMap = (hex: Hex): void => {
+  mapFocusHandler?.(hex);
+};
+
+/** Display name for any owner id (player civ name / leader, city-state, raiders). */
+export const ownerName = (owner: string): string => {
+  const g = game.value;
+  if (owner === 'raiders') return 'Raiders';
+  if (owner.startsWith('cs:')) return lookup.cityStates[owner.slice(3)]?.name ?? 'City-state';
+  const p = g?.players[owner];
+  if (!p) return owner;
+  return p.civName ?? `${lookup.leaders[p.leader]?.name ?? 'A leader'}'s people`;
+};

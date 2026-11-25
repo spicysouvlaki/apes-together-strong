@@ -124,6 +124,13 @@ export const WALL_HEAL_PER_TURN = 15;
 export const SETTLEMENT_STRENGTH_BY_AGE: Record<Age, number> = { ancient: 18, classical: 28, exploration: 42, modern: 60 };
 export const SETTLEMENT_STRENGTH_PER_POP = 1;
 export const SETTLEMENT_STRENGTH_WALL_DIVISOR = 10;
+/**
+ * Gold upkeep (autoplay balance pass): each military unit beyond the free allowance costs
+ * this much gold per turn. Deployed figure-units are free (the figure is the cost). When the
+ * treasury cannot pay, one unit deserts per turn (see `startOfTurnForPlayer`).
+ */
+export const UNIT_GOLD_UPKEEP = 1;
+export const FREE_MILITARY_UNITS = 2;
 /** Raiders that break a settlement's walls pillage instead of capturing. */
 export const RAIDER_PILLAGE_GOLD = 25;
 
