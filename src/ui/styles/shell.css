@@ -100,7 +100,7 @@
 
 /* --- Toasts -------------------------------------------------------------- */
 .toasts {
-  position: fixed; left: 8px; right: 8px; top: calc(var(--safe-top) + 96px); z-index: 36;
+  position: fixed; left: 8px; right: 8px; top: calc(var(--safe-top) + 96px); z-index: 25; /* above sheets (20), below full screens (30) so toasts never cover a decision */
   display: flex; flex-direction: column; gap: 6px; pointer-events: none;
 }
 .toast {
