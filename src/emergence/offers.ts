@@ -205,6 +205,18 @@ export const maybeOfferLegend = (ctx: SimCtx, player: PlayerId, contributions: C
 /** Deed figures (GDD §4): once per world, the first player to meet the trigger gets the offer. */
 export const checkDeeds = (ctx: SimCtx, player: PlayerId): void => {
   const { state, content } = ctx;
+  // One deed at a time, spaced out: lifetime counters mean several classical deeds can
+  // already be satisfied on the first turn of the age, and they must not all land at once.
+  const p = state.players[player];
+  if (!p) return;
+  if (state.offers.some((o) => o.player === player && o.deed !== null)) return;
+  for (let i = p.chronicle.length - 1; i >= 0; i--) {
+    const e = p.chronicle[i];
+    if (e && e.kind === 'deed') {
+      if (state.turn - e.turn < K.DEED_SPACING_TURNS) return;
+      break;
+    }
+  }
   for (const deed of content.deeds) {
     if (state.deedsDone.includes(deed.id)) continue;
     const fig = content.figures.find((f) => f.deed === deed.id);
@@ -220,6 +232,7 @@ export const checkDeeds = (ctx: SimCtx, player: PlayerId): void => {
       ref: deed.id,
       text: deed.description,
     });
+    return;
   }
 };
 

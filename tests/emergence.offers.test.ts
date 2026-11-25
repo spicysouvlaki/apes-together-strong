@@ -395,3 +395,18 @@ describe('offers carry no numbers', () => {
     }
   });
 });
+
+describe('deed spacing', () => {
+  it('holds a met deed back until DEED_SPACING_TURNS after the player’s last deed', () => {
+    const state = world();
+    fakeStats['p1:siegeTurnsHeld:'] = 5;
+    state.turn = 20;
+    state.players.p1!.chronicle.push({ turn: 20 - K.DEED_SPACING_TURNS + 1, age: 'ancient', kind: 'deed', ref: 'earlier', text: 'x' });
+    emergenceTick(makeCtx(state, content), 'p1');
+    expect(state.offers.filter((o) => o.source === 'deed')).toHaveLength(0);
+    expect(state.deedsDone).toEqual([]);
+    state.turn = 21;
+    emergenceTick(makeCtx(state, content), 'p1');
+    expect(state.offers.filter((o) => o.source === 'deed')).toHaveLength(1);
+  });
+});

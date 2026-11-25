@@ -184,3 +184,28 @@ describe('hybrids', () => {
     expect(adoptH(state, 'far_future')).toBe('Available from the Exploration age');
   });
 });
+
+describe('cost escalation within one transition', () => {
+  it('each adoption raises every remaining cost by REFINEMENT_ESCALATION', async () => {
+    const { REFINEMENT_ESCALATION } = await import('../src/sim/ages/constants');
+    const state = inTransition(50);
+    setWeights(state, 'p1', { greek: 1, chinese: 2 });
+    const before = refinementOptions(state, 'p1', fixtureContent());
+    expect(adopt(state, 'symposium')).toBeNull();
+    const after = refinementOptions(state, 'p1', fixtureContent());
+    expect(after.length).toBeGreaterThan(0);
+    for (const o of after) {
+      const was = before.find((b) => b.id === o.id);
+      expect(o.cost).toBe((was?.cost ?? 0) + REFINEMENT_ESCALATION);
+    }
+  });
+
+  it('does not escalate from adoptions made in an earlier transition', () => {
+    const state = inTransition(50);
+    setWeights(state, 'p1', { greek: 1, chinese: 2 });
+    const p = player(state, 'p1');
+    const base = option(state, 'symposium')?.cost;
+    p.chronicle.push({ turn: state.turn - 30, age: 'ancient', kind: 'tradition', ref: 'old', text: 'x' });
+    expect(option(state, 'symposium')?.cost).toBe(base);
+  });
+});

@@ -12,6 +12,7 @@ import {
   HEAVIEST_CULTURE_DISCOUNT_PERCENT,
   MAX_HYBRIDS_PER_TRANSITION,
   MAX_SIGNATURES_PER_TRANSITION,
+  REFINEMENT_ESCALATION,
   TIER_WEIGHT,
 } from './constants';
 import { addChronicle, ageIndex, ageName } from './util';
@@ -48,7 +49,23 @@ interface RuleCtx {
   weights: Record<CultureId, number>;
   heaviest: CultureId | null;
   costMod: number;
+  /** Traditions and hybrids already adopted in the current transition (cost escalation). */
+  boughtNow: number;
 }
+
+/**
+ * Adoptions made during the current transition. The turn counter does not advance while a
+ * transition is open and adoption is only legal then, so this turn's chronicle entries are
+ * exactly this transition's purchases.
+ */
+const boughtThisTransition = (state: GameState, player: PlayerId): number => {
+  if (state.phase !== 'transition') return 0;
+  const p = state.players[player];
+  if (!p) return 0;
+  let n = 0;
+  for (const e of p.chronicle) if (e.turn === state.turn && (e.kind === 'tradition' || e.kind === 'hybrid')) n++;
+  return n;
+};
 
 const ruleCtx = (state: GameState, player: PlayerId, content: ContentBundle): RuleCtx => {
   const weights = cultureWeights(state, player, content);
@@ -59,11 +76,14 @@ const ruleCtx = (state: GameState, player: PlayerId, content: ContentBundle): Ru
     weights,
     heaviest: heaviestCulture(weights, content),
     costMod: costPercent(playerModifiers(state, player, content), 'tradition'),
+    boughtNow: boughtThisTransition(state, player),
   };
 };
 
+/** Each adoption in one transition makes the next cost more, so going deep beats buying every custom. */
 const finalCost = (base: number, discounted: boolean, rc: RuleCtx): number =>
-  applyCostPercent(base, (discounted ? HEAVIEST_CULTURE_DISCOUNT_PERCENT : 0) + rc.costMod);
+  applyCostPercent(base, (discounted ? HEAVIEST_CULTURE_DISCOUNT_PERCENT : 0) + rc.costMod) +
+  rc.boughtNow * REFINEMENT_ESCALATION;
 
 /** Shared tail: transition gate and points. Earlier checks win so the reason is the most useful. */
 const finalChecks = (rc: RuleCtx, cost: number): string | null => {

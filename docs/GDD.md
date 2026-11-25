@@ -131,7 +131,8 @@ heaviest culture gets −30% on its costs.
 | Signature | 5 | 10 | Needs Institution; max 1 new per transition |
 | Hybrid | 3 in both cultures | 8 | Max 1 new per transition |
 
-Traditions are permanent and stack. Each culture has age-flavored variants per tier.
+Each tradition or hybrid adopted in one transition raises the cost of the next by 1 RP
+(tuned after autoplay: without it players bought 5–8 customs per transition). Traditions are permanent and stack. Each culture has age-flavored variants per tier.
 **Hybrids** are hand-written for pairs that really met (Al-Andalus, Ptolemaic Alexandria,
 Translation Movement, Caravanserai, Yuan Courier Network, Maragheh Observatory, Varangian Guard,
 Greenland Crossing, Mamluk Cairo, Manila Galleon, …), available from the age of the meeting. Launch target ~40.

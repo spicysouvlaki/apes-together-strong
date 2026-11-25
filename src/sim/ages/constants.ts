@@ -84,6 +84,11 @@ export const MAX_HYBRIDS_PER_TRANSITION = 1;
 
 /** Heaviest-culture discount on refinement costs, in percent (GDD §6 "−30% on its costs"). */
 export const HEAVIEST_CULTURE_DISCOUNT_PERCENT = -30;
+/**
+ * Extra RP per tradition or hybrid already adopted in the same transition. Not in GDD §6:
+ * added after autoplay showed 5–8 cheap customs bought per transition instead of 2–4 choices.
+ */
+export const REFINEMENT_ESCALATION = 1;
 
 /** Civilization names: length limits after trimming (GDD §6 "Naming"). */
 export const CIV_NAME_MIN = 1;

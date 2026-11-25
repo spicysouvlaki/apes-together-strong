@@ -128,3 +128,9 @@ export const ACTIVATE_DEFAULT_AMOUNT: Record<ActivateEffect, number> = {
   heal_units: 50,
   grow_city: 1,
 };
+
+/**
+ * Minimum turns between two deed offers to the same player. Deeds count lifetime stats, so
+ * several can already be met when an age starts; spacing keeps them story beats, not a flood.
+ */
+export const DEED_SPACING_TURNS = 8;
