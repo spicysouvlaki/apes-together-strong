@@ -1,0 +1,123 @@
+[
+ {
+  "id": "collapse",
+  "name": "Collapse",
+  "age": "ancient",
+  "description": "Trade falters, harvests fail and raiders gather at the edges of the settled world.",
+  "pressure": [
+   {
+    "scope": "settlement",
+    "when": {
+     "settlementKind": "town"
+    },
+    "effect": {
+     "kind": "yield",
+     "yield": "happiness",
+     "add": -2
+    }
+   }
+  ],
+  "behaviors": [
+   "raiders"
+  ],
+  "stages": [
+   {
+    "at": 70,
+    "text": "Refugees arrive with stories of burned towns.",
+    "options": [
+     {
+      "id": "collapse_shelter",
+      "label": "Shelter them",
+      "description": "-30 gold; +1 happiness in every settlement.",
+      "stock": {
+       "gold": -30
+      },
+      "modifiers": [
+       {
+        "scope": "settlement",
+        "effect": {
+         "kind": "yield",
+         "yield": "happiness",
+         "add": 1
+        }
+       }
+      ]
+     },
+     {
+      "id": "collapse_levy",
+      "label": "Raise a levy",
+      "description": "Units cost 20% less.",
+      "modifiers": [
+       {
+        "scope": "empire",
+        "effect": {
+         "kind": "cost",
+         "target": "unit",
+         "percent": -20
+        }
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "at": 80,
+    "text": "The old trade roads are no longer safe.",
+    "options": [
+     {
+      "id": "collapse_hoard",
+      "label": "Hoard grain",
+      "description": "+10% food.",
+      "modifiers": [
+       {
+        "scope": "settlement",
+        "effect": {
+         "kind": "yield",
+         "yield": "food",
+         "percent": 10
+        }
+       }
+      ]
+     },
+     {
+      "id": "collapse_patrol",
+      "label": "Patrol the roads",
+      "description": "+2 combat strength.",
+      "modifiers": [
+       {
+        "scope": "unit",
+        "effect": {
+         "kind": "combat",
+         "add": 2
+        }
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "at": 90,
+    "text": "Neighbors look to you, or past you.",
+    "options": [
+     {
+      "id": "collapse_rally",
+      "label": "Rally the elders",
+      "description": "+40 culture.",
+      "stock": {
+       "culture": 40
+      }
+     },
+     {
+      "id": "collapse_tribute",
+      "label": "Pay tribute",
+      "description": "-40 gold; +30 influence.",
+      "stock": {
+       "gold": -40,
+       "influence": 30
+      }
+     }
+    ]
+   }
+  ]
+ }
+]

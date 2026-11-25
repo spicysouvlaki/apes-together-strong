@@ -1,0 +1,142 @@
+[
+ {
+  "id": "pottery",
+  "name": "Pottery",
+  "tree": "tech",
+  "age": "ancient",
+  "cost": 25,
+  "requires": [],
+  "col": 0,
+  "row": 0,
+  "description": "Unlocks the Granary."
+ },
+ {
+  "id": "the_wheel",
+  "name": "The Wheel",
+  "tree": "tech",
+  "age": "ancient",
+  "cost": 40,
+  "requires": [
+   "pottery"
+  ],
+  "col": 1,
+  "row": 0,
+  "description": "Unlocks the Chariot."
+ },
+ {
+  "id": "masonry",
+  "name": "Masonry",
+  "tree": "tech",
+  "age": "ancient",
+  "cost": 40,
+  "requires": [],
+  "col": 0,
+  "row": 1,
+  "description": "Unlocks Walls and the Ram."
+ },
+ {
+  "id": "sailing",
+  "name": "Sailing",
+  "tree": "tech",
+  "age": "ancient",
+  "cost": 40,
+  "requires": [],
+  "col": 0,
+  "row": 2,
+  "description": "Unlocks the War canoe; land units may embark."
+ },
+ {
+  "id": "trade",
+  "name": "Trade",
+  "tree": "tech",
+  "age": "ancient",
+  "cost": 60,
+  "requires": [
+   "the_wheel"
+  ],
+  "col": 2,
+  "row": 0,
+  "description": "Unlocks the Merchant and trade routes."
+ },
+ {
+  "id": "iron_working",
+  "name": "Iron Working",
+  "tree": "tech",
+  "age": "classical",
+  "cost": 120,
+  "requires": [],
+  "col": 0,
+  "row": 0,
+  "description": "Unlocks the Spearman."
+ },
+ {
+  "id": "archery_guilds",
+  "name": "Archery Guilds",
+  "tree": "tech",
+  "age": "classical",
+  "cost": 120,
+  "requires": [],
+  "col": 0,
+  "row": 1,
+  "description": "Unlocks the Archer."
+ },
+ {
+  "id": "horsemanship",
+  "name": "Horsemanship",
+  "tree": "tech",
+  "age": "classical",
+  "cost": 140,
+  "requires": [],
+  "col": 0,
+  "row": 2,
+  "description": "Unlocks the Horse archer."
+ },
+ {
+  "id": "engineering",
+  "name": "Engineering",
+  "tree": "tech",
+  "age": "classical",
+  "cost": 160,
+  "requires": [
+   "iron_working"
+  ],
+  "col": 1,
+  "row": 0,
+  "description": "Unlocks the Catapult."
+ },
+ {
+  "id": "shipbuilding",
+  "name": "Shipbuilding",
+  "tree": "tech",
+  "age": "classical",
+  "cost": 140,
+  "requires": [],
+  "col": 0,
+  "row": 3,
+  "description": "Unlocks the Galley."
+ },
+ {
+  "id": "code_of_laws",
+  "name": "Code of Laws",
+  "tree": "civic",
+  "age": "ancient",
+  "cost": 25,
+  "requires": [],
+  "col": 0,
+  "row": 0,
+  "description": "The first written rules."
+ },
+ {
+  "id": "oral_tradition",
+  "name": "Oral Tradition",
+  "tree": "civic",
+  "age": "ancient",
+  "cost": 40,
+  "requires": [
+   "code_of_laws"
+  ],
+  "col": 1,
+  "row": 0,
+  "description": "+1 culture in the capital."
+ }
+]

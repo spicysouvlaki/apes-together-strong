@@ -1,0 +1,98 @@
+[
+ {
+  "id": "ancient_science",
+  "track": "science",
+  "age": "ancient",
+  "measure": "techsResearched",
+  "thresholds": [
+   4,
+   8,
+   12
+  ],
+  "description": "Complete {n} tree nodes"
+ },
+ {
+  "id": "ancient_military",
+  "track": "military",
+  "age": "ancient",
+  "measure": "settlementCount",
+  "thresholds": [
+   3,
+   5,
+   7
+  ],
+  "description": "Hold {n} settlements"
+ },
+ {
+  "id": "ancient_culture",
+  "track": "culture",
+  "age": "ancient",
+  "measure": "wondersBuilt",
+  "thresholds": [
+   1,
+   2,
+   4
+  ],
+  "description": "Build {n} wonders"
+ },
+ {
+  "id": "ancient_legacy",
+  "track": "legacy",
+  "age": "ancient",
+  "measure": "figuresRecruited",
+  "thresholds": [
+   3,
+   6,
+   9
+  ],
+  "description": "Recruit {n} figures"
+ },
+ {
+  "id": "classical_science",
+  "track": "science",
+  "age": "classical",
+  "measure": "techsResearched",
+  "thresholds": [
+   4,
+   8,
+   12
+  ],
+  "description": "Complete {n} tree nodes"
+ },
+ {
+  "id": "classical_military",
+  "track": "military",
+  "age": "classical",
+  "measure": "battlesWon",
+  "thresholds": [
+   10,
+   20,
+   30
+  ],
+  "description": "Win {n} battles"
+ },
+ {
+  "id": "classical_culture",
+  "track": "culture",
+  "age": "classical",
+  "measure": "figuresActivated",
+  "thresholds": [
+   3,
+   6,
+   9
+  ],
+  "description": "Create {n} great works"
+ },
+ {
+  "id": "classical_legacy",
+  "track": "legacy",
+  "age": "classical",
+  "measure": "culturesRefined",
+  "thresholds": [
+   2,
+   3,
+   4
+  ],
+  "description": "Refine {n} cultures"
+ }
+]

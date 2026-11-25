@@ -1,0 +1,23 @@
+[
+ {
+  "id": "ugarit",
+  "name": "Ugarit",
+  "culture": "arab",
+  "type": "trade",
+  "suzerainModifiers": [
+   {
+    "scope": "empire",
+    "effect": {
+     "kind": "yield",
+     "yield": "gold",
+     "add": 3
+    }
+   }
+  ],
+  "description": "Suzerain: +3 gold.",
+  "history": {
+   "note": "Bronze Age port on the Syrian coast whose scribes used one of the earliest alphabets; destroyed around 1185 BCE.",
+   "source": "Encyclopaedia Britannica, 'Ugarit'"
+  }
+ }
+]

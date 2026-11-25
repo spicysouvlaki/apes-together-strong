@@ -1,0 +1,35 @@
+[
+ {
+  "id": "granary",
+  "name": "Granary",
+  "age": "ancient",
+  "cost": 40,
+  "yields": {
+   "food": 2
+  },
+  "requiresTech": "pottery",
+  "description": "+2 food."
+ },
+ {
+  "id": "walls",
+  "name": "Walls",
+  "age": "ancient",
+  "cost": 50,
+  "defense": 50,
+  "requiresTech": "masonry",
+  "description": "+50 wall strength."
+ },
+ {
+  "id": "monument",
+  "name": "Monument",
+  "age": "ancient",
+  "cost": 30,
+  "yields": {
+   "culture": 2
+  },
+  "gp": {
+   "building": 1
+  },
+  "description": "+2 culture."
+ }
+]

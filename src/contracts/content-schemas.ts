@@ -77,6 +77,9 @@ export const Condition = z
     unitClass: z.array(UnitClass).optional(),
     age: z.array(Age).optional(),
     atWar: z.boolean().optional(),
+    /** Settlement kind (town/city) or capital only. */
+    settlementKind: z.enum(['town', 'city']).optional(),
+    capital: z.boolean().optional(),
   })
   .strict();
 export type Condition = z.infer<typeof Condition>;
@@ -214,6 +217,18 @@ export const SignalMeasure = z.enum([
   'battlesWonThisTurn',
   'citiesCapturedThisTurn',
   'tradeRoutesWithCulture', // routes to settlements whose top culture = each weighted culture
+  'tradeRoutes', // total trade routes owned
+  'riverSettlements',
+  'wondersBuilt',
+  'techsResearched',
+  'envoysSent',
+  'suzerainOfCulture', // city-states of each weighted culture the player is suzerain of
+  'unitsTotal', // military units
+  'faithIncome',
+  'cultureIncome',
+  'scienceIncome',
+  'goldIncome',
+  'exploredPercent', // 0–100
 ]);
 export type SignalMeasure = z.infer<typeof SignalMeasure>;
 
@@ -301,6 +316,240 @@ export const CabinetSlot = z
   .strict();
 export type CabinetSlot = z.infer<typeof CabinetSlot>;
 
+// ---------------------------------------------------------------------------
+// M1–M4 additions (contracts: units, buildings, wonders, trees, deeds, city-states,
+// crises, legacy milestones). Ids of units, buildings and wonders share one namespace
+// because all three are production items (`Settlement.production.item`).
+// ---------------------------------------------------------------------------
+
+/**
+ * Effects a figure's `activate.effect` may name. The schema keeps `Id` for forward
+ * compatibility; `npm run validate:content` rejects anything not in this list.
+ *  - rush_wonder: +amount% of the current wonder's cost in the figure's settlement (or capital)
+ *  - production_burst / culture_burst / science_burst / gold_burst / faith_burst / influence_burst:
+ *    +amount to the settlement's production progress or the player's stockpile
+ *  - explore_reveal: reveal tiles within `amount` of every owned settlement and unit
+ *  - free_unit: spawn the best available military unit in the capital (`amount` = count)
+ *  - heal_units: heal all own units by `amount` HP
+ *  - grow_city: +amount population in the figure's settlement (or capital)
+ *  - found_wonder_points / age_progress are NOT effects; keep the list short.
+ */
+export const ACTIVATE_EFFECTS = [
+  'rush_wonder',
+  'production_burst',
+  'culture_burst',
+  'science_burst',
+  'gold_burst',
+  'faith_burst',
+  'influence_burst',
+  'explore_reveal',
+  'free_unit',
+  'heal_units',
+  'grow_city',
+] as const;
+export type ActivateEffect = (typeof ACTIVATE_EFFECTS)[number];
+
+export const UnitDef = z
+  .object({
+    id: Id,
+    name: z.string(),
+    age: Age,
+    unitClass: UnitClass,
+    /** Melee strength (GDD §7 combat table). 0 for civilians. */
+    strength: z.number().int().min(0),
+    /** Ranged strength; requires `range`. Ranged attacks take no return damage. */
+    rangedStrength: z.number().int().optional(),
+    range: z.number().int().min(1).optional(),
+    moves: z.number().int().min(1),
+    /** Production cost. */
+    cost: z.number().int().min(1),
+    requiresTech: Id.optional(),
+    requiresResource: Id.optional(),
+    /** Settler-type unit: may found a settlement and is consumed doing so. */
+    canFound: z.boolean().default(false),
+    /** Merchant-type unit: may open a trade route and is consumed doing so. */
+    canTrade: z.boolean().default(false),
+    /** Bonus vs settlements (siege). */
+    siegeBonus: z.number().default(0),
+    /** Unit id of the next age's equivalent, if any. */
+    upgradesTo: Id.optional(),
+    /** The stand-in unit a deployed figure of this kind becomes (one def per kind). */
+    figureKind: FigureKind.optional(),
+    vision: z.number().int().default(2),
+  })
+  .strict();
+export type UnitDef = z.infer<typeof UnitDef>;
+
+export const Building = z
+  .object({
+    id: Id,
+    name: z.string(),
+    age: Age,
+    cost: z.number().int().min(1),
+    /** Flat per-turn yields for the settlement. Past-age buildings give 50% (GDD §7). */
+    yields: Yields.default({}),
+    /** Great-people points per turn. */
+    gp: z.partialRecord(GpKind, z.number()).default({}),
+    modifiers: z.array(Modifier).default([]),
+    requiresTech: Id.optional(),
+    /** Only in settlements matching this condition (coastal, river, ...). */
+    requires: Condition.optional(),
+    /** Added to the settlement's max wall HP. */
+    defense: z.number().default(0),
+    description: z.string(),
+  })
+  .strict();
+export type Building = z.infer<typeof Building>;
+
+export const Wonder = z
+  .object({
+    id: Id,
+    name: z.string(),
+    age: Age,
+    cost: z.number().int().min(1),
+    /** Building it adds affinity for this culture (GDD §7). */
+    culture: Id,
+    affinity: z.number().default(20),
+    yields: Yields.default({}),
+    gp: z.partialRecord(GpKind, z.number()).default({}),
+    modifiers: z.array(Modifier).default([]),
+    requiresTech: Id.optional(),
+    requires: Condition.optional(),
+    description: z.string(),
+    history: History,
+  })
+  .strict();
+export type Wonder = z.infer<typeof Wonder>;
+
+/** One node of a tech tree (science) or civic tree (culture). GDD §7 "Trees". */
+export const Tech = z
+  .object({
+    id: Id,
+    name: z.string(),
+    tree: z.enum(['tech', 'civic']),
+    age: Age,
+    cost: z.number().int().min(1),
+    requires: z.array(Id).default([]),
+    /** Layout hint for the tree screen: column (depth) and row. */
+    col: z.number().int().min(0),
+    row: z.number().int().min(0),
+    /** `unlock` effects are informational; the sim gates on `requiresTech`. */
+    modifiers: z.array(Modifier).default([]),
+    description: z.string(),
+  })
+  .strict();
+export type Tech = z.infer<typeof Tech>;
+
+/** Things a deed or legacy milestone can count about a player (lifetime unless noted). */
+export const StatMeasure = z.enum([
+  'battlesWon',
+  'citiesCaptured',
+  'wondersBuilt',
+  'figuresRecruited',
+  'figuresActivated',
+  'settlementCount',
+  'coastalSettlements',
+  'largestCityPop',
+  'techsResearched', // completed tree nodes of the current age (both trees)
+  'tradeRoutes',
+  'envoysSent',
+  'exploredPercent', // 0–100
+  'ownedClimate', // owned tiles in climate = param
+  'ownedTerrain', // owned tiles with terrain = param
+  'unitsOfClass', // units with class = param
+  'culturesRefined', // distinct cultures among adopted traditions
+  'hybridsAdopted',
+  'traditionsAdopted',
+  'siegeTurnsHeld', // consecutive turns a settlement survived with damaged walls
+  'unitsLost',
+]);
+export type StatMeasure = z.infer<typeof StatMeasure>;
+
+/**
+ * A story beat that delivers one figure immediately, once per world (GDD §4 "Deed figures").
+ * The figure is the one whose `deed` field names this id.
+ */
+export const Deed = z
+  .object({
+    id: Id,
+    name: z.string(),
+    /** Player-facing: what you did, e.g. "You held a city through a five-turn siege." */
+    description: z.string(),
+    trigger: z.object({ measure: StatMeasure, param: z.string().optional(), count: z.number() }),
+  })
+  .strict();
+export type Deed = z.infer<typeof Deed>;
+
+export const CityStateDef = z
+  .object({
+    id: Id,
+    name: z.string(),
+    culture: Id,
+    type: z.enum(['trade', 'military', 'scholarly', 'sacred', 'cultural']),
+    /** Applied to the suzerain (most envoys, at least 3). */
+    suzerainModifiers: z.array(Modifier).min(1),
+    description: z.string(),
+    history: History,
+  })
+  .strict();
+export type CityStateDef = z.infer<typeof CityStateDef>;
+
+/** End-of-age crisis (GDD §5). Stages fire at age meter 70 / 80 / 90. */
+export const Crisis = z
+  .object({
+    id: Id,
+    name: z.string(),
+    /** The age this crisis ends. */
+    age: Age,
+    description: z.string(),
+    /** Applied to every player while the crisis is active. */
+    pressure: z.array(Modifier).default([]),
+    /** Sim-side pressure behaviors; implemented by src/sim/ages. */
+    behaviors: z.array(z.enum(['raiders', 'popLoss', 'unrest'])).default([]),
+    stages: z
+      .array(
+        z.object({
+          at: z.number(),
+          text: z.string(),
+          options: z
+            .array(
+              z.object({
+                id: Id,
+                label: z.string(),
+                description: z.string(),
+                /** Lasts until the age ends. */
+                modifiers: z.array(Modifier).default([]),
+                /** One-time stockpile changes (may be negative). */
+                stock: Yields.default({}),
+              }),
+            )
+            .length(2),
+        }),
+      )
+      .length(3),
+  })
+  .strict();
+export type Crisis = z.infer<typeof Crisis>;
+
+export const LEGACY_TRACKS = ['science', 'military', 'culture', 'legacy'] as const;
+export const LegacyTrack = z.enum(LEGACY_TRACKS);
+export type LegacyTrack = z.infer<typeof LegacyTrack>;
+
+/** One row of the GDD §8 table for one age: three thresholds, each a legacy milestone. */
+export const LegacyMilestone = z
+  .object({
+    id: Id,
+    track: LegacyTrack,
+    age: Age,
+    measure: StatMeasure,
+    param: z.string().optional(),
+    thresholds: z.tuple([z.number(), z.number(), z.number()]),
+    /** e.g. "Research {n} technologies"; `{n}` is replaced by the threshold. */
+    description: z.string(),
+  })
+  .strict();
+export type LegacyMilestone = z.infer<typeof LegacyMilestone>;
+
 export const ContentBundle = z.object({
   cultures: z.array(Culture),
   figures: z.array(Figure),
@@ -313,5 +562,13 @@ export const ContentBundle = z.object({
   dreams: z.array(Dream),
   governments: z.array(Government),
   cabinetSlots: z.array(CabinetSlot),
+  units: z.array(UnitDef),
+  buildings: z.array(Building),
+  wonders: z.array(Wonder),
+  techs: z.array(Tech),
+  deeds: z.array(Deed),
+  cityStates: z.array(CityStateDef),
+  crises: z.array(Crisis),
+  legacy: z.array(LegacyMilestone),
 });
 export type ContentBundle = z.infer<typeof ContentBundle>;

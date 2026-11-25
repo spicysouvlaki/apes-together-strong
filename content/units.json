@@ -1,0 +1,168 @@
+[
+ {
+  "id": "settler",
+  "name": "Settler",
+  "age": "ancient",
+  "unitClass": "civilian",
+  "strength": 0,
+  "moves": 2,
+  "cost": 60,
+  "canFound": true
+ },
+ {
+  "id": "scout",
+  "name": "Scout",
+  "age": "ancient",
+  "unitClass": "civilian",
+  "strength": 0,
+  "moves": 3,
+  "cost": 25,
+  "vision": 3
+ },
+ {
+  "id": "merchant",
+  "name": "Merchant",
+  "age": "ancient",
+  "unitClass": "civilian",
+  "strength": 0,
+  "moves": 2,
+  "cost": 50,
+  "canTrade": true,
+  "requiresTech": "trade"
+ },
+ {
+  "id": "warrior_band",
+  "name": "Warrior band",
+  "age": "ancient",
+  "unitClass": "infantry",
+  "strength": 20,
+  "moves": 2,
+  "cost": 30,
+  "upgradesTo": "spearman"
+ },
+ {
+  "id": "slinger",
+  "name": "Slinger",
+  "age": "ancient",
+  "unitClass": "ranged",
+  "strength": 15,
+  "moves": 2,
+  "cost": 35,
+  "rangedStrength": 20,
+  "range": 2,
+  "upgradesTo": "archer"
+ },
+ {
+  "id": "chariot",
+  "name": "Chariot",
+  "age": "ancient",
+  "unitClass": "cavalry",
+  "strength": 25,
+  "moves": 3,
+  "cost": 50,
+  "requiresTech": "the_wheel",
+  "requiresResource": "horses",
+  "upgradesTo": "horse_archer"
+ },
+ {
+  "id": "ram",
+  "name": "Ram",
+  "age": "ancient",
+  "unitClass": "siege",
+  "strength": 20,
+  "moves": 2,
+  "cost": 50,
+  "siegeBonus": 15,
+  "requiresTech": "masonry",
+  "upgradesTo": "catapult"
+ },
+ {
+  "id": "war_canoe",
+  "name": "War canoe",
+  "age": "ancient",
+  "unitClass": "naval",
+  "strength": 20,
+  "moves": 3,
+  "cost": 40,
+  "requiresTech": "sailing",
+  "upgradesTo": "galley"
+ },
+ {
+  "id": "spearman",
+  "name": "Spearman",
+  "age": "classical",
+  "unitClass": "infantry",
+  "strength": 30,
+  "moves": 2,
+  "cost": 60,
+  "requiresTech": "iron_working"
+ },
+ {
+  "id": "archer",
+  "name": "Archer",
+  "age": "classical",
+  "unitClass": "ranged",
+  "strength": 25,
+  "moves": 2,
+  "cost": 65,
+  "rangedStrength": 35,
+  "range": 2,
+  "requiresTech": "archery_guilds"
+ },
+ {
+  "id": "horse_archer",
+  "name": "Horse archer",
+  "age": "classical",
+  "unitClass": "cavalry",
+  "strength": 35,
+  "moves": 4,
+  "cost": 90,
+  "requiresTech": "horsemanship",
+  "requiresResource": "horses"
+ },
+ {
+  "id": "catapult",
+  "name": "Catapult",
+  "age": "classical",
+  "unitClass": "siege",
+  "strength": 30,
+  "moves": 2,
+  "cost": 90,
+  "rangedStrength": 30,
+  "range": 2,
+  "siegeBonus": 20,
+  "requiresTech": "engineering"
+ },
+ {
+  "id": "galley",
+  "name": "Galley",
+  "age": "classical",
+  "unitClass": "naval",
+  "strength": 30,
+  "moves": 4,
+  "cost": 80,
+  "requiresTech": "shipbuilding"
+ },
+ {
+  "id": "figure_general",
+  "name": "Commander",
+  "age": "ancient",
+  "unitClass": "commander",
+  "strength": 25,
+  "moves": 3,
+  "cost": 1,
+  "figureKind": "general"
+ },
+ {
+  "id": "figure_explorer",
+  "name": "Expedition",
+  "age": "ancient",
+  "unitClass": "civilian",
+  "strength": 0,
+  "moves": 4,
+  "cost": 1,
+  "figureKind": "explorer",
+  "vision": 3,
+  "canTrade": true
+ }
+]

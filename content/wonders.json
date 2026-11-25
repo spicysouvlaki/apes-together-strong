@@ -1,0 +1,22 @@
+[
+ {
+  "id": "step_pyramid",
+  "name": "Step Pyramid",
+  "age": "ancient",
+  "cost": 180,
+  "culture": "egyptian",
+  "yields": {
+   "culture": 2,
+   "faith": 1
+  },
+  "gp": {
+   "building": 2
+  },
+  "requiresTech": "masonry",
+  "description": "+2 culture, +1 faith.",
+  "history": {
+   "note": "Built at Saqqara for King Djoser around 2650 BCE; Egypt's first monumental stone building.",
+   "source": "Encyclopaedia Britannica, 'Step Pyramid of Djoser'"
+  }
+ }
+]
