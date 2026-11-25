@@ -1,0 +1,8 @@
+[
+  { "id": "pax", "native": "Pax", "romanized": "Pax", "language": "Latin", "meaning": "Peace through order", "modifiers": [{ "scope": "empire", "effect": { "kind": "yield", "yield": "happiness", "add": 1 } }] },
+  { "id": "tianxia", "native": "天下", "romanized": "Tiānxià", "language": "Classical Chinese", "meaning": "All under heaven", "modifiers": [{ "scope": "empire", "effect": { "kind": "yield", "yield": "influence", "add": 2 } }] },
+  { "id": "mare_nostrum", "native": "Mare Nostrum", "romanized": "Mare Nostrum", "language": "Latin", "meaning": "Our sea", "modifiers": [{ "scope": "tile", "when": { "terrain": ["coast"] }, "effect": { "kind": "yield", "yield": "food", "add": 1 } }] },
+  { "id": "maat", "native": "mꜣꜥt", "romanized": "Maʿat", "language": "Ancient Egyptian", "meaning": "Order and balance", "modifiers": [{ "scope": "tile", "when": { "river": true }, "effect": { "kind": "yield", "yield": "production", "add": 1 } }] },
+  { "id": "kleos", "native": "κλέος", "romanized": "Kléos", "language": "Ancient Greek", "meaning": "Undying glory", "modifiers": [{ "scope": "empire", "effect": { "kind": "gpPoints", "gp": "military", "percent": 20 } }] },
+  { "id": "ubuntu", "native": "Ubuntu", "romanized": "Ubuntu", "language": "Nguni Bantu", "meaning": "I am because we are", "modifiers": [{ "scope": "settlement", "effect": { "kind": "yield", "yield": "food", "percent": 10 } }] }
+]

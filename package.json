@@ -1,0 +1,35 @@
+{
+  "name": "apes-together-strong",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "description": "A historical 4X where you build your civilization from the famous people your play attracts.",
+  "scripts": {
+    "dev": "vite",
+    "build": "npm run validate:content && tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "validate:content": "tsx scripts/validate-content.ts",
+    "autoplay": "tsx scripts/autoplay.ts",
+    "check": "npm run validate:content && npm run typecheck && npm run test"
+  },
+  "dependencies": {
+    "@preact/signals": "^2.11.4",
+    "idb": "^8.0.4",
+    "preact": "^11.2.0",
+    "three": "^0.187.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@preact/preset-vite": "^2.10.6",
+    "@types/node": "^26.6.10",
+    "@types/three": "^0.187.0",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vite": "^7.3.8",
+    "vite-plugin-pwa": "^2.0.0",
+    "vitest": "^3.2.7"
+  }
+}

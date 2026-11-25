@@ -1,0 +1,7 @@
+[
+  { "id": "chiefdom", "name": "Chiefdom", "age": "ancient", "cabinetSlots": ["elder", "warleader"], "policySlots": 2, "modifiers": [{ "scope": "unit", "effect": { "kind": "combat", "add": 1 } }] },
+  { "id": "theocratic_council", "name": "Theocratic council", "age": "ancient", "cabinetSlots": ["high_priest", "elder"], "policySlots": 2, "modifiers": [{ "scope": "empire", "effect": { "kind": "yield", "yield": "faith", "add": 2 } }] },
+  { "id": "despotism", "name": "Despotism", "age": "ancient", "cabinetSlots": ["warleader", "warleader"], "policySlots": 2, "modifiers": [{ "scope": "empire", "effect": { "kind": "cost", "target": "unit", "percent": -25 } }] },
+  { "id": "monarchy", "name": "Monarchy", "age": "classical", "cabinetSlots": ["chancellor", "marshal", "high_priest"], "policySlots": 3, "modifiers": [{ "scope": "settlement", "effect": { "kind": "yield", "yield": "happiness", "add": 2 } }] },
+  { "id": "republic", "name": "Republic", "age": "classical", "cabinetSlots": ["chancellor", "chancellor", "laureate"], "policySlots": 3, "modifiers": [{ "scope": "empire", "effect": { "kind": "tradeRoutes", "add": 1 } }, { "scope": "empire", "effect": { "kind": "yield", "yield": "culture", "percent": 10 } }] }
+]

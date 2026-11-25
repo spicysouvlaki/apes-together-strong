@@ -1,0 +1,12 @@
+[
+  { "id": "grassland", "name": "Grassland", "yields": { "food": 2 }, "moveCost": 1, "color": "#9cbf7a" },
+  { "id": "plains", "name": "Plains", "yields": { "food": 1, "production": 1 }, "moveCost": 1, "color": "#c9c27f" },
+  { "id": "desert", "name": "Desert", "yields": { "production": 1 }, "moveCost": 1, "color": "#e3c98d" },
+  { "id": "floodplain", "name": "Floodplain", "yields": { "food": 3 }, "moveCost": 1, "color": "#a9c46a" },
+  { "id": "tundra", "name": "Tundra", "yields": { "food": 1, "production": 1 }, "moveCost": 1, "color": "#a9b39a" },
+  { "id": "snow", "name": "Snow and sea ice", "yields": {}, "moveCost": 2, "color": "#eef2f3" },
+  { "id": "steppe", "name": "Steppe", "yields": { "food": 1, "production": 1 }, "moveCost": 1, "color": "#bfb878" },
+  { "id": "mountain", "name": "Mountain", "yields": {}, "moveCost": null, "defense": 0, "color": "#8f8a85" },
+  { "id": "coast", "name": "Coast", "yields": { "food": 1, "gold": 1 }, "moveCost": null, "water": true, "color": "#8cc3cf" },
+  { "id": "ocean", "name": "Ocean", "yields": { "food": 1 }, "moveCost": null, "water": true, "color": "#5f9fb5" }
+]

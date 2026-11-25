@@ -1,0 +1,56 @@
+[
+  {
+    "id": "nilometer", "name": "Nilometer", "culture": "egyptian", "tier": "custom", "age": "ancient", "cost": 3,
+    "modifiers": [{ "scope": "tile", "when": { "terrain": ["floodplain"] }, "effect": { "kind": "yield", "yield": "food", "add": 1 } }],
+    "description": "+1 food on floodplain tiles.",
+    "history": { "note": "Egyptians measured the Nile's flood with graduated stairs and wells to forecast harvests and set taxes.", "source": "Encyclopaedia Britannica, 'Nilometer'" }
+  },
+  {
+    "id": "symposium", "name": "Symposium", "culture": "greek", "tier": "custom", "age": "ancient", "cost": 3,
+    "modifiers": [{ "scope": "empire", "effect": { "kind": "gpPoints", "gp": "thought", "percent": 25 } }],
+    "description": "+25% thought great-people points.",
+    "history": { "note": "Greek drinking parties where men debated, recited poetry and argued philosophy; Plato set a dialogue at one.", "source": "Encyclopaedia Britannica, 'Symposium'" }
+  },
+  {
+    "id": "tea_ceremony", "name": "Tea culture", "culture": "chinese", "tier": "custom", "age": "classical", "cost": 3,
+    "modifiers": [{ "scope": "tile", "when": { "resource": ["tea"] }, "effect": { "kind": "yield", "yield": "happiness", "add": 2 } }],
+    "description": "Tea tiles give +2 happiness.",
+    "history": { "note": "Tea drinking spread across China under the Tang; Lu Yu's 'Classic of Tea' (8th century) codified its preparation.", "source": "Encyclopaedia Britannica, 'Lu Yu'" }
+  },
+  {
+    "id": "coffeehouse", "name": "Coffeehouse", "culture": "arab", "tier": "custom", "age": "exploration", "cost": 3,
+    "modifiers": [{ "scope": "settlement", "when": { "minTradeRoutes": 2 }, "effect": { "kind": "yield", "yield": "culture", "add": 2 } }],
+    "description": "+2 culture in settlements with 2+ trade routes.",
+    "history": { "note": "Coffeehouses spread from Yemen to Mecca, Cairo and Istanbul in the 15th–16th centuries as places for news, poetry and debate.", "source": "Encyclopaedia Britannica, 'Coffeehouse'" }
+  },
+  {
+    "id": "thing_assembly", "name": "Thing assembly", "culture": "norse", "tier": "custom", "age": "classical", "cost": 3,
+    "modifiers": [{ "scope": "empire", "effect": { "kind": "yield", "yield": "influence", "add": 2 } }, { "scope": "empire", "effect": { "kind": "settlementCap", "add": 1 } }],
+    "description": "+2 influence; settlement cap +1.",
+    "history": { "note": "Free men met at the thing to settle disputes and make law; Iceland's Althing, founded in 930, still sits today.", "source": "Encyclopaedia Britannica, 'Althing'" }
+  },
+  {
+    "id": "qajaq", "name": "Qajaq", "culture": "inuit", "tier": "custom", "age": "classical", "cost": 3,
+    "modifiers": [{ "scope": "unit", "when": { "unitClass": ["naval"], "climate": ["polar", "boreal"] }, "effect": { "kind": "movement", "add": 2 } }],
+    "description": "Naval units +2 movement in cold waters.",
+    "history": { "note": "The qajaq, a skin-covered hunting boat built to each paddler's body, gave the English word 'kayak'.", "source": "Canadian Encyclopedia, 'Kayak'" }
+  },
+  {
+    "id": "ger_camps", "name": "Ger camps", "culture": "mongol", "tier": "custom", "age": "ancient", "cost": 3,
+    "modifiers": [{ "scope": "unit", "when": { "unitClass": ["civilian"] }, "effect": { "kind": "movement", "add": 1 } }],
+    "description": "Civilian units +1 movement.",
+    "history": { "note": "The ger, a felt tent on a collapsible lattice frame, can be taken down and moved in hours; many Mongolians still live in one.", "source": "UNESCO, 'Traditional craftsmanship of the Mongol Gers'" }
+  },
+  {
+    "id": "siesta", "name": "Siesta", "culture": "spanish", "tier": "custom", "age": "exploration", "cost": 3,
+    "modifiers": [{ "scope": "settlement", "when": { "climate": ["arid", "tropical"] }, "effect": { "kind": "yield", "yield": "happiness", "add": 2 } }],
+    "description": "+2 happiness in hot-climate settlements.",
+    "history": { "note": "A midday rest during the hottest hours, from the Latin 'hora sexta', the sixth hour after dawn.", "source": "Real Academia Española, 'siesta'" }
+  },
+  {
+    "id": "hacienda", "name": "Hacienda", "culture": "spanish", "tier": "institution", "age": "exploration", "cost": 6, "requires": ["siesta"],
+    "modifiers": [{ "scope": "tile", "when": { "terrain": ["plains", "grassland"] }, "effect": { "kind": "yield", "yield": "food", "add": 1 } }],
+    "description": "+1 food on plains and grassland.",
+    "history": { "note": "Large landed estates of Spain and its empire. In the Americas many relied on coerced Indigenous labor and debt peonage that bound workers for generations.", "source": "Encyclopaedia Britannica, 'Hacienda'" }
+  }
+]

@@ -1,0 +1,20 @@
+[
+  {
+    "id": "al_andalus", "name": "Al-Andalus", "cultures": ["arab", "spanish"], "age": "classical", "cost": 8,
+    "modifiers": [{ "scope": "empire", "effect": { "kind": "yield", "yield": "science", "percent": 15 } }, { "scope": "empire", "effect": { "kind": "yield", "yield": "culture", "percent": 15 } }],
+    "description": "+15% science and culture.",
+    "history": { "note": "Muslim-ruled Iberia (711–1492). Córdoba and Toledo became centers where Arabic, Latin and Hebrew learning met and was translated.", "source": "Encyclopaedia Britannica, 'al-Andalus'" }
+  },
+  {
+    "id": "ptolemaic_alexandria", "name": "Ptolemaic Alexandria", "cultures": ["greek", "egyptian"], "age": "classical", "cost": 8,
+    "modifiers": [{ "scope": "empire", "effect": { "kind": "gpPoints", "gp": "thought", "percent": 40 } }],
+    "description": "+40% thought great-people points.",
+    "history": { "note": "Under the Ptolemies (305–30 BCE) Alexandria's Library and Museum gathered scholars from across the Mediterranean.", "source": "Encyclopaedia Britannica, 'Library of Alexandria'" }
+  },
+  {
+    "id": "greenland_crossing", "name": "Greenland Crossing", "cultures": ["norse", "inuit"], "age": "classical", "cost": 8,
+    "modifiers": [{ "scope": "empire", "effect": { "kind": "ignoreCold" } }, { "scope": "tile", "when": { "climate": ["polar"], "terrain": ["coast", "ocean"] }, "effect": { "kind": "yield", "yield": "food", "add": 2 } }],
+    "description": "No cold penalties; +2 food on polar sea tiles.",
+    "history": { "note": "Norse settlers and Thule Inuit shared Greenland from about 1200 to 1450; the Norse colonies vanished while the Inuit thrived.", "source": "Encyclopaedia Britannica, 'Greenland: History'" }
+  }
+]

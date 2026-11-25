@@ -1,0 +1,19 @@
+[
+  { "id": "owned_tundra", "description": "Tundra tiles owned", "measure": "ownedTerrain", "param": "tundra", "hint": "your cold frontier", "weights": { "inuit": 1.0, "norse": 0.6 } },
+  { "id": "owned_snow", "description": "Snow and sea-ice tiles owned", "measure": "ownedTerrain", "param": "snow", "hint": "your life on the ice", "weights": { "inuit": 1.5 } },
+  { "id": "owned_desert", "description": "Desert tiles owned", "measure": "ownedTerrain", "param": "desert", "hint": "your desert roads", "weights": { "arab": 1.0, "egyptian": 0.6 } },
+  { "id": "owned_floodplain", "description": "Floodplain tiles owned", "measure": "ownedTerrain", "param": "floodplain", "hint": "your river harvests", "weights": { "egyptian": 1.5, "chinese": 0.3 } },
+  { "id": "owned_steppe", "description": "Steppe tiles owned", "measure": "ownedTerrain", "param": "steppe", "hint": "your open grasslands", "weights": { "mongol": 1.5 } },
+  { "id": "owned_plains", "description": "Plains tiles owned", "measure": "ownedTerrain", "param": "plains", "hint": "your wide plains", "weights": { "spanish": 0.3, "mongol": 0.2 } },
+  { "id": "owned_forest", "description": "Forest tiles owned", "measure": "ownedFeature", "param": "forest", "hint": "your deep forests", "weights": { "norse": 0.5 } },
+  { "id": "owned_hills", "description": "Hill tiles owned", "measure": "ownedFeature", "param": "hills", "hint": "your hill towns", "weights": { "greek": 0.5, "spanish": 0.3 } },
+  { "id": "res_horses", "description": "Horses owned", "measure": "ownedResource", "param": "horses", "hint": "your herds", "weights": { "mongol": 2.0, "spanish": 0.3 } },
+  { "id": "res_tea", "description": "Tea owned", "measure": "ownedResource", "param": "tea", "hint": "your tea gardens", "weights": { "chinese": 2.0 } },
+  { "id": "res_silk", "description": "Silk owned", "measure": "ownedResource", "param": "silk", "hint": "your silk", "weights": { "chinese": 1.5, "arab": 0.3 } },
+  { "id": "res_incense", "description": "Incense owned", "measure": "ownedResource", "param": "incense", "hint": "your incense trade", "weights": { "arab": 2.0, "egyptian": 0.5 } },
+  { "id": "res_furs", "description": "Furs owned", "measure": "ownedResource", "param": "furs", "hint": "your fur trade", "weights": { "inuit": 1.0, "norse": 1.0 } },
+  { "id": "coastal_settlements", "description": "Settlements on the coast", "measure": "coastalSettlements", "hint": "your harbors", "weights": { "greek": 1.0, "norse": 0.8, "spanish": 0.4 } },
+  { "id": "population", "description": "Total population", "measure": "totalPopulation", "hint": "your great cities", "weights": { "chinese": 0.15, "egyptian": 0.08 } },
+  { "id": "settlements", "description": "Number of settlements", "measure": "settlementCount", "hint": "your many towns", "weights": { "greek": 0.3, "mongol": 0.2, "spanish": 0.2 } },
+  { "id": "cavalry", "description": "Cavalry units", "measure": "unitsOfClass", "param": "cavalry", "hint": "your riders", "weights": { "mongol": 1.0 } }
+]

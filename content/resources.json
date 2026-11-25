@@ -1,0 +1,11 @@
+[
+  { "id": "wheat", "name": "Wheat", "class": "bonus", "yields": { "food": 1 }, "terrains": ["grassland", "plains", "floodplain"] },
+  { "id": "fish", "name": "Fish", "class": "bonus", "yields": { "food": 2 }, "terrains": ["coast"] },
+  { "id": "stone", "name": "Stone", "class": "bonus", "yields": { "production": 1 }, "terrains": ["desert", "plains", "tundra"] },
+  { "id": "horses", "name": "Horses", "class": "strategic", "yields": { "production": 1 }, "terrains": ["steppe", "plains", "grassland"] },
+  { "id": "iron", "name": "Iron", "class": "strategic", "yields": { "production": 1 }, "terrains": ["plains", "tundra", "desert"] },
+  { "id": "tea", "name": "Tea", "class": "luxury", "yields": { "gold": 1, "happiness": 2 }, "terrains": ["grassland", "plains"] },
+  { "id": "silk", "name": "Silk", "class": "luxury", "yields": { "gold": 2, "happiness": 2 }, "terrains": ["grassland", "floodplain"] },
+  { "id": "incense", "name": "Incense", "class": "luxury", "yields": { "gold": 1, "faith": 1, "happiness": 2 }, "terrains": ["desert"] },
+  { "id": "furs", "name": "Furs", "class": "luxury", "yields": { "gold": 2, "happiness": 2 }, "terrains": ["tundra", "snow"] }
+]

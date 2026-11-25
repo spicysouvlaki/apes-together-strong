@@ -1,0 +1,10 @@
+[
+  { "id": "elder", "name": "Elder", "accepts": ["general", "statesman", "thinker", "spiritual", "builder", "explorer", "legend"] },
+  { "id": "warleader", "name": "Warleader", "accepts": ["general"] },
+  { "id": "high_priest", "name": "High Priest", "accepts": ["spiritual"] },
+  { "id": "chancellor", "name": "Chancellor", "accepts": ["statesman"] },
+  { "id": "marshal", "name": "Marshal", "accepts": ["general"] },
+  { "id": "laureate", "name": "Laureate", "accepts": ["thinker"] },
+  { "id": "envoy", "name": "Envoy", "accepts": ["statesman", "explorer"] },
+  { "id": "steward", "name": "Steward", "accepts": ["statesman", "builder"] }
+]

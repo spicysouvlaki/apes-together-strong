@@ -1,0 +1,158 @@
+[
+  {
+    "id": "imhotep", "name": "Imhotep", "culture": "egyptian", "age": "ancient", "kind": "builder",
+    "uses": ["activate", "cabinet"], "cabinetSlots": ["steward", "elder"],
+    "cabinetModifiers": [{ "scope": "empire", "effect": { "kind": "cost", "target": "wonder", "percent": -15 } }],
+    "activate": { "effect": "rush_wonder", "amount": 50 }, "consumeValue": 3,
+    "bio": "Chancellor to King Djoser (c. 27th century BCE), credited as architect of the Step Pyramid at Saqqara, Egypt's earliest monumental stone building. Later revered as a sage and healer.",
+    "source": "Encyclopaedia Britannica, 'Imhotep'"
+  },
+  {
+    "id": "hatshepsut", "name": "Hatshepsut", "culture": "egyptian", "age": "ancient", "kind": "statesman",
+    "uses": ["cabinet"], "cabinetSlots": ["chancellor", "elder"],
+    "cabinetModifiers": [{ "scope": "empire", "effect": { "kind": "yield", "yield": "gold", "percent": 15 } }],
+    "consumeValue": 3,
+    "bio": "Pharaoh of the 18th Dynasty (r. c. 1479–1458 BCE) who ruled in her own right, sent a trading expedition to the land of Punt, and built the temple at Deir el-Bahari.",
+    "source": "Encyclopaedia Britannica, 'Hatshepsut'"
+  },
+  {
+    "id": "thutmose_iii", "name": "Thutmose III", "culture": "egyptian", "age": "ancient", "kind": "general",
+    "uses": ["unit", "cabinet"], "cabinetSlots": ["warleader", "elder"],
+    "unitModifiers": [{ "scope": "unit", "effect": { "kind": "combat", "add": 5 } }],
+    "cabinetModifiers": [{ "scope": "unit", "effect": { "kind": "combat", "add": 2 } }],
+    "consumeValue": 3,
+    "bio": "18th-Dynasty pharaoh (r. c. 1479–1425 BCE) whose campaigns, beginning with the Battle of Megiddo, built Egypt's largest empire in the Levant.",
+    "source": "Encyclopaedia Britannica, 'Thutmose III'"
+  },
+  {
+    "id": "homer", "name": "Homer", "culture": "greek", "age": "ancient", "kind": "thinker",
+    "uses": ["activate", "cabinet"], "cabinetSlots": ["laureate", "elder"],
+    "cabinetModifiers": [{ "scope": "empire", "effect": { "kind": "yield", "yield": "culture", "percent": 15 } }],
+    "activate": { "effect": "culture_burst", "amount": 60 }, "consumeValue": 3,
+    "bio": "Traditional author of the Iliad and the Odyssey (c. 8th century BCE). Whether one poet or many, the epics became the backbone of Greek education and identity.",
+    "source": "Encyclopaedia Britannica, 'Homer'"
+  },
+  {
+    "id": "solon", "name": "Solon", "culture": "greek", "age": "ancient", "kind": "statesman",
+    "uses": ["cabinet"], "cabinetSlots": ["chancellor", "elder"],
+    "cabinetModifiers": [{ "scope": "settlement", "effect": { "kind": "yield", "yield": "happiness", "add": 1 } }],
+    "consumeValue": 3,
+    "bio": "Athenian lawgiver (c. 630–560 BCE) who cancelled debt-slavery and reformed the constitution, laying groundwork for Athenian democracy.",
+    "source": "Encyclopaedia Britannica, 'Solon'"
+  },
+  {
+    "id": "thales", "name": "Thales of Miletus", "culture": "greek", "age": "ancient", "kind": "thinker",
+    "uses": ["activate", "cabinet"], "cabinetSlots": ["laureate", "elder"],
+    "cabinetModifiers": [{ "scope": "empire", "effect": { "kind": "yield", "yield": "science", "percent": 15 } }],
+    "activate": { "effect": "science_burst", "amount": 60 }, "consumeValue": 3,
+    "bio": "Thales of Miletus (c. 624–546 BCE), often called the first Greek philosopher, sought natural rather than mythical explanations for how the world works.",
+    "source": "Encyclopaedia Britannica, 'Thales of Miletus'"
+  },
+  {
+    "id": "fu_hao", "name": "Fu Hao", "culture": "chinese", "age": "ancient", "kind": "general",
+    "uses": ["unit", "cabinet"], "cabinetSlots": ["warleader", "elder"],
+    "unitModifiers": [{ "scope": "unit", "effect": { "kind": "combat", "add": 5 } }],
+    "cabinetModifiers": [{ "scope": "empire", "effect": { "kind": "gpPoints", "gp": "military", "percent": 20 } }],
+    "consumeValue": 3,
+    "bio": "Shang dynasty queen and military leader (d. c. 1200 BCE). Oracle-bone inscriptions record her leading campaigns; her intact tomb at Anyang was excavated in 1976.",
+    "source": "Encyclopaedia Britannica, 'Fu Hao'"
+  },
+  {
+    "id": "confucius", "name": "Confucius (Kong Qiu)", "culture": "chinese", "age": "ancient", "kind": "thinker",
+    "uses": ["activate", "cabinet"], "cabinetSlots": ["laureate", "elder"],
+    "cabinetModifiers": [{ "scope": "empire", "effect": { "kind": "gpPoints", "gp": "statesman", "percent": 25 } }],
+    "activate": { "effect": "culture_burst", "amount": 60 }, "consumeValue": 3,
+    "bio": "Teacher (551–479 BCE) whose ideas on ethics, family and good government, collected by his students in the Analects, shaped Chinese statecraft for two thousand years.",
+    "source": "Encyclopaedia Britannica, 'Confucius'"
+  },
+  {
+    "id": "sunzi", "name": "Sunzi", "culture": "chinese", "age": "ancient", "kind": "general",
+    "uses": ["unit", "cabinet"], "cabinetSlots": ["warleader", "elder"],
+    "unitModifiers": [{ "scope": "unit", "effect": { "kind": "movement", "add": 1 } }],
+    "cabinetModifiers": [{ "scope": "unit", "effect": { "kind": "combat", "add": 2 } }],
+    "consumeValue": 3,
+    "bio": "Traditional author of The Art of War (c. 5th century BCE), the classic Chinese text on strategy. His life is known mostly from later accounts.",
+    "source": "Encyclopaedia Britannica, 'Sunzi'"
+  },
+  {
+    "id": "zabibe", "name": "Zabibe", "culture": "arab", "age": "ancient", "kind": "statesman",
+    "uses": ["cabinet"], "cabinetSlots": ["chancellor", "envoy", "elder"],
+    "cabinetModifiers": [{ "scope": "empire", "effect": { "kind": "yield", "yield": "influence", "add": 2 } }],
+    "consumeValue": 3,
+    "bio": "Queen of the Qedarite Arabs (8th century BCE), recorded in Assyrian annals sending tribute to Tiglath-Pileser III; one of the earliest Arab rulers known by name.",
+    "source": "Encyclopaedia Britannica, 'Qedar'; Assyrian royal annals"
+  },
+  {
+    "id": "samsi", "name": "Samsi", "culture": "arab", "age": "ancient", "kind": "statesman",
+    "uses": ["cabinet"], "cabinetSlots": ["chancellor", "envoy", "elder"],
+    "cabinetModifiers": [{ "scope": "empire", "effect": { "kind": "tradeRoutes", "add": 1 } }],
+    "consumeValue": 3,
+    "bio": "Queen of the Arabs (fl. c. 733–716 BCE) who resisted Assyrian expansion. Defeated, she kept her throne and her people's hold on the incense caravan trade.",
+    "source": "Assyrian royal annals of Tiglath-Pileser III and Sargon II"
+  },
+  {
+    "id": "norse_rock_carver", "name": "A Bronze Age rock carver", "culture": "norse", "age": "ancient", "kind": "spiritual", "archetype": true,
+    "uses": ["cabinet"], "cabinetSlots": ["high_priest", "elder"],
+    "cabinetModifiers": [{ "scope": "empire", "effect": { "kind": "yield", "yield": "faith", "add": 2 } }],
+    "consumeValue": 2,
+    "bio": "Archetype. Nordic Bronze Age communities (c. 1700–500 BCE) cut thousands of carvings of ships, people and rituals into rock, as at Tanum in Sweden. Their makers' names are lost.",
+    "source": "UNESCO World Heritage listing, 'Rock Carvings in Tanum'"
+  },
+  {
+    "id": "norse_bronze_smith", "name": "A Bronze Age smith", "culture": "norse", "age": "ancient", "kind": "builder", "archetype": true,
+    "uses": ["activate", "cabinet"], "cabinetSlots": ["steward", "elder"],
+    "cabinetModifiers": [{ "scope": "settlement", "effect": { "kind": "yield", "yield": "production", "add": 1 } }],
+    "activate": { "effect": "production_burst", "amount": 40 }, "consumeValue": 2,
+    "bio": "Archetype. Scandinavian smiths cast lurs, shields and the Trundholm sun chariot from copper and tin traded over long distances.",
+    "source": "National Museum of Denmark, 'The Sun Chariot'"
+  },
+  {
+    "id": "mongol_deer_stone_carver", "name": "A deer-stone carver", "culture": "mongol", "age": "ancient", "kind": "builder", "archetype": true,
+    "uses": ["activate", "cabinet"], "cabinetSlots": ["steward", "elder"],
+    "cabinetModifiers": [{ "scope": "empire", "effect": { "kind": "yield", "yield": "culture", "add": 2 } }],
+    "activate": { "effect": "culture_burst", "amount": 40 }, "consumeValue": 2,
+    "bio": "Archetype. Bronze Age herders on the Mongolian steppe (c. 1200–700 BCE) raised carved 'deer stones', often ringed by sacrificed-horse burials.",
+    "source": "Smithsonian Institution, Deer Stone Project"
+  },
+  {
+    "id": "mongol_horse_herder", "name": "A steppe horse chief", "culture": "mongol", "age": "ancient", "kind": "general", "archetype": true,
+    "uses": ["unit", "cabinet"], "cabinetSlots": ["warleader", "elder"],
+    "unitModifiers": [{ "scope": "unit", "effect": { "kind": "movement", "add": 1 } }],
+    "cabinetModifiers": [{ "scope": "unit", "when": { "unitClass": ["cavalry"] }, "effect": { "kind": "combat", "add": 3 } }],
+    "consumeValue": 2,
+    "bio": "Archetype. Horse-herding peoples of the eastern steppe built mobile societies around mounted herding and riding long before the Mongols themselves.",
+    "source": "Smithsonian Institution, Deer Stone Project"
+  },
+  {
+    "id": "argantonio", "name": "Arganthonios", "culture": "spanish", "age": "ancient", "kind": "statesman",
+    "uses": ["cabinet"], "cabinetSlots": ["chancellor", "envoy", "elder"],
+    "cabinetModifiers": [{ "scope": "empire", "effect": { "kind": "yield", "yield": "gold", "add": 3 } }],
+    "consumeValue": 3,
+    "bio": "King of Tartessos in southern Iberia (6th century BCE, per Herodotus), famed for silver wealth and his welcome of Greek traders from Phocaea.",
+    "source": "Herodotus, Histories 1.163"
+  },
+  {
+    "id": "inuit_umiak_captain", "name": "A Thule umiak captain", "culture": "inuit", "age": "classical", "kind": "explorer", "archetype": true,
+    "uses": ["unit", "cabinet"], "cabinetSlots": ["envoy", "elder"],
+    "unitModifiers": [{ "scope": "unit", "effect": { "kind": "vision", "add": 2 } }],
+    "cabinetModifiers": [{ "scope": "tile", "when": { "terrain": ["coast"] }, "effect": { "kind": "yield", "yield": "food", "add": 1 } }],
+    "consumeValue": 2,
+    "bio": "Archetype. From about 1000 CE the Thule, ancestors of today's Inuit, spread from Alaska to Greenland in skin boats, hunting whales from large open umiaks.",
+    "source": "Canadian Museum of History, 'The Thule Culture'"
+  },
+  {
+    "id": "inuit_angakkuq", "name": "A Thule angakkuq", "culture": "inuit", "age": "classical", "kind": "spiritual", "archetype": true,
+    "uses": ["cabinet"], "cabinetSlots": ["high_priest", "elder"],
+    "cabinetModifiers": [{ "scope": "empire", "effect": { "kind": "ignoreCold" } }],
+    "consumeValue": 2,
+    "bio": "Archetype. An angakkuq was a spiritual healer and guide in Inuit communities, consulted in hard seasons and to keep balance with the animals people depended on.",
+    "source": "Canadian Encyclopedia, 'Inuit Religion'"
+  },
+  {
+    "id": "odysseus", "name": "Odysseus", "culture": "greek", "age": "ancient", "kind": "legend",
+    "uses": ["activate"],
+    "activate": { "effect": "explore_reveal", "amount": 6 }, "consumeValue": 4,
+    "bio": "Legend. The cunning king of Ithaca whose ten-year voyage home from Troy is told in the Odyssey.",
+    "source": "Homer, Odyssey"
+  }
+]

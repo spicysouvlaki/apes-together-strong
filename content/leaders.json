@@ -1,0 +1,6 @@
+[
+  { "id": "builder", "name": "The Builder", "ability": "Wonders cost 15% less and give +2 culture.", "modifiers": [{ "scope": "empire", "effect": { "kind": "cost", "target": "wonder", "percent": -15 } }] },
+  { "id": "conqueror", "name": "The Conqueror", "ability": "+3 combat strength; military great-people points +25%.", "modifiers": [{ "scope": "unit", "effect": { "kind": "combat", "add": 3 } }, { "scope": "empire", "effect": { "kind": "gpPoints", "gp": "military", "percent": 25 } }] },
+  { "id": "sage", "name": "The Sage", "ability": "Thought great-people points +30%; +10% science.", "modifiers": [{ "scope": "empire", "effect": { "kind": "gpPoints", "gp": "thought", "percent": 30 } }, { "scope": "empire", "effect": { "kind": "yield", "yield": "science", "percent": 10 } }] },
+  { "id": "navigator", "name": "The Navigator", "ability": "Embark from the start; exploration points +30%.", "modifiers": [{ "scope": "empire", "effect": { "kind": "unlock", "what": "embark", "id": "embark" } }, { "scope": "empire", "effect": { "kind": "gpPoints", "gp": "exploration", "percent": 30 } }] }
+]
