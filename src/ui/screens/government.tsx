@@ -27,6 +27,10 @@ export const GovernmentList = (props: { onChosen?: () => void }) => {
   if (options.length === 0) return <Empty>No government is available yet.</Empty>;
   return (
     <>
+      <p class="small muted scr-note">
+        A government gives standing bonuses and opens cabinet seats. Each seat holds one figure of a matching kind, whose bonus then applies
+        every turn.
+      </p>
       {!free && (
         <p class="scr-banner scr-banner-info small">
           Changing government mid-age brings {ANARCHY_TURNS} turns of anarchy: no cabinet bonuses meanwhile.
@@ -41,11 +45,12 @@ export const GovernmentList = (props: { onChosen?: () => void }) => {
             <li>
               <div class={`card ${current ? 'scr-selected' : ''}`}>
                 <div class="scr-fig-name">{gov.name}</div>
-                <div class="scr-chips">
+                {/* policySlots is not a mechanic yet (no policies in the sim), so it is not shown. */}
+                <div class="scr-chips" aria-label="Cabinet seats">
+                  <span class="small muted">Seats:</span>
                   {gov.cabinetSlots.map((s) => (
                     <span class="chip">{lookup.cabinetSlots[s]?.name ?? s}</span>
                   ))}
-                  <span class="chip">{gov.policySlots} policy slots</span>
                 </div>
                 {gov.modifiers.length > 0 && (
                   <ul class="scr-mods small">

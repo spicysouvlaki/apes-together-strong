@@ -230,7 +230,8 @@ export const checkDeeds = (ctx: SimCtx, player: PlayerId): void => {
       age: state.age,
       kind: 'deed',
       ref: deed.id,
-      text: deed.description,
+      // deed.description is second person ("You held a city…"); the Chronicle names the deed.
+      text: `A deed was done: ${deed.name}.`,
     });
     return;
   }

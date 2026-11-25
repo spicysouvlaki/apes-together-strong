@@ -25,7 +25,7 @@ import { newPlayer } from './players';
 import { setGovernment, setResearch } from './research';
 import { seedRng, shuffle } from './rng';
 import { buyItem, createSettlement, foundSettlement, setProduction, upgradeSettlement } from './settlements';
-import { endTurn, beginNextTurn, startOfTurnForPlayer } from './turn';
+import { endTurn, beginNextTurn, refreshIncome, startOfTurnForPlayer } from './turn';
 import { moveUnit, removeUnit, spawnUnit } from './units';
 
 const FIGURE_COMMANDS: ReadonlySet<Command['type']> = new Set([
@@ -191,10 +191,43 @@ const dispatch = (ctx: SimCtx, player: PlayerId, command: Command): string | nul
   }
 };
 
+/**
+ * Commands that change what a player earns per turn. After one succeeds, the shown `income`
+ * and `happiness` are refreshed (stockpiles untouched) so the HUD does not read "+0 science"
+ * until the next turn after founding a city, a capture, a government change, a seat change…
+ */
+const YIELD_COMMANDS: ReadonlySet<Command['type']> = new Set([
+  'foundSettlement',
+  'attack',
+  'setProduction',
+  'buyItem',
+  'upgradeSettlement',
+  'setGovernment',
+  'seatFigure',
+  'unseatFigure',
+  'deployFigure',
+  'recallFigure',
+  'activateFigure',
+  'consumeFigure',
+  'chooseOffer',
+  'adoptTradition',
+  'adoptHybrid',
+  'sendEnvoy',
+  'openTradeRoute',
+  'declareWar',
+  'makePeace',
+  'chooseCrisisResponse',
+]);
+
 const applyCommand: Sim['applyCommand'] = (state, player, command, content) => {
   const ctx: SimCtx = { state: structuredClone(state), content, events: [] };
   const error = dispatch(ctx, player, command);
   if (error !== null) return { ok: false, error };
+  if (YIELD_COMMANDS.has(command.type) && ctx.state.phase !== 'ended') {
+    // Captures, wars and routes touch the other side too: refresh every living player then.
+    const all = command.type === 'attack' || command.type === 'declareWar' || command.type === 'makePeace' || command.type === 'openTradeRoute';
+    for (const pid of all ? ctx.state.playerOrder : [player]) refreshIncome(ctx.state, pid, content);
+  }
   return { ok: true, state: ctx.state, events: ctx.events };
 };
 

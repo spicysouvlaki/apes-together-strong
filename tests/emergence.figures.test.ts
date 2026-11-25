@@ -186,7 +186,8 @@ describe('activate', () => {
     state.settlements.cap1!.production = { item: 'step_pyramid', progress: 10 };
     const { err, ctx } = activate(state, 'eg_builder');
     expect(err).toBeNull();
-    expect(state.settlements.cap1!.production.progress).toBe(10 + 90); // 50% of 180
+    const pyramid = content.wonders.find((w) => w.id === 'step_pyramid')!.cost;
+    expect(state.settlements.cap1!.production.progress).toBe(10 + Math.round(pyramid / 2)); // eg_builder: 50%
     expectRetired(state, 'eg_builder');
     expect(state.players.p1!.stats.figuresActivated).toBe(1);
     expect(ctx.events).toContainEqual({ type: 'figureRetired', figure: 'eg_builder', player: 'p1' });

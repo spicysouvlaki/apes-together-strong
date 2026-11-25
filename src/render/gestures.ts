@@ -10,6 +10,11 @@ export const TAP_MAX_MOVE_PX = 8;
 export const LONG_PRESS_MS = 450;
 /** Accumulated two-finger twist that triggers one 60° rotation step. */
 export const TWIST_STEP_RAD = (30 * Math.PI) / 180;
+/**
+ * Once a two-finger gesture has zoomed by more than this (|ln(spread / startSpread)|) before
+ * any rotation, it's a pinch: twisting no longer rotates, so zooming never snaps the view.
+ */
+export const PINCH_LOCK_LOG = 0.15;
 /** Horizontal right-drag distance per rotation step (desktop). */
 export const ROTATE_DRAG_PX = 90;
 
@@ -52,6 +57,9 @@ export class GestureRecognizer {
   private midX = 0;
   private midY = 0;
   private twist = 0;
+  private pinchStartSpread = 0;
+  /** null = undecided, 'zoom' = twist ignored, 'rotate' = a step already fired. */
+  private twoFingerIntent: 'zoom' | 'rotate' | null = null;
   private dragAccum = 0;
   private samples: Sample[] = [];
 
@@ -77,6 +85,8 @@ export class GestureRecognizer {
       this.mode = 'pinch';
       this.twist = 0;
       this.measurePair();
+      this.pinchStartSpread = this.spread;
+      this.twoFingerIntent = null;
     }
     return out;
   }
@@ -118,9 +128,17 @@ export class GestureRecognizer {
         if (da > Math.PI) da -= 2 * Math.PI;
         if (da < -Math.PI) da += 2 * Math.PI;
         this.twist += da;
-        if (Math.abs(this.twist) >= TWIST_STEP_RAD) {
+        if (
+          this.twoFingerIntent === null &&
+          this.pinchStartSpread > 1 &&
+          Math.abs(Math.log(this.spread / this.pinchStartSpread)) > PINCH_LOCK_LOG
+        ) {
+          this.twoFingerIntent = 'zoom';
+        }
+        if (this.twoFingerIntent !== 'zoom' && Math.abs(this.twist) >= TWIST_STEP_RAD) {
           out.push({ type: 'rotateStep', dir: this.twist > 0 ? 1 : -1 });
           this.twist = 0;
+          this.twoFingerIntent = 'rotate';
         }
         break;
       }

@@ -20,6 +20,7 @@ export class Instances {
   mesh: InstancedMesh;
   private n = 0;
   private capacity: number;
+  private aux: InstancedBufferAttribute | null = null;
 
   constructor(
     readonly geometry: BufferGeometry,
@@ -28,6 +29,8 @@ export class Instances {
     private readonly parent: Object3D,
     readonly name: string,
     readonly renderOrder = 0,
+    /** Optional per-instance float attribute name (e.g. 'aPattern') for custom shaders. */
+    private readonly auxName: string | null = null,
   ) {
     this.capacity = Math.max(1, capacity);
     this.mesh = this.makeMesh(this.capacity);
@@ -43,7 +46,7 @@ export class Instances {
   }
 
   /** Add an instance: translate (x,y,z), rotate about Y, scale (sx,sy,sz), sRGB color. */
-  push(x: number, y: number, z: number, sx: number, sy: number, sz: number, rotY: number, color: Rgb): void {
+  push(x: number, y: number, z: number, sx: number, sy: number, sz: number, rotY: number, color: Rgb, aux = 0): void {
     if (this.n >= this.capacity) this.grow(this.capacity * 2);
     const i = this.n++;
     const m = this.mesh.instanceMatrix.array as Float32Array;
@@ -73,6 +76,7 @@ export class Instances {
       a[i * 3 + 1] = toLinear(color[1]);
       a[i * 3 + 2] = toLinear(color[2]);
     }
+    if (this.aux) (this.aux.array as Float32Array)[i] = aux;
   }
 
   end(): void {
@@ -80,12 +84,14 @@ export class Instances {
     this.mesh.visible = this.n > 0;
     this.mesh.instanceMatrix.needsUpdate = true;
     if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
+    if (this.aux) this.aux.needsUpdate = true;
   }
 
   /** Force re-upload (after a WebGL context restore). */
   touch(): void {
     this.mesh.instanceMatrix.needsUpdate = true;
     if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
+    if (this.aux) this.aux.needsUpdate = true;
   }
 
   dispose(): void {
@@ -105,6 +111,15 @@ export class Instances {
     mesh.visible = false;
     mesh.renderOrder = this.renderOrder;
     mesh.matrixAutoUpdate = false;
+    if (this.auxName) {
+      // The attribute lives on the shared geometry; one layer owns its geometry, so that's safe.
+      const prev = this.aux;
+      const aux = new InstancedBufferAttribute(new Float32Array(capacity), 1);
+      aux.setUsage(DynamicDrawUsage);
+      if (prev) aux.array.set((prev.array as Float32Array).subarray(0, Math.min(prev.count, capacity)));
+      this.geometry.setAttribute(this.auxName, aux);
+      this.aux = aux;
+    }
     return mesh;
   }
 

@@ -20,6 +20,7 @@ import {
   type UnitId,
 } from '@contracts/sim-api';
 import { onFigureUnitDefeated, onPlayerEliminated, onSettlementCaptured } from '../emergence';
+import { endGame } from './ages';
 import { addChronicle } from './chronicle';
 import {
   COMBAT_BASE_DAMAGE,
@@ -156,8 +157,32 @@ export const checkEliminations = (ctx: SimCtx, by: PlayerId | null): void => {
     const taker = by && state.players[by] ? by : null;
     onPlayerEliminated(ctx, pid, taker);
     for (const id of Object.keys(state.units)) if (state.units[id]?.owner === pid) removeUnit(ctx, id);
+    // A fallen people is at war with no one: no lingering war weariness or "at war" bonuses.
+    for (const key of Object.keys(state.wars)) if (key.split('|').includes(pid)) delete state.wars[key];
+    state.tradeRoutes = state.tradeRoutes.filter((r) => r.owner !== pid);
+    if (state.crisis) state.crisis.awaiting = state.crisis.awaiting.filter((id) => id !== pid);
     ctx.events.push({ type: 'playerEliminated', player: pid, by: taker });
-    if (taker) addChronicle(state, taker, 'war', pid, `A rival people fell to us.`);
+    addChronicle(state, pid, 'war', pid, `The last settlement fell and the people were scattered.`);
+    if (taker) addChronicle(state, taker, 'war', pid, `A rival people was conquered.`);
+  }
+  checkGameOver(ctx);
+};
+
+/**
+ * The game ends early (phase 'ended', with a result and chronicle lines) when no human player
+ * is left alive — there is nobody to play on for — or when only one player remains. AI-only
+ * games (autoplay) keep going while two or more AIs live.
+ */
+export const checkGameOver = (ctx: SimCtx): void => {
+  const { state } = ctx;
+  if (state.phase === 'ended') return;
+  const all = state.playerOrder.map((id) => state.players[id]).filter((p) => p !== undefined);
+  const living = all.filter((p) => p.alive);
+  const humans = all.filter((p) => p.isHuman);
+  if (humans.length > 0 && !humans.some((p) => p.alive)) {
+    endGame(ctx, 'The last player-led people fell; the chronicle closes');
+  } else if (all.length > 1 && living.length <= 1) {
+    endGame(ctx, 'Last civilization standing');
   }
 };
 
@@ -271,6 +296,7 @@ export const resolveAttack = (ctx: SimCtx, u: Unit, target: Hex, plan: AttackPla
   u.fortified = false;
   u.movesLeft = 0;
   const attackerId = u.id;
+  const attackerOwner = u.owner;
   let dmgToA = 0;
   let dmgToD = 0;
   let attackerDied = false;
@@ -346,6 +372,9 @@ export const resolveAttack = (ctx: SimCtx, u: Unit, target: Hex, plan: AttackPla
     attackerDied,
     defenderDied,
   });
+  // Killing a homeless player's last settler eliminates them (GDD §3); without this check a
+  // player could linger alive with nothing (raiders run their own check in the world phase).
+  if (defenderDied && attackerOwner !== RAIDER_PLAYER) checkEliminations(ctx, attackerOwner);
 };
 
 const advanceInto = (state: GameState, u: Unit, target: Hex, content: ContentBundle): void => {

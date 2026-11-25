@@ -7,7 +7,8 @@ import { askConfirm, content, dispatch, game, lookup, me, myTurn, openModal, q, 
 import { capitalize, num } from './format';
 import { selectUnit } from './MapView';
 import { nextIdleUnit } from './hexutil';
-import { skipUnit, skipped } from './shell-state';
+import { highlights, skipUnit, skipped } from './shell-state';
+import { unitHint } from './unit-hints';
 
 export function UnitSheet() {
   const g = game.value;
@@ -21,6 +22,8 @@ export function UnitSheet() {
   const name = fig?.name ?? def?.name ?? u.type;
   const canAct = myTurn.value;
   const canFound = !!def?.canFound && q.canFound(g, u.id, content);
+  const reach = highlights.value;
+  const canAttack = reach.attackable.length > 0;
   const tradeTargets = def?.canTrade ? q.tradeTargets(g, u.id, content) : [];
   const actions = u.figure ? q.figureActions(g, u.figure, content) : null;
   const military = u.unitClass !== 'civilian';
@@ -67,6 +70,20 @@ export function UnitSheet() {
         )}
       </div>
 
+      <p class="small muted unit-hint" role="status">
+        {unitHint({
+          isFounder: !!def?.canFound,
+          canFound,
+          isTrader: !!def?.canTrade,
+          tradeTargets: tradeTargets.length,
+          movesLeft: u.movesLeft,
+          canMove: reach.reachable.length > 0,
+          canAttack,
+          hasAttacked: u.hasAttacked,
+          military,
+          canDeclare: reach.warTargets.length > 0,
+        })}
+      </p>
       {routePick ? (
         <div class="unit-actions">
           <div class="small muted">Open a trade route to:</div>
@@ -93,10 +110,10 @@ export function UnitSheet() {
         </div>
       ) : (
         <div class="unit-actions">
-          {canFound && (
+          {def?.canFound && (
             <button
               class="btn btn-primary"
-              disabled={!canAct}
+              disabled={!canAct || !canFound}
               onClick={() => {
                 dispatch({ type: 'foundSettlement', unit: u.id });
                 selectUnit(null);

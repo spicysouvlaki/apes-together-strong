@@ -128,9 +128,13 @@ export function CitySheet({ settlement }: { settlement: string }) {
                 <div class="bad-text">Nothing in production</div>
               )}
             </div>
-            <button class="btn" disabled={!canAct} onClick={() => setPicking(!picking)} aria-expanded={picking}>
-              {picking ? 'Done' : current ? 'Change' : 'Choose'}
-            </button>
+            {current ? (
+              <button class="btn" disabled={!canAct} onClick={() => setPicking(!picking)} aria-expanded={picking}>
+                {picking ? 'Done' : 'Change'}
+              </button>
+            ) : (
+              <span class="small muted">Pick one below</span>
+            )}
           </div>
 
           {(picking || !current) &&

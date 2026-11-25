@@ -71,11 +71,81 @@ const printReport = (g: GameReport): void => {
   console.log(`  offers per age: ${fmtRecord(g.offersPerAge)}`);
   console.log(`  AI turns: ${g.aiTurns}, avg ${g.avgAiMs.toFixed(1)} ms, worst ${g.worstAiMs.toFixed(1)} ms${g.slowTurns ? `, ${g.slowTurns} over ${AI_TURN_BUDGET_MS} ms budget` : ''}`);
   if (g.result) console.log(`  winner: ${g.result.winner} (${g.result.reason})`);
+  const wars = g.wars ?? [];
+  if (wars.length) console.log(`  wars: ${wars.map((w) => `${w.by}→${w.on} t${w.turn}${w.ended !== null ? `–${w.ended}` : '+'}`).join(', ')}`);
+  const caps = g.captures ?? [];
+  if (caps.length) console.log(`  captures: ${caps.map((c) => `${c.to}←${c.from} t${c.turn}`).join(', ')}`);
+  const elim = g.eliminations ?? [];
+  if (elim.length) console.log(`  eliminated: ${elim.map((e) => `${e.player} by ${e.by ?? '-'} t${e.turn} (${e.age})`).join(', ')}`);
   for (const [id, p] of Object.entries(g.players)) {
     console.log(`  ${id} ${p.leader}/${p.dream}${p.civName ? ` "${p.civName}"` : ''}${p.alive ? '' : ' [eliminated]'}: score ${p.score}, settlements ${p.settlements}`);
-    console.log(`     figures: ${fmtRecord(p.figuresByCulture)}`);
+    console.log(`     figures: ${fmtRecord(p.figuresByCulture)}  top ${p.topCulture ?? '-'} (affinity ${p.topAffinity ?? '-'}); land: ${p.homeTerrain ?? '-'}`);
     console.log(`     traditions: ${p.traditions.join(', ') || '-'}; hybrids: ${p.hybrids.join(', ') || '-'}`);
+    const research = Object.entries(p.researchByAge ?? {})
+      .map(([age, r]) => `${age} ${Math.round(r.tech * 100)}%/${Math.round(r.civic * 100)}%`)
+      .join(', ');
+    const wonders = (p.wonders ?? []).map((w) => `${w.id}${w.wonderAge !== w.builtAge ? `(${w.wonderAge}@${w.builtAge})` : ''}`).join(', ');
+    console.log(`     happiness min ${p.minHappiness ?? '-'} end ${p.finalHappiness ?? '-'}; research tech/civic: ${research || '-'}; wonders: ${wonders || '-'}`);
   }
+};
+
+const pct = (n: number, d: number): string => (d ? `${Math.round((100 * n) / d)}%` : '-');
+
+/** Cross-game summary: war, culture variety, research pace, happiness, wonder timing. */
+const printSummary = (reports: GameReport[]): void => {
+  const n = reports.length;
+  const withWar = reports.filter((r) => (r.wars ?? []).length > 0).length;
+  const wars = reports.reduce((s, r) => s + (r.wars ?? []).length, 0);
+  const pvp = reports.reduce((s, r) => s + (r.captures ?? []).filter((c) => !c.cityState).length, 0);
+  const cs = reports.reduce((s, r) => s + (r.captures ?? []).filter((c) => c.cityState).length, 0);
+  const elim = reports.flatMap((r) => r.eliminations ?? []);
+  const battles = reports.reduce((s, r) => s + (r.battles ?? 0), 0);
+  console.log(`\nwar: ${withWar}/${n} games with war, ${wars} wars, ${battles} battles, captures ${pvp} from players + ${cs} city-states, eliminations ${elim.length} (${elim.map((e) => e.age).join(', ') || '-'})`);
+  const players = reports.flatMap((r) => Object.values(r.players));
+  const tops: Record<string, number> = {};
+  const affs: Record<string, number> = {};
+  const custom: Record<string, number> = {};
+  for (const p of players) {
+    const t = p.topCulture ?? '-';
+    tops[t] = (tops[t] ?? 0) + 1;
+    const a = p.topAffinity ?? '-';
+    affs[a] = (affs[a] ?? 0) + 1;
+    for (const tr of p.traditions) custom[tr] = (custom[tr] ?? 0) + 1;
+  }
+  const sorted = (r: Record<string, number>): string =>
+    Object.entries(r)
+      .sort((a, b) => b[1] - a[1])
+      .map(([k, v]) => `${k} ${v}`)
+      .join(', ');
+  console.log(`top culture (figures) of ${players.length} civs: ${sorted(tops)}`);
+  console.log(`top affinity: ${sorted(affs)}`);
+  const ancientAff: Record<string, number> = {};
+  for (const p of players) {
+    const a = p.topAffinityByAge?.ancient ?? '-';
+    ancientAff[a] = (ancientAff[a] ?? 0) + 1;
+  }
+  console.log(`top affinity when the ancient age ended: ${sorted(ancientAff)}`);
+  console.log(`most adopted traditions: ${sorted(custom).split(', ').slice(0, 8).join(', ')}`);
+  const ages: Record<string, { tech: number; civic: number; n: number }> = {};
+  for (const p of players) {
+    for (const [age, r] of Object.entries(p.researchByAge ?? {})) {
+      const a = (ages[age] ??= { tech: 0, civic: 0, n: 0 });
+      a.tech += r.tech;
+      a.civic += r.civic;
+      a.n++;
+    }
+  }
+  console.log(
+    `research at age end (avg tech/civic/both): ${Object.entries(ages)
+      .map(([age, a]) => `${age} ${pct(a.tech, a.n)}/${pct(a.civic, a.n)}/${pct(a.tech + a.civic, 2 * a.n)}`)
+      .join(', ') || '-'}`,
+  );
+  const mins = players.map((p) => p.minHappiness).filter((h): h is number => typeof h === 'number');
+  if (mins.length) {
+    console.log(`happiness: min avg ${(mins.reduce((a, b) => a + b, 0) / mins.length).toFixed(1)}, worst ${Math.min(...mins)}, civs below −10: ${mins.filter((h) => h < -10).length}/${mins.length}`);
+  }
+  const ws = players.flatMap((p) => p.wonders ?? []);
+  console.log(`wonders: ${ws.length} built, ${ws.filter((w) => w.wonderAge !== w.builtAge).length} after their age; per age built: ${sorted(ws.reduce<Record<string, number>>((r, w) => ((r[`${w.wonderAge}@${w.builtAge}`] = (r[`${w.wonderAge}@${w.builtAge}`] ?? 0) + 1), r), {}))}`);
 };
 
 const firstDiff = (a: string, b: string): string => {
@@ -135,6 +205,7 @@ const main = async (): Promise<number> => {
   if (reports.length) {
     const ai = reports.filter((r) => r.aiTurns > 0);
     const avg = ai.reduce((s, r) => s + r.avgAiMs * r.aiTurns, 0) / Math.max(1, ai.reduce((s, r) => s + r.aiTurns, 0));
+    printSummary(reports);
     console.log(`\n${reports.length} game(s): avg AI turn ${avg.toFixed(1)} ms, worst ${Math.max(...reports.map((r) => r.worstAiMs)).toFixed(1)} ms; statuses ${reports.map((r) => r.status).join(', ')}`);
   }
   if (o.json) {

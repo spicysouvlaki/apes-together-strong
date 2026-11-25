@@ -73,3 +73,18 @@ describe('render gestures', () => {
     expect(types(g.up(1, -ROTATE_DRAG_PX - 5, 0, 60))).toEqual([]);
   });
 });
+
+describe('gestures: pinch does not fight rotation', () => {
+  it('a pinch that has clearly zoomed ignores twist', () => {
+    const g = new GestureRecognizer();
+    g.down(1, 100, 300, 0);
+    g.down(2, 300, 300, 0);
+    // Spread to 2x first (zoom intent)...
+    g.move(2, 500, 300, 10);
+    // ...then twist 45 degrees while holding the spread.
+    const r = 400;
+    const a = (45 * Math.PI) / 180;
+    const out = g.move(2, 100 + Math.cos(a) * r, 300 + Math.sin(a) * r, 20);
+    expect(out.some((x) => x.type === 'rotateStep')).toBe(false);
+  });
+});

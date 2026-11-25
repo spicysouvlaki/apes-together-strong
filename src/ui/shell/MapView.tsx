@@ -22,11 +22,19 @@ import {
   selection,
   setMapFocusHandler,
 } from '../store';
-import { homeHex } from './hexutil';
-import { highlights, lastTap, settings } from './shell-state';
+import { homeHex, idleUnits } from './hexutil';
+import { highlights, lastTap, settings, skipped } from './shell-state';
 import { resolveTap } from './tap-intent';
+import { warTargetsFor } from './war-targets';
 
 let rendererRef: Renderer | null = null;
+
+/** Top bar height the camera keeps clear (CSS px, two rows of the HUD). */
+const HUD_TOP_PX = 96;
+/** The city sheet's max height (shell.css .city-sheet max-height: 70vh), as a share of the screen. */
+const CITY_SHEET_SHARE = 0.7;
+/** Bottom controls plus a typical unit sheet, kept clear when focusing a unit. */
+const HUD_BOTTOM_PX = 200;
 
 /** Select a unit (or clear with null) and push its legal targets to the renderer. */
 export const selectUnit = (unitId: string | null, opts: { focus?: boolean } = {}): void => {
@@ -35,14 +43,15 @@ export const selectUnit = (unitId: string | null, opts: { focus?: boolean } = {}
   const u = unitId && g ? g.units[unitId] : undefined;
   if (!g || !my || !u || u.owner !== my) {
     selection.value = { unit: null, settlement: null, tile: selection.value.tile };
-    highlights.value = { reachable: [], attackable: [] };
+    highlights.value = { reachable: [], attackable: [], warTargets: [] };
     rendererRef?.setSelection({ unit: null, reachable: [], attackable: [], path: [] });
     return;
   }
   const reachable = q.reachable(g, u.id, content).map((r) => r.hex);
   const attackable = q.attackTargets(g, u.id, content);
+  const warTargets = warTargetsFor(g, my, u.id, (s, id) => q.attackTargets(s, id, content), new Set(q.visibleTiles(g, my, content)));
   selection.value = { unit: u.id, settlement: null, tile: u.at };
-  highlights.value = { reachable, attackable };
+  highlights.value = { reachable, attackable, warTargets };
   rendererRef?.setSelection({ unit: u.id, tile: u.at, reachable, attackable, path: [] });
   if (opts.focus) rendererRef?.focus(u.at);
 };
@@ -65,6 +74,7 @@ const onTap = (hex: Hex): void => {
     selectedUnit: selection.value.unit,
     reachable: highlights.value.reachable,
     attackable: highlights.value.attackable,
+    warTargets: highlights.value.warTargets,
     lastTap: cycleFrom,
     atWar: (a, b) => q.atWar(g, a, b),
   });
@@ -80,7 +90,7 @@ const onTap = (hex: Hex): void => {
       if (enemy) {
         askConfirm({
           title: `Declare war on ${ownerName(enemy)}?`,
-          body: 'Attacking means war. Their friends may remember it.',
+          body: `Attacking ${ownerName(enemy)} means war. Peace later costs influence and takes time; any trade routes with them stop.`,
           confirmLabel: 'Declare war',
           danger: true,
           onConfirm: () => {
@@ -100,7 +110,7 @@ const onTap = (hex: Hex): void => {
       selectUnit(null);
       selection.value = { unit: null, settlement: intent.settlement, tile: hex };
       rendererRef?.setSelection({ tile: hex });
-      openModal({ kind: 'city', settlement: intent.settlement });
+      openModal({ kind: 'city', settlement: intent.settlement }); // the modal effect below focuses it
       return;
     case 'deselect':
       lastTap.value = null;
@@ -126,7 +136,11 @@ export function MapView() {
     if (!canvas) return;
     let r: Renderer;
     try {
-      r = createRenderer(canvas, content, { reduceMotion });
+      r = createRenderer(canvas, content, {
+        reduceMotion,
+        patterns: untracked(() => settings.value.colorblindPatterns),
+        safeArea: { top: HUD_TOP_PX, bottom: HUD_BOTTOM_PX },
+      });
     } catch (err) {
       console.error('Renderer failed to start', err);
       return;
@@ -156,8 +170,42 @@ export function MapView() {
       if (sel) untracked(() => selectUnit(g.units[sel] ? sel : null));
     });
 
+    // Closing a city or tile sheet clears its tile outline (unless a unit owns the selection).
+    // Opening a city sheet (from a tap, a toast or "Next: Production") centres the city in the
+    // strip of map the sheet leaves visible, so the sheet never hides the city it is about.
+    let prevKind: string | null = null;
+    let prevCity: string | null = null;
+    const stopOutline = effect(() => {
+      const m = modal.value;
+      const kind = m?.kind ?? null;
+      const was = prevKind;
+      prevKind = kind;
+      const city = m?.kind === 'city' ? m.settlement : null;
+      if (city && city !== prevCity) {
+        const s = untracked(() => game.value?.settlements[city]);
+        if (s) r.focus(s.at, { safeArea: { top: HUD_TOP_PX, bottom: Math.round(window.innerHeight * CITY_SHEET_SHARE) } });
+      }
+      prevCity = city;
+      if ((was === 'city' || was === 'tileInfo') && kind !== 'city' && kind !== 'tileInfo' && selection.peek().unit === null) {
+        r.setSelection({ tile: null });
+        selection.value = { unit: null, settlement: null, tile: null };
+      }
+    });
+
+    const stopPatterns = effect(() => r.setPatterns(settings.value.colorblindPatterns));
+    // Chevrons over own units that still want orders this turn (skipped ones drop out).
+    const stopHints = effect(() => {
+      const g = game.value;
+      const my = me.value;
+      const ready = g && my && g.currentPlayer === my && g.phase === 'playing' ? idleUnits(g, my, skipped.value).map((u) => u.id) : [];
+      r.setHints({ readyUnits: ready });
+    });
+
     return () => {
       stop();
+      stopOutline();
+      stopPatterns();
+      stopHints();
       offTap();
       offLong();
       setMapFocusHandler(null);

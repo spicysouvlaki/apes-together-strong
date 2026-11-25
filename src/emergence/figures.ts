@@ -54,6 +54,10 @@ const ownedFigure = (state: GameState, player: PlayerId, id: FigureId, content: 
 const isActive = (fs: FigureState): boolean =>
   fs.location.state === 'based' || fs.location.state === 'seated' || fs.location.state === 'unit';
 
+/** Second-person offer reason -> third person for the Chronicle ("drawn by your harbors" -> "drawn by its harbors"). */
+export const annalVoice = (text: string): string =>
+  text.replace(/\byour people\b/g, 'this people').replace(/\bYour\b/g, 'Its').replace(/\byour\b/g, 'its').replace(/\byou\b/g, 'it');
+
 export const seatError = (state: GameState, player: PlayerId, id: FigureId, key: string, content: ContentBundle): string | null => {
   const o = ownedFigure(state, player, id, content);
   if (typeof o === 'string') return o;
@@ -242,11 +246,13 @@ const chooseOffer = (ctx: SimCtx, player: PlayerId, offerId: string, figureId: F
     kind: 'figure',
     ref: figureId,
     // Deed offers carry the deed's full story beat as their reason; name the deed instead.
+    // Annal voice: the Chronicle is read on any civ's tab, so no "you"/"us" (offer reasons
+    // and deed descriptions are second person by design and are rephrased, not copied).
     text: offer.deed
-      ? `${def.name} joined us after ${content.deeds.find((d) => d.id === offer.deed)?.name ?? 'a great deed'}.`
+      ? `${def.name} joined the court after a deed: ${content.deeds.find((d) => d.id === offer.deed)?.name ?? 'a great deed'}.`
       : reason
-        ? `${def.name} joined us, ${reason}.`
-        : `${def.name} joined us.`,
+        ? `${def.name} joined the court, ${annalVoice(reason)}.`
+        : `${def.name} joined the court.`,
   });
   dropOffer(state, offer.id, false);
   ctx.events.push({ type: 'figureRecruited', figure: figureId, player });

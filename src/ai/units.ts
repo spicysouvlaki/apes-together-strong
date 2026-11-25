@@ -12,6 +12,7 @@ import { ci, tileIndex } from '../sim/lookup';
 import { queries } from '../sim/queries';
 import { exec, me, type AiCtx } from './ctx';
 import type { EmpirePlan } from './economy';
+import { pickWarTarget } from './war';
 import { ownedLuxuries, siteLegal, siteScore } from './sites';
 import { UNREACHABLE, landField, landStepCost } from './util';
 import { enemiesAtWar, hostilesNear, isMilitary, ownSettlements, ownUnits } from './world';
@@ -240,24 +241,6 @@ const tryAttack = (ai: AiCtx, unitId: string): boolean => {
   return best !== null && exec(ai, { type: 'attack', unit: unitId, target: best });
 };
 
-const nearestEnemySettlement = (ai: AiCtx, enemies: readonly string[]): Settlement | null => {
-  const own = ownSettlements(ai.state, ai.player);
-  let best: Settlement | null = null;
-  let bestScore = Infinity;
-  for (const id of Object.keys(ai.state.settlements)) {
-    const s = ai.state.settlements[id];
-    if (!s || !enemies.includes(s.owner)) continue;
-    let d = Infinity;
-    for (const o of own) d = Math.min(d, hexDistance(o.at, s.at));
-    const score = d + s.hp / 50 + s.population * 0.2;
-    if (score < bestScore) {
-      bestScore = score;
-      best = s;
-    }
-  }
-  return best;
-};
-
 const onOwnSettlement = (ai: AiCtx, u: Unit): Settlement | null => {
   const t = ai.state.map.tiles[idxOf(ai, u.at)];
   const s = t?.settlement ? ai.state.settlements[t.settlement] : undefined;
@@ -269,7 +252,7 @@ const fortifyIfIdle = (ai: AiCtx, u: Unit): void => {
   if (cur && !cur.fortified && cur.movesLeft > 0 && cur.unitClass !== 'commander') exec(ai, { type: 'fortify', unit: u.id });
 };
 
-export const moveMilitary = (ai: AiCtx): void => {
+export const moveMilitary = (ai: AiCtx, plan?: EmpirePlan): void => {
   const { state, player, content } = ai;
   const mine = (): Unit[] => ownUnits(ai.state, player).filter(isMilitary);
   // Ranged first so melee can finish what they soften.
@@ -322,11 +305,29 @@ export const moveMilitary = (ai: AiCtx): void => {
     for (const u of free.slice(0, 2)) respond.set(u.id, t);
   }
   const enemies = enemiesAtWar(ai.state, player);
-  const target = enemies.length > 0 ? nearestEnemySettlement(ai, enemies) : null;
+  // The war goal is the same settlement the war was declared for (src/ai/war.ts), re-scored
+  // each turn from public information, so the whole army converges on one place.
+  const goal = enemies.length > 0 ? pickWarTarget(ai, enemies) : null;
+  const target = goal?.settlement ?? null;
   const targetField = target ? landField(ai.state, content, [idxOf(ai, target.at)], 80, player) : null;
   // Gather: only close in once three units stand within 5 of the target (counted once per turn).
   const massed = target ? mine().filter((m) => m.unitClass !== 'commander' && hexDistance(m.at, target.at) <= 5).length >= 3 : false;
   const homeField = ownSettlementField(ai);
+  // Preparing a war: free units stage in our settlement nearest the goal, inside our borders.
+  const prepGoal = !target && plan?.preparing ? plan.warGoal : null;
+  let stagingField: Int32Array | null = null;
+  if (prepGoal) {
+    let staging: Settlement | null = null;
+    let bestD = Infinity;
+    for (const s of settlements) {
+      const d = hexDistance(s.at, prepGoal.settlement.at);
+      if (d < bestD) {
+        bestD = d;
+        staging = s;
+      }
+    }
+    if (staging) stagingField = landField(ai.state, content, [idxOf(ai, staging.at)], 40, player);
+  }
 
   for (const u0 of mine()) {
     if (busy.has(u0.id)) continue;
@@ -353,6 +354,10 @@ export const moveMilitary = (ai: AiCtx): void => {
         tryAttack(ai, u.id);
         continue;
       }
+    }
+    if (stagingField && u.unitClass !== 'commander' && (stagingField[idxOf(ai, u.at)] ?? UNREACHABLE) > 2) {
+      moveAlong(ai, u.id, stagingField, 1);
+      continue;
     }
     const tile = ai.state.map.tiles[idxOf(ai, u.at)];
     if (tile?.owner !== player) {

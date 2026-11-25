@@ -10,6 +10,7 @@ import {
   ConeGeometry,
   CylinderGeometry,
   Float32BufferAttribute,
+  IcosahedronGeometry,
   OctahedronGeometry,
   PlaneGeometry,
   RingGeometry,
@@ -213,6 +214,118 @@ export const unitBodyGeometry = (cls: UnitClass): BufferGeometry => {
       return merged([body, cape]);
     }
   }
+};
+
+/**
+ * One side of a hex border band, facing +x (east): the trapezoid between hex radii `outer` and
+ * `inner`, cut along the corner rays so the six sides of a tile join without gaps. Rotate per
+ * edge with borders.ts EDGE_ROTATION. Local x runs across the band, z along the edge.
+ */
+export const borderBandGeometry = (outer: number, inner: number): BufferGeometry => {
+  const pos: number[] = [];
+  const c = Math.cos(Math.PI / 6);
+  const a0 = [outer * c, 0, -outer / 2];
+  const a1 = [outer * c, 0, outer / 2];
+  const b0 = [inner * c, 0, -inner / 2];
+  const b1 = [inner * c, 0, inner / 2];
+  // Facing +y.
+  pushTri(pos, a0, b0, a1);
+  pushTri(pos, b0, b1, a1);
+  return flatGeometry(pos);
+};
+
+/** Flat ribbon of unit length along +x from x = 0, `width` wide (river segments). */
+export const ribbonGeometry = (width: number): BufferGeometry => {
+  const pos: number[] = [];
+  const h = width / 2;
+  pushTri(pos, [0, 0, -h], [0, 0, h], [1, 0, -h]);
+  pushTri(pos, [0, 0, h], [1, 0, h], [1, 0, -h]);
+  return flatGeometry(pos);
+};
+
+/** Low rounded mounds for hill tiles (two or three bumps; reads as "hills" from any zoom). */
+export const hillMoundGeometry = (): BufferGeometry => {
+  const bump = (r: number, x: number, z: number, h: number): BufferGeometry => {
+    const g = new SphereGeometry(r, 7, 4, 0, Math.PI * 2, 0, Math.PI / 2);
+    g.scale(1, h / r, 1);
+    g.translate(x, 0, z);
+    return g;
+  };
+  return merged([bump(0.34, -0.2, 0.12, 0.2), bump(0.28, 0.24, -0.06, 0.16), bump(0.2, 0.02, -0.34, 0.12)]);
+};
+
+/** Broadleaf jungle tree: round crown on a short trunk (vs conifer cones for forest). */
+export const broadleafGeometry = (): BufferGeometry => {
+  const trunk = new CylinderGeometry(0.035, 0.045, 0.16, 5);
+  trunk.translate(0, 0.08, 0);
+  const crown = new IcosahedronGeometry(0.17, 0);
+  crown.scale(1, 0.8, 1);
+  crown.translate(0, 0.27, 0);
+  return merged([trunk, crown]);
+};
+
+/** Resource marker shapes by class (terrain-style.ts RESOURCE_CLASS_STYLE). */
+export const resourceShapeGeometry = (cls: 'bonus' | 'luxury' | 'strategic'): BufferGeometry => {
+  switch (cls) {
+    case 'bonus': {
+      const g = new IcosahedronGeometry(0.1, 1);
+      g.translate(0, 0.1, 0);
+      return g;
+    }
+    case 'luxury': {
+      const g = new OctahedronGeometry(0.11);
+      g.scale(0.85, 1.35, 0.85);
+      g.translate(0, 0.15, 0);
+      return g;
+    }
+    case 'strategic':
+      return boxGeometry(0.15, 0.15, 0.15);
+  }
+};
+
+/** Low hexagonal city wall: six thin boxes on the edges of a hex of radius `r`. */
+export const wallGeometry = (r: number, height: number): BufferGeometry => {
+  const parts: BufferGeometry[] = [];
+  const apothem = r * Math.cos(Math.PI / 6);
+  for (let i = 0; i < 6; i++) {
+    // Pointy-top: edge normals point at 0°, 60°, … (east first), so build the east wall and spin it.
+    const b = new BoxGeometry(0.05, height, r * 1.02);
+    const a = (Math.PI / 3) * i;
+    b.translate(apothem, height / 2, 0);
+    b.rotateY(a);
+    parts.push(b);
+  }
+  return merged(parts);
+};
+
+/** City-state seat: a round tower with a conical roof (cities use a square keep). */
+export const towerGeometry = (): BufferGeometry => {
+  const body = new CylinderGeometry(0.12, 0.14, 0.46, 8);
+  body.translate(0, 0.23, 0);
+  const roof = new ConeGeometry(0.17, 0.2, 8);
+  roof.translate(0, 0.56, 0);
+  return merged([body, roof]);
+};
+
+/** Downward chevron floating over a unit that still has moves (subtle "ready" marker). */
+export const readyMarkerGeometry = (): BufferGeometry => {
+  const g = new ConeGeometry(0.07, 0.1, 4);
+  g.rotateX(Math.PI);
+  g.rotateY(Math.PI / 4);
+  g.translate(0, 0.05, 0);
+  return g;
+};
+
+/** Small heater shield (fortified marker); faces +z. */
+export const shieldGeometry = (): BufferGeometry => {
+  const top = new BoxGeometry(0.15, 0.1, 0.025);
+  top.translate(0, 0.13, 0);
+  const tip = new ConeGeometry(0.075 * Math.SQRT2, 0.09, 4);
+  tip.rotateX(Math.PI);
+  tip.rotateY(Math.PI / 4);
+  tip.scale(1, 1, 0.17);
+  tip.translate(0, 0.04, 0);
+  return merged([top, tip]);
 };
 
 export const disposeAll = (gs: readonly BufferGeometry[]): void => {

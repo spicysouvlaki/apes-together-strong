@@ -3,7 +3,7 @@
  */
 import { useEffect } from 'preact/hooks';
 import type { SaveMeta } from '@contracts/sim-api';
-import { MANUAL_SLOT_COUNT } from '../../platform/saves';
+import { PLAYER_SLOT_COUNT, RESUME_SLOT } from './saves-logic';
 import { TEXT_SCALE_MAX, TEXT_SCALE_MIN } from '../../platform/settings';
 import {
   askConfirm,
@@ -13,6 +13,7 @@ import {
   loadGame,
   lookup,
   openModal,
+  pushToast,
   refreshSaves,
   route,
   saveGame,
@@ -97,6 +98,11 @@ export function SavesPanel() {
   const list = saves.value;
   const inGame = route.value === 'game' && game.value !== null;
   const autos = list.filter((s) => s.slot.startsWith('auto:')).sort((a, b) => b.savedAt - a.savedAt);
+  const resume = list.find((s) => s.slot === RESUME_SLOT);
+  const save = (slot: string, n: number): void => {
+    saveGame(slot);
+    pushToast(`Saved to slot ${n}.`, 'good');
+  };
   const bySlot = new Map(list.map((s) => [s.slot, s]));
   const back = inGame ? () => openModal({ kind: 'menu' }) : undefined;
   return (
@@ -104,7 +110,18 @@ export function SavesPanel() {
       <Header title={inGame ? 'Save / Load' : 'Load game'} onBack={back} />
       <div class="screen-body">
         <div class="section-title">Autosaves</div>
-        {autos.length === 0 && <div class="small muted">No autosaves yet.</div>}
+        <p class="small muted mt4">Made at the start of each of your turns, and when you leave the app mid-turn.</p>
+        {autos.length === 0 && !resume && <div class="small muted">No autosaves yet.</div>}
+        {resume && (
+          <div class="card row">
+            <div class="grow small">
+              <strong>When you left</strong> · {describe(resume)}
+            </div>
+            <button class="btn" onClick={() => doLoad(resume.slot)}>
+              Load
+            </button>
+          </div>
+        )}
         {autos.map((m) => (
           <div class="card row" key={m.slot}>
             <div class="grow small">{describe(m)}</div>
@@ -114,7 +131,7 @@ export function SavesPanel() {
           </div>
         ))}
         <div class="section-title">Slots</div>
-        {Array.from({ length: MANUAL_SLOT_COUNT }, (_, i) => {
+        {Array.from({ length: PLAYER_SLOT_COUNT }, (_, i) => {
           const slot = `slot:${i}`;
           const m = bySlot.get(slot);
           return (
@@ -126,17 +143,18 @@ export function SavesPanel() {
                 {inGame && (
                   <button
                     class="btn"
+                    aria-label={`Save to slot ${i + 1}`}
                     onClick={() =>
                       m
-                        ? askConfirm({ title: `Overwrite slot ${i + 1}?`, confirmLabel: 'Overwrite', onConfirm: () => saveGame(slot) })
-                        : saveGame(slot)
+                        ? askConfirm({ title: `Overwrite slot ${i + 1}?`, confirmLabel: 'Overwrite', onConfirm: () => save(slot, i + 1) })
+                        : save(slot, i + 1)
                     }
                   >
                     Save here
                   </button>
                 )}
                 {m && (
-                  <button class="btn" onClick={() => doLoad(slot)}>
+                  <button class="btn" aria-label={`Load slot ${i + 1}`} onClick={() => doLoad(slot)}>
                     Load
                   </button>
                 )}
@@ -192,7 +210,7 @@ export function SettingsPanel() {
         <div class="section-title">Comfort</div>
         <label class="card row toggle">
           <span class="grow">Reduce motion</span>
-          <input type="checkbox" checked={s.reduceMotion} onChange={(e) => patchSettings({ reduceMotion: (e.target as HTMLInputElement).checked })} />
+          <input type="checkbox" aria-label="Reduce motion" checked={s.reduceMotion} onChange={(e) => patchSettings({ reduceMotion: (e.target as HTMLInputElement).checked })} />
         </label>
         <label class="card row toggle">
           <span class="grow">
@@ -201,6 +219,7 @@ export function SettingsPanel() {
           </span>
           <input
             type="checkbox"
+            aria-label="Colorblind patterns"
             checked={s.colorblindPatterns}
             onChange={(e) => patchSettings({ colorblindPatterns: (e.target as HTMLInputElement).checked })}
           />

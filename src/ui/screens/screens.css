@@ -57,7 +57,7 @@
 .scr-bar-tick { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: rgba(47, 42, 36, 0.35); }
 .scr-weights { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .scr-weight-row { display: flex; align-items: center; gap: 8px; font-size: 0.9rem; }
-.scr-weight-name { width: 76px; flex: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.scr-weight-name { width: 32%; max-width: 128px; flex: none; line-height: 1.15; overflow-wrap: anywhere; }
 .scr-weight-num { width: 24px; text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
 
 /* Sheets */
@@ -102,10 +102,14 @@
 .scr-tree svg { position: absolute; left: 0; top: 0; pointer-events: none; }
 .scr-node {
   position: absolute; border-radius: 12px; border: 1px solid var(--line); background: #fffaf0; padding: 8px 10px;
-  text-align: left; font: inherit; display: flex; flex-direction: column; justify-content: space-between; overflow: hidden;
+  text-align: left; font: inherit; display: flex; flex-direction: column; justify-content: flex-start; gap: 2px; overflow: hidden;
 }
 .scr-node-name { font-weight: 700; font-size: 0.88rem; line-height: 1.2; }
-.scr-node-meta { font-size: 0.75rem; color: var(--ink-soft); }
+.scr-node-meta { font-size: 0.75rem; color: var(--ink-soft); margin-top: auto; }
+.scr-node-desc {
+  font-size: 0.72rem; line-height: 1.25; color: var(--ink-soft); margin: 2px 0;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+}
 .scr-node-done { background: #e3ecd9; border-color: #b9cfa5; }
 .scr-node-researching { border: 2px solid var(--accent); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12); }
 .scr-node-available { border-color: var(--gold); }
@@ -136,13 +140,18 @@
 .scr-stat b { display: block; font-size: 1.6rem; }
 .scr-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .scr-rp { position: sticky; top: -12px; z-index: 1; background: var(--paper); padding: 8px 0; margin-top: -4px; border-bottom: 1px solid var(--line); }
+.scr-rp-help { margin: 4px 0 0; }
 .scr-trad { padding: 10px; }
 .scr-trad-owned { background: #e9f0e1; border-color: #b9cfa5; }
 .scr-trad-blocked { opacity: 0.8; }
 .scr-name-input { width: 100%; min-height: var(--tap); border-radius: 12px; border: 1px solid var(--line); padding: 0 12px; font: inherit; background: #fff; }
 
 /* Chronicle */
-.scr-chron-head { text-align: center; padding: 18px 10px 14px; border-radius: var(--radius); color: #fff; position: relative; overflow: hidden; }
+.scr-chron-head {
+  text-align: center; padding: 18px 10px 14px; border-radius: var(--radius); color: #fff; position: relative; overflow: hidden;
+  /* Banner colours can be light (white secondary): keep the white text readable on any of them. */
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.55), 0 0 1px rgba(0, 0, 0, 0.6);
+}
 .scr-chron-head h2 { font-family: Georgia, serif; font-size: 1.8rem; margin: 6px 0 4px; line-height: 1.15; }
 .scr-chron-motto { font-size: 1.5rem; font-family: Georgia, serif; }
 .scr-chron-head .small { opacity: 0.9; }

@@ -75,8 +75,12 @@ export const beginTransition = (ctx: SimCtx): void => {
   ctx.events.push({ type: 'transitionStarted', from, to });
 };
 
-/** Meter hit 100 in the final age: highest score wins, ties to the earlier player in turn order. */
-export const endGame = (ctx: SimCtx): void => {
+/**
+ * Meter hit 100 in the final age — or the game ended early (no human left alive, or one
+ * civilization standing; see sim/combat `checkGameOver`): highest score among the living wins,
+ * ties to the earlier player in turn order.
+ */
+export const endGame = (ctx: SimCtx, why?: string): void => {
   const { state, content } = ctx;
   state.crisis = null;
   const scores: Record<string, number> = {};
@@ -93,21 +97,21 @@ export const endGame = (ctx: SimCtx): void => {
   winner ??= state.playerOrder[0] ?? '';
   const age = ageName(state.age);
   state.phase = 'ended';
-  state.result = { winner, scores, reason: `Highest legacy score when the ${age} age ended` };
+  state.result = { winner, scores, reason: why ?? `Highest legacy score when the ${age} age ended` };
   ctx.events.push({ type: 'gameEnded', winner });
   const ranked = [...state.playerOrder].filter((id) => scores[id] !== undefined);
   for (const id of state.playerOrder) {
     const p = state.players[id];
     if (!p) continue;
     const rank = ranked.filter((o) => (scores[o] ?? 0) > (scores[id] ?? 0)).length + 1;
-    const name = p.civName ?? 'Your people';
+    const name = p.civName ?? 'This people';
     const who = name.charAt(0).toUpperCase() + name.slice(1);
     addChronicle(
       state,
       id,
       'age',
       state.age,
-      `The ${age} age closed and the chronicle ended. ${who} finished with a legacy score of ${p.score} (rank ${rank} of ${ranked.length}).`,
+      `${why ? `${why}.` : `The ${age} age closed and the chronicle ended.`} ${who} finished with a legacy score of ${p.score} (rank ${rank} of ${ranked.length}).`,
     );
   }
 };

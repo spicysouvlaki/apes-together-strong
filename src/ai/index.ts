@@ -91,7 +91,7 @@ const playTurn = (ai: AiCtx): void => {
   step(ai, sendEnvoys);
 
   // Units.
-  step(ai, moveMilitary);
+  step(ai, (a) => moveMilitary(a, plan ?? undefined));
   step(ai, moveScouts);
   step(ai, moveMerchants);
   // Activations that needed this turn's production choice (rush a wonder just started).

@@ -31,9 +31,16 @@ function ToastItem({ t }: { t: Toast }) {
   );
 }
 
+/** Map sheets leave the map in view; every other modal is a full screen. */
+const SHEET_KINDS: ReadonlySet<string> = new Set(['city', 'tileInfo']);
+
 export function Toasts() {
   const list = toasts.value;
   if (list.length === 0) return null;
+  // Held (not lost) while a full screen is up: unmounting pauses their timers, and they come
+  // back when the screen closes, so "war declared on us" survives a long decision screen.
+  const m = modal.value;
+  if (m && !SHEET_KINDS.has(m.kind)) return null;
   return (
     <div class="toasts" role="log" aria-live="polite">
       {list.map((t) => (

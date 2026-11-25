@@ -155,15 +155,26 @@ export const refreshSaves = (): void => client?.listSaves();
 
 export const openModal = (m: Modal): void => {
   modal.value = m;
+  // A toast that points here has been answered.
+  const key = JSON.stringify(m);
+  if (toasts.value.some((t) => t.action && JSON.stringify(t.action) === key)) {
+    toasts.value = toasts.value.filter((t) => !t.action || JSON.stringify(t.action) !== key);
+  }
 };
 export const closeModal = (): void => {
   modal.value = null;
 };
 
 let toastId = 1;
+/** Most important toast first; the stack is capped at 3 (newest batch wins over old ones). */
 export const pushToast = (text: string, tone: Toast['tone'] = 'info', action: Modal | null = null): void => {
-  const id = toastId++;
-  toasts.value = [...toasts.value.slice(-3), { id, text, action, tone }];
+  pushToasts([{ text, tone, action }]);
+};
+/** Adds an already-ranked batch above whatever is still showing, keeping at most 3. */
+export const pushToasts = (batch: readonly Omit<Toast, 'id'>[]): void => {
+  if (batch.length === 0) return;
+  const fresh = batch.map((t) => ({ ...t, id: toastId++ }));
+  toasts.value = [...fresh, ...toasts.value].slice(0, 3);
 };
 export const dismissToast = (id: number): void => {
   toasts.value = toasts.value.filter((t) => t.id !== id);

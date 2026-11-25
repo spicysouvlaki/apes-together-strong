@@ -45,9 +45,13 @@ const buyRefinements = (ai: AiCtx): void => {
         const t = content.traditions.find((x) => x.id === o.id);
         if (!t) continue;
         v = SCORE_PER_TRADITION + (t.tier === 'signature' ? SCORE_PER_SIGNATURE_EXTRA : 0) + 2 * modifiersScore(t.modifiers, ai.persona);
-        if (!refined.has(t.culture)) v += 6; // "refine N cultures" legacy milestone
+        const w = weights[t.culture] ?? 0;
+        // "Refine N cultures" legacy milestone — but only for peoples the civ really has; a
+        // lone figure is a guest, not a tradition (autoplay: one strong custom was bought by
+        // nearly every civ through a single figure, flattening cultures into one another).
+        if (!refined.has(t.culture)) v += w >= 2 ? 6 : 1;
         if (t.culture === top) v += 4; // climb the heaviest culture's ladder
-        v += Math.min(6, weights[t.culture] ?? 0) * 0.3;
+        v += Math.min(6, w) * 1.2 - (w <= 1 ? 6 : 0);
       }
       const ratio = v / Math.max(1, o.cost);
       if (ratio > bestValue || (ratio === bestValue && best !== null && o.id < best.id)) {

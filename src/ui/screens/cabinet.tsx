@@ -105,8 +105,8 @@ export const CabinetScreen = (_: ScreenProps<'cabinet'>) => {
       </Section>
 
       {picking && (
-        <Sheet title={`Seat a ${seatLabel(picking)}`} onCancel={() => setPicking(null)}>
-          {eligible.length === 0 && <Empty>No one at home suits this seat.</Empty>}
+        <Sheet title={`Who should be ${seatLabel(picking)}?`} onCancel={() => setPicking(null)}>
+          {eligible.length === 0 && <Empty>No one at home suits this seat. Figures in the field must come home first.</Empty>}
           {eligible.map((fs) => {
             const def = lookup.figures[fs.id];
             if (!def) return null;

@@ -144,7 +144,7 @@ const popLoss = (ctx: SimCtx): void => {
       s.population -= 1;
       lost++;
     }
-    if (lost > 0) ctx.events.push({ type: 'notice', player: p.id, text: `Sickness took people from ${lost} settlements.` });
+    if (lost > 0) ctx.events.push({ type: 'notice', player: p.id, text: `Sickness took people from ${lost} ${lost === 1 ? 'settlement' : 'settlements'}.` });
   }
 };
 

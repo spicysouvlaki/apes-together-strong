@@ -5,7 +5,15 @@ import { closeModal, content, dispatch, game, lookup, me, myTurn, openModal, q }
 import type { ScreenProps } from './index';
 import { Bar, Empty, Screen, Sheet } from './shared/components';
 import { ageLabel, describeModifiers } from './shared/describe';
-import { layoutTree, unlockedBy } from './shared/tree-layout';
+import { DEFAULT_TREE_METRICS, layoutTree, unlockedBy } from './shared/tree-layout';
+import { num } from '../shell/format';
+
+/** Taller cells than the default so each node can say what it gives; scales with text size. */
+const textScale = (): number => {
+  if (typeof document === 'undefined') return 1;
+  const v = Number(getComputedStyle(document.documentElement).getPropertyValue('--text-scale'));
+  return Number.isFinite(v) && v > 0 ? v : 1;
+};
 
 type NodeState = 'done' | 'researching' | 'available' | 'locked';
 
@@ -15,6 +23,21 @@ const STATE_LABEL: Record<NodeState, string> = {
   available: 'Available',
   locked: 'Locked',
 };
+
+/** What a node unlocks, each with its one-line effect from content. */
+const unlockDetails = (techId: string): { kind: string; name: string; text: string }[] => [
+  ...content.units
+    .filter((u) => u.requiresTech === techId && !u.figureKind)
+    .map((u) => ({
+      kind: 'Unit',
+      name: u.name,
+      text: [u.strength > 0 ? `⚔ ${u.strength}` : '', u.rangedStrength !== undefined ? `🏹 ${u.rangedStrength}` : '', `➜ ${u.moves}`]
+        .filter(Boolean)
+        .join(' · '),
+    })),
+  ...content.buildings.filter((b) => b.requiresTech === techId).map((b) => ({ kind: 'Building', name: b.name, text: b.description ?? '' })),
+  ...content.wonders.filter((w) => w.requiresTech === techId).map((w) => ({ kind: 'Wonder', name: w.name, text: w.description ?? '' })),
+];
 
 export const TreeScreen = ({ modal }: ScreenProps<'tree'>) => {
   const [detail, setDetail] = useState<string | null>(null);
@@ -26,7 +49,10 @@ export const TreeScreen = ({ modal }: ScreenProps<'tree'>) => {
   const tree = modal.tree;
   const nodes = content.techs.filter((t) => t.tree === tree && t.age === g.age);
   const earlierDone = content.techs.filter((t) => t.tree === tree && t.age !== g.age && p.techs.includes(t.id)).length;
-  const layout = layoutTree(nodes);
+  const k = Math.max(1, textScale());
+  const layout = layoutTree(nodes, { ...DEFAULT_TREE_METRICS, cellW: Math.round(150 * k), cellH: Math.round(112 * k) });
+  const glyph = tree === 'tech' ? '⚗' : '✿';
+  const pointName = tree === 'tech' ? 'science' : 'culture';
   const options = q.researchOptions(g, player, tree, content);
   const slot = p.research[tree];
   const byId: Record<string, Tech> = {};
@@ -61,7 +87,7 @@ export const TreeScreen = ({ modal }: ScreenProps<'tree'>) => {
         ))}
       </div>
       <p class="small muted">
-        {ageLabel(g.age)} age · {doneCount} of {nodes.length} done · +{perTurn} {tree === 'tech' ? 'science' : 'culture'} per turn
+        {ageLabel(g.age)} age · {doneCount} of {nodes.length} done · {glyph} +{num(perTurn)} {pointName} per turn
         {earlierDone > 0 && ` · ${earlierDone} earlier-age nodes completed`}
       </p>
       <div class="scr-legend-row small">
@@ -99,12 +125,15 @@ export const TreeScreen = ({ modal }: ScreenProps<'tree'>) => {
                   class={`scr-node scr-node-${st}`}
                   style={{ left: `${c.x}px`, top: `${c.y}px`, width: `${c.w}px`, height: `${c.h}px` }}
                   onClick={() => setDetail(n.id)}
-                  aria-label={`${n.name}, ${STATE_LABEL[st]}`}
+                  aria-label={`${n.name}, ${STATE_LABEL[st]}. ${n.description}`}
                 >
                   <span class="scr-node-name">{n.name}</span>
+                  <span class="scr-node-desc">{n.description}</span>
                   {st === 'researching' && <Bar value={slot.progress} max={n.cost} label={`${n.name} progress`} />}
                   <span class="scr-node-meta">
-                    {st === 'done' ? '✓ Done' : st === 'locked' ? `${n.cost}` : turns !== null ? `${n.cost} · ${turns} ${turns === 1 ? 'turn' : 'turns'}` : `${n.cost}`}
+                    {st === 'done'
+                      ? '✓ Done'
+                      : `${glyph} ${n.cost}${st !== 'locked' && turns !== null ? ` · ${turns} ${turns === 1 ? 'turn' : 'turns'}` : ''}`}
                   </span>
                 </button>
               );
@@ -126,9 +155,9 @@ export const TreeScreen = ({ modal }: ScreenProps<'tree'>) => {
                   dispatch({ type: 'setResearch', tree, id: node.id });
                   setDetail(null);
                 }}
-                aria-label={`Research ${node.name}`}
+                aria-label={`${tree === 'tech' ? 'Research' : 'Adopt'} ${node.name}`}
               >
-                Research {node.name}
+                {tree === 'tech' ? 'Research' : 'Adopt'} {node.name}
               </button>
             ) : undefined
           }
@@ -136,8 +165,8 @@ export const TreeScreen = ({ modal }: ScreenProps<'tree'>) => {
           <p class="scr-tag">{STATE_LABEL[nodeState]}</p>
           <p>{node.description}</p>
           <p class="small">
-            Cost {node.cost} {tree === 'tech' ? 'science' : 'culture'}
-            {turnsOf(node.id) !== null && ` · ${turnsOf(node.id)} turns`}
+            Cost {glyph} {node.cost} {pointName}
+            {turnsOf(node.id) !== null && ` · about ${turnsOf(node.id)} ${turnsOf(node.id) === 1 ? 'turn' : 'turns'}`}
             {nodeState === 'researching' && ` · ${Math.floor(slot.progress)} so far`}
           </p>
           {node.requires.length > 0 && (
@@ -151,17 +180,14 @@ export const TreeScreen = ({ modal }: ScreenProps<'tree'>) => {
             </ul>
           )}
           {unlocks.units.length + unlocks.buildings.length + unlocks.wonders.length > 0 && (
-            <div class="scr-chips">
-              {unlocks.units.map((n) => (
-                <span class="chip">Unit: {n}</span>
+            <ul class="scr-mods small" aria-label="Unlocks">
+              {unlockDetails(node.id).map((u) => (
+                <li>
+                  <b>{u.kind}: {u.name}</b>
+                  {u.text && <span class="muted"> · {u.text}</span>}
+                </li>
               ))}
-              {unlocks.buildings.map((n) => (
-                <span class="chip">Building: {n}</span>
-              ))}
-              {unlocks.wonders.map((n) => (
-                <span class="chip">Wonder: {n}</span>
-              ))}
-            </div>
+            </ul>
           )}
         </Sheet>
       )}

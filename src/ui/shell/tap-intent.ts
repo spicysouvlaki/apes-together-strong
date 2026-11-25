@@ -26,6 +26,8 @@ export interface TapInput {
   lastTap: { hex: Hex; cycleIndex: number } | null;
   /** SimQueries.atWar, bound to the state. */
   atWar: (a: PlayerId, b: PlayerId) => boolean;
+  /** Targets that need a declaration of war first (war-targets.ts). */
+  warTargets?: readonly { hex: Hex; owner: PlayerId }[];
 }
 
 /** Owner of whatever stands on an attackable hex: a unit first, else the settlement. */
@@ -47,6 +49,8 @@ export const resolveTap = (input: TapInput): TapIntent => {
     const needs = owner && owner !== RAIDER_PLAYER && !input.atWar(me, owner) ? owner : null;
     return { kind: 'attack', unit: sel.id, target: hex, declareWarOn: needs };
   }
+  const war = sel ? input.warTargets?.find((t) => hexEquals(t.hex, hex)) : undefined;
+  if (sel && war) return { kind: 'attack', unit: sel.id, target: hex, declareWarOn: war.owner };
   if (sel && input.reachable.some((h) => hexEquals(h, hex))) {
     return { kind: 'move', unit: sel.id, to: hex };
   }

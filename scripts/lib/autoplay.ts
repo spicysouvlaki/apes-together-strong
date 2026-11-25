@@ -33,6 +33,28 @@ export interface PlayerReport {
   figuresByCulture: Record<string, number>;
   traditions: string[];
   hybrids: string[];
+  /** Culture with the most figures (ties: most traditions, then content order); null if none. */
+  topCulture?: string | null;
+  /** Culture with the highest hidden affinity at the end (tooling only; never shown in game). */
+  topAffinity?: string | null;
+  /** Highest-affinity culture when each age ended. */
+  topAffinityByAge?: Partial<Record<Age, string | null>>;
+  /** Top three terrains among owned tiles at the end, e.g. "grassland 6, coast 4". */
+  homeTerrain?: string;
+  minHappiness?: number;
+  finalHappiness?: number;
+  /** Share of each tree's nodes completed when each age ended, e.g. { ancient: { tech: 0.7, civic: 0.6 } }. */
+  researchByAge?: Partial<Record<Age, { tech: number; civic: number }>>;
+  /** Wonders built: id, the wonder's age and the age it was finished in. */
+  wonders?: { id: string; wonderAge: Age | '?'; builtAge: Age }[];
+}
+
+export interface WarRecord {
+  by: PlayerId;
+  on: PlayerId;
+  turn: number;
+  age: Age;
+  ended: number | null;
 }
 
 export interface GameReport {
@@ -50,6 +72,13 @@ export interface GameReport {
   worstAiMs: number;
   slowTurns: number;
   wallSeconds: number;
+  /** Player-vs-player wars (declarations against city-states are not counted). */
+  wars?: WarRecord[];
+  /** Settlements captured: from/to, and whether the loser was a city-state. */
+  captures?: { from: string; to: string; turn: number; age: Age; cityState: boolean }[];
+  eliminations?: { player: PlayerId; by: PlayerId | null; turn: number; age: Age }[];
+  /** Combat events (unit vs unit or vs walls) by players, not raiders. */
+  battles?: number;
   /** Final state JSON, only kept for --verify. */
   finalJson?: string;
 }
@@ -77,6 +106,52 @@ export const setupFor = (seed: number, o: Options, content: ContentBundle): Game
   };
 };
 
+const argMax = (rec: Record<string, number>): string | null => {
+  let best: string | null = null;
+  let bestV = 0;
+  for (const [k, v] of Object.entries(rec)) {
+    if (v > bestV) {
+      bestV = v;
+      best = k;
+    }
+  }
+  return best;
+};
+
+/** Heaviest culture by figures; ties broken by traditions of that culture, then content order. */
+export const topCultureOf = (figuresByCulture: Record<string, number>, traditions: readonly string[], content: ContentBundle): string | null => {
+  const tradCulture = new Map((content.traditions ?? []).map((t) => [t.id, t.culture]));
+  const trad: Record<string, number> = {};
+  for (const t of traditions) {
+    const c = tradCulture.get(t);
+    if (c) trad[c] = (trad[c] ?? 0) + 1;
+  }
+  const order = (content.cultures ?? []).map((c) => c.id);
+  for (const c of Object.keys(figuresByCulture)) if (!order.includes(c)) order.push(c);
+  let best: string | null = null;
+  let bestKey = -Infinity;
+  for (const c of order) {
+    const key = (figuresByCulture[c] ?? 0) * 100 + (trad[c] ?? 0);
+    if (key > bestKey && key > 0) {
+      bestKey = key;
+      best = c;
+    }
+  }
+  return best;
+};
+
+const homeTerrain = (state: GameState, player: PlayerId): string => {
+  const tiles = state.map?.tiles;
+  if (!tiles) return '';
+  const counts: Record<string, number> = {};
+  for (const t of tiles) if (t.owner === player) counts[t.terrain] = (counts[t.terrain] ?? 0) + 1;
+  return Object.entries(counts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([k, v]) => `${k} ${v}`)
+    .join(', ');
+};
+
 export const playGame = (seed: number, o: Options, sim: Sim, runAiTurn: RunAiTurn, content: ContentBundle, keepJson: boolean): GameReport => {
   const started = performance.now();
   let created: { state: GameState; events: SimEvent[] };
@@ -89,10 +164,46 @@ export const playGame = (seed: number, o: Options, sim: Sim, runAiTurn: RunAiTur
   let state = created.state;
   const turnsPerAge: Partial<Record<Age, number>> = {};
   const offersPerAge: Partial<Record<Age, number>> = {};
+  const wars: WarRecord[] = [];
+  const captures: NonNullable<GameReport['captures']> = [];
+  const eliminations: NonNullable<GameReport['eliminations']> = [];
+  const researchByAge: Record<PlayerId, Partial<Record<Age, { tech: number; civic: number }>>> = {};
+  const wonders: Record<PlayerId, NonNullable<PlayerReport['wonders']>> = {};
+  const minHappiness: Record<PlayerId, number> = {};
+  const affinityByAge: Record<PlayerId, Partial<Record<Age, string | null>>> = {};
+  let battles = 0;
+  const isPlayer = (id: string): boolean => (state.playerOrder ?? []).includes(id);
+  const techs = content.techs ?? [];
+  const wonderAge = new Map((content.wonders ?? []).map((w) => [w.id, w.age]));
   const tally = (events: SimEvent[]): void => {
     for (const e of events) {
       if (e.type === 'turnStarted') turnsPerAge[state.age] = (turnsPerAge[state.age] ?? 0) + 1;
       if (e.type === 'offerCreated') offersPerAge[state.age] = (offersPerAge[state.age] ?? 0) + 1;
+      if (e.type === 'warDeclared' && isPlayer(e.on)) wars.push({ by: e.by, on: e.on, turn: state.turn, age: state.age, ended: null });
+      if (e.type === 'peaceMade') {
+        const w = wars.find((x) => x.ended === null && ((x.by === e.a && x.on === e.b) || (x.by === e.b && x.on === e.a)));
+        if (w) w.ended = state.turn;
+      }
+      if (e.type === 'settlementCaptured') captures.push({ from: e.from, to: e.to, turn: state.turn, age: state.age, cityState: !isPlayer(e.from) });
+      if (e.type === 'playerEliminated') eliminations.push({ player: e.player, by: e.by, turn: state.turn, age: state.age });
+      if (e.type === 'combat' && isPlayer(e.attackerOwner)) battles++;
+      if (e.type === 'wonderBuilt') (wonders[e.player] ??= []).push({ id: e.wonder, wonderAge: wonderAge.get(e.wonder) ?? '?', builtAge: state.age });
+      if (e.type === 'ageEnded') {
+        for (const id of state.playerOrder ?? []) {
+          const p = state.players[id];
+          if (!p?.techs) continue;
+          const share = (tree: 'tech' | 'civic'): number => {
+            const nodes = techs.filter((t) => t.age === e.age && t.tree === tree);
+            return nodes.length ? nodes.filter((t) => p.techs.includes(t.id)).length / nodes.length : 0;
+          };
+          (researchByAge[id] ??= {})[e.age] = { tech: share('tech'), civic: share('civic') };
+          (affinityByAge[id] ??= {})[e.age] = argMax(p.affinity ?? {});
+        }
+      }
+    }
+    for (const id of state.playerOrder ?? []) {
+      const h = state.players[id]?.happiness;
+      if (typeof h === 'number' && state.players[id]?.alive) minHappiness[id] = Math.min(minHappiness[id] ?? Infinity, h);
     }
   };
   tally(created.events);
@@ -189,6 +300,13 @@ export const playGame = (seed: number, o: Options, sim: Sim, runAiTurn: RunAiTur
       figuresByCulture,
       traditions: [...p.traditions],
       hybrids: [...p.hybrids],
+      topCulture: topCultureOf(figuresByCulture, p.traditions, content),
+      topAffinity: argMax(p.affinity ?? {}),
+      topAffinityByAge: affinityByAge[id] ?? {},
+      homeTerrain: homeTerrain(state, id),
+      ...(minHappiness[id] !== undefined ? { minHappiness: minHappiness[id], finalHappiness: p.happiness } : {}),
+      researchByAge: researchByAge[id] ?? {},
+      wonders: wonders[id] ?? [],
     };
   }
   const total = times.reduce((a, b) => a + b, 0);
@@ -207,6 +325,10 @@ export const playGame = (seed: number, o: Options, sim: Sim, runAiTurn: RunAiTur
     worstAiMs: times.length ? Math.max(...times) : 0,
     slowTurns: times.filter((t) => t > AI_TURN_BUDGET_MS).length,
     wallSeconds: (performance.now() - started) / 1000,
+    wars,
+    captures,
+    eliminations,
+    battles,
     ...(keepJson ? { finalJson: JSON.stringify(state) } : {}),
   };
 };

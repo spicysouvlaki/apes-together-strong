@@ -13,6 +13,7 @@ import {
   CELEBRATION_YIELD_PERCENT,
   CITY_BASE_YIELDS,
   CITY_CENTER_MIN_YIELDS,
+  COLD_FOOD_PENALTY,
   FEATURE_YIELDS,
   FREE_MILITARY_UNITS,
   GROWTH_BASE,
@@ -37,7 +38,7 @@ import {
   WORK_RADIUS,
 } from './constants';
 import { ci, playerSettlements, round2, tileAt, tilesInRange } from './lookup';
-import { buildingModifiers, empireModifiers, sumAdd, yieldMods, type CondEnv } from './modifiers';
+import { buildingModifiers, empireModifiers, hasIgnoreCold, sumAdd, yieldMods, type CondEnv } from './modifiers';
 
 export type YieldRecord = Record<YieldType, number>;
 
@@ -86,6 +87,9 @@ export const tileYield = (
     if (r) addYields(out, { ...r.yields, happiness: 0 });
   }
   if (tile.river) out.gold += RIVER_GOLD;
+  // Cold (polar climate) tiles feed less, unless an `ignoreCold` modifier applies (Inuit
+  // traditions, Greenland Crossing): the rule those modifiers lift.
+  if (tile.climate === 'polar' && !hasIgnoreCold(mods)) out.food -= COLD_FOOD_PENALTY;
   const env: CondEnv = { state, content, player, tile };
   if (settlement) env.settlement = settlement;
   const tm = yieldMods(mods, 'tile', env);

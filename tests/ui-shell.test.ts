@@ -231,3 +231,103 @@ describe('hexutil', () => {
     expect(tileIndexOf(s.map, { q: -100, r: 0 })).toBeNull();
   });
 });
+
+describe('playtest fixes (shell)', () => {
+  it('nudges "Found city" first while the player has no settlement, but never over an offer', async () => {
+    const { firstFounder } = await import('../src/ui/shell/hexutil');
+    const s = newGame();
+    const canFound = (t: string) => !!content.units.find((u) => u.id === t)?.canFound;
+    const founder = firstFounder(s, 'p1', canFound);
+    expect(founder).toBe(unitOf(s, 'settler').id);
+    const all = () => true;
+    expect(planEndTurn([{ type: 'government' }], all, founder)).toMatchObject({ mode: 'next', next: { type: 'found', unit: founder } });
+    expect(planEndTurn([{ type: 'offer', offer: 'o1' }], all, founder).next).toEqual({ type: 'offer', offer: 'o1' });
+    expect(decisionModal({ type: 'found', unit: 'u1' })).toBeNull();
+    const founded = apply(s, { type: 'foundSettlement', unit: founder! });
+    expect(firstFounder(founded, 'p1', canFound)).toBeNull();
+  });
+
+  it('ranks a turn-start batch: threats first, duplicates folded, overflow summarised', async () => {
+    const { rankToasts, toastPriority } = await import('../src/ui/shell/event-toasts');
+    const info = { text: 'grew', tone: 'info' as const, action: null };
+    const war = { text: 'war on us', tone: 'bad' as const, action: { kind: 'diplomacy' as const } };
+    const offer = { text: 'offer', tone: 'culture' as const, action: { kind: 'offer' as const, offer: 'o1' } };
+    const crisisA = { text: 'crisis began', tone: 'bad' as const, action: { kind: 'crisis' as const } };
+    const crisisB = { text: 'stage 1', tone: 'bad' as const, action: { kind: 'crisis' as const } };
+    expect(toastPriority(war)).toBeLessThan(toastPriority(offer));
+    expect(rankToasts([info, offer, war]).map((t) => t.text)).toEqual(['war on us', 'offer', 'grew']);
+    expect(rankToasts([crisisA, crisisB]).map((t) => t.text)).toEqual(['crisis began']);
+    const many = rankToasts([info, info, info, war, offer]);
+    expect(many).toHaveLength(3);
+    expect(many.map((t) => t.text)).toEqual(['war on us', 'offer', '+3 more updates this turn.']);
+  });
+
+  it('turns combat into plain-words toasts for the human only', () => {
+    const names: EventNames = {
+      owner: (id) => (id === 'raiders' ? 'Raiders' : `Owner ${id}`),
+      figure: (id) => id,
+      settlement: () => null,
+      item: (id) => id,
+      research: (id) => id,
+      milestone: (k) => k,
+      crisis: (id) => id,
+      deed: (id) => id,
+      unit: (id) => (id === 'u1' ? 'Warrior band' : 'Slinger'),
+    };
+    const base = { type: 'combat' as const, at: { q: 0, r: 0 }, damageToAttacker: 23, damageToDefender: 40, attackerDied: false, defenderDied: true };
+    const mine = eventToToast({ ...base, attacker: 'u1', attackerOwner: 'p1', defender: 'u9', defenderOwner: 'raiders' }, 'p1', names);
+    expect(mine).toMatchObject({ tone: 'good' });
+    expect(mine?.text).toBe('Raiders’ Slinger was destroyed; ours lost 23.');
+    const hit = eventToToast({ ...base, defenderDied: false, attacker: 'u9', attackerOwner: 'p2', defender: 'u1', defenderOwner: 'p1' }, 'p1', names);
+    expect(hit).toMatchObject({ tone: 'bad', text: 'Owner p2 attacked: our Warrior band lost 40 HP.' });
+    expect(eventToToast({ ...base, attacker: 'u9', attackerOwner: 'p2', defender: 'u8', defenderOwner: 'p3' }, 'p1', names)).toBeNull();
+  });
+
+  it('explains what the selected unit can do next', async () => {
+    const { unitHint } = await import('../src/ui/shell/unit-hints');
+    const base = { isFounder: false, canFound: false, isTrader: false, tradeTargets: 0, movesLeft: 2, canMove: true, canAttack: false, hasAttacked: false, military: true };
+    expect(unitHint(base)).toBe('Tap a lit tile to move.');
+    expect(unitHint({ ...base, canAttack: true })).toBe('Tap a red tile to attack. Tap a lit tile to move.');
+    expect(unitHint({ ...base, movesLeft: 0, canMove: false })).toMatch(/No moves left/);
+    expect(unitHint({ ...base, isFounder: true, military: false })).toMatch(/Can’t settle here/);
+    expect(unitHint({ ...base, isFounder: true, canFound: true })).toMatch(/Found settlement/);
+    expect(unitHint({ ...base, isTrader: true })).toMatch(/trade route/);
+  });
+
+  it('Continue picks the newest of the last autosave and the resume save', async () => {
+    const { continueSave, RESUME_SLOT, PLAYER_SLOT_COUNT } = await import('../src/ui/shell/saves-logic');
+    const meta = (slot: string, savedAt: number) => ({ slot, savedAt, turn: 1, age: 'ancient' as const, civName: null, leader: 'sage' });
+    expect(continueSave([meta('auto:0', 10), meta(RESUME_SLOT, 20), meta('slot:0', 30)])?.slot).toBe(RESUME_SLOT);
+    expect(continueSave([meta('auto:0', 30), meta(RESUME_SLOT, 20)])?.slot).toBe('auto:0');
+    expect(continueSave([meta('slot:2', 5)])?.slot).toBe('slot:2');
+    expect(continueSave([])).toBeNull();
+    expect(RESUME_SLOT).toBe(`slot:${PLAYER_SLOT_COUNT}`);
+  });
+});
+
+describe('war targets (attack a neutral = declare war first)', () => {
+  it('asks the attack query about a hypothetical war and keeps only visible targets of that owner', async () => {
+    const { peacefulOwners, warTargetsFor } = await import('../src/ui/shell/war-targets');
+    const { warKey } = await import('@contracts/sim-api');
+    const s = newGame();
+    expect(peacefulOwners(s, 'p1')).toContain('p2');
+    const mineMil = Object.values(s.units).find((u) => u.owner === 'p1' && u.unitClass !== 'civilian')!;
+    const theirs = Object.values(s.units).find((u) => u.owner === 'p2')!;
+    const idx = tileIndexOf(s.map, theirs.at)!;
+    const query = (st: GameState) => (st.wars[warKey('p1', 'p2')] !== undefined ? [theirs.at] : []);
+    expect(warTargetsFor(s, 'p1', mineMil.id, query, new Set([idx]))).toEqual([{ hex: theirs.at, owner: 'p2' }]);
+    expect(warTargetsFor(s, 'p1', mineMil.id, query, new Set())).toEqual([]); // hidden: no leak
+    const tap = resolveTap({
+      state: s,
+      me: 'p1',
+      hex: theirs.at,
+      selectedUnit: mineMil.id,
+      reachable: [],
+      attackable: [],
+      lastTap: null,
+      atWar: atPeace,
+      warTargets: [{ hex: theirs.at, owner: 'p2' }],
+    });
+    expect(tap).toEqual({ kind: 'attack', unit: mineMil.id, target: theirs.at, declareWarOn: 'p2' });
+  });
+});

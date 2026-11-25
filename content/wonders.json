@@ -1,12 +1,12 @@
 [
-  { "id": "step_pyramid", "name": "Step Pyramid", "age": "ancient", "cost": 180, "culture": "egyptian", "affinity": 25,
+  { "id": "step_pyramid", "name": "Step Pyramid", "age": "ancient", "cost": 135, "culture": "egyptian", "affinity": 25,
     "yields": { "culture": 2, "faith": 1 }, "gp": { "building": 2 }, "requiresTech": "masonry",
     "description": "+2 culture, +1 faith; +2 building great-people points per turn.",
     "history": {
       "note": "Built at Saqqara for King Djoser around 2650 BCE, traditionally credited to his official Imhotep; Egypt's first monumental stone building.",
       "source": "Encyclopaedia Britannica, 'Step Pyramid of Djoser'"
     } },
-  { "id": "great_pyramid", "name": "Great Pyramid of Giza", "age": "ancient", "cost": 240, "culture": "egyptian", "affinity": 30,
+  { "id": "great_pyramid", "name": "Great Pyramid of Giza", "age": "ancient", "cost": 180, "culture": "egyptian", "affinity": 30,
     "yields": { "culture": 2 }, "gp": { "building": 3 }, "requiresTech": "mathematics",
     "modifiers": [{ "scope": "empire", "effect": { "kind": "cost", "target": "wonder", "percent": -10 } }],
     "description": "+2 culture; +3 building great-people points per turn; other wonders cost 10% less.",
@@ -14,7 +14,7 @@
       "note": "Built for King Khufu at Giza around 2560 BCE from some 2.3 million blocks. The excavated workers' town shows it was raised by organized crews and rotating labor levies who were fed and housed, not by enslaved masses.",
       "source": "M. Lehner and Z. Hawass, Giza and the Pyramids (2017); Encyclopaedia Britannica, 'Pyramids of Giza'"
     } },
-  { "id": "oracle_of_delphi", "name": "Oracle of Delphi", "age": "ancient", "cost": 190, "culture": "greek", "affinity": 25,
+  { "id": "oracle_of_delphi", "name": "Oracle of Delphi", "age": "ancient", "cost": 145, "culture": "greek", "affinity": 25,
     "yields": { "faith": 2, "influence": 2 }, "gp": { "faith": 2 }, "requiresTech": "mysticism",
     "modifiers": [{ "scope": "empire", "effect": { "kind": "gpPoints", "gp": "faith", "percent": 15 } }],
     "description": "+2 faith, +2 influence; +2 faith great-people points per turn; faith great-people points +15%.",
@@ -22,7 +22,7 @@
       "note": "From about the 8th century BCE the Pythia, priestess of Apollo at Delphi, gave oracles that Greek cities sought before founding colonies or going to war. Grateful cities filled the sanctuary with treasuries and offerings.",
       "source": "Encyclopaedia Britannica, 'Delphi'; UNESCO, 'Archaeological Site of Delphi'"
     } },
-  { "id": "lion_gate", "name": "Lion Gate of Mycenae", "age": "ancient", "cost": 180, "culture": "greek", "affinity": 20,
+  { "id": "lion_gate", "name": "Lion Gate of Mycenae", "age": "ancient", "cost": 135, "culture": "greek", "affinity": 20,
     "yields": { "production": 1, "culture": 1 }, "gp": { "military": 2 }, "requiresTech": "bronze_working",
     "modifiers": [{ "scope": "unit", "effect": { "kind": "combat", "add": 3, "vs": "siege" } }],
     "description": "+1 production, +1 culture; +2 military great-people points per turn; all units +3 combat strength against siege units.",
@@ -30,7 +30,7 @@
       "note": "Main entrance of Mycenae, built around 1250 BCE in walls so massive that later Greeks said Cyclopes raised them. Its two carved lions are among the oldest monumental sculptures in Europe.",
       "source": "Encyclopaedia Britannica, 'Lion Gate'; UNESCO, 'Archaeological Sites of Mycenae and Tiryns'"
     } },
-  { "id": "houmuwu_ding", "name": "Houmuwu Ding", "age": "ancient", "cost": 190, "culture": "chinese", "affinity": 25,
+  { "id": "houmuwu_ding", "name": "Houmuwu Ding", "age": "ancient", "cost": 145, "culture": "chinese", "affinity": 25,
     "yields": { "production": 2, "culture": 2 }, "gp": { "building": 2 }, "requiresTech": "bronze_working",
     "modifiers": [{ "scope": "tile", "when": { "resource": ["copper"] }, "effect": { "kind": "yield", "yield": "production", "add": 1 } }],
     "description": "+2 production, +2 culture; +2 building great-people points per turn; +1 production on Copper tiles.",
@@ -38,7 +38,7 @@
       "note": "A bronze ritual cauldron cast at Anyang in the late Shang dynasty (c. 13th–11th century BCE) for a royal mother; its name is also read Simuwu. At about 833 kg it is the heaviest bronze vessel known from ancient China.",
       "source": "National Museum of China, 'Houmuwu Ding'; Encyclopaedia Britannica, 'Anyang'"
     } },
-  { "id": "marib_dam", "name": "Marib Dam", "age": "ancient", "cost": 200, "culture": "arab", "affinity": 25,
+  { "id": "marib_dam", "name": "Marib Dam", "age": "ancient", "cost": 150, "culture": "arab", "affinity": 25,
     "yields": { "food": 2 }, "gp": { "building": 1 }, "requiresTech": "irrigation",
     "modifiers": [{ "scope": "tile", "when": { "terrain": ["desert"] }, "effect": { "kind": "yield", "yield": "food", "add": 1 } }],
     "description": "+2 food; +1 building great-people point per turn; +1 food on desert tiles.",
@@ -46,7 +46,7 @@
       "note": "The Sabaeans of South Arabia dammed Wadi Dhana at Marib from at least the 8th century BCE, turning floodwater into oasis fields that fed their kingdom. Its final breach, around 570 CE, is remembered in Arabic tradition.",
       "source": "Encyclopaedia Britannica, 'Maʾrib'; UNESCO, 'Landmarks of the Ancient Kingdom of Saba, Marib'"
     } },
-  { "id": "tanum_rock_carvings", "name": "Tanum Rock Carvings", "age": "ancient", "cost": 160, "culture": "norse", "affinity": 20,
+  { "id": "tanum_rock_carvings", "name": "Tanum Rock Carvings", "age": "ancient", "cost": 120, "culture": "norse", "affinity": 20,
     "yields": { "culture": 2, "faith": 1 }, "gp": { "exploration": 2 }, "requiresTech": "sailing",
     "modifiers": [{ "scope": "empire", "effect": { "kind": "gpPoints", "gp": "exploration", "percent": 15 } }],
     "description": "+2 culture, +1 faith; +2 exploration great-people points per turn; exploration great-people points +15%.",
@@ -54,7 +54,7 @@
       "note": "Hundreds of carved rock panels at Tanum in Bohuslän, Sweden, made by Nordic Bronze Age communities roughly 1700–500 BCE, show ships, ploughing, hunting and ritual, long before the Viking Age.",
       "source": "UNESCO, 'Rock Carvings in Tanum'"
     } },
-  { "id": "dolmen_of_menga", "name": "Dolmen of Menga", "age": "ancient", "cost": 160, "culture": "spanish", "affinity": 20,
+  { "id": "dolmen_of_menga", "name": "Dolmen of Menga", "age": "ancient", "cost": 120, "culture": "spanish", "affinity": 20,
     "yields": { "faith": 2, "culture": 1 }, "gp": { "faith": 2 }, "requiresTech": "ancestor_worship",
     "description": "+2 faith, +1 culture; +2 faith great-people points per turn.",
     "history": {

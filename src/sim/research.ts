@@ -6,7 +6,7 @@ import type { ContentBundle } from '@contracts/content-schemas';
 import type { GameState, PlayerId, ResearchOption } from '@contracts/sim-api';
 import { syncCabinet } from '../emergence';
 import { addAgeProgress } from './ages';
-import { ANARCHY_TURNS, TREE_COMPLETE_AGE_PROGRESS } from './constants';
+import { AGE_INDEX, ANARCHY_TURNS, TREE_COMPLETE_AGE_PROGRESS } from './constants';
 import type { SimCtx } from './ctx';
 import { ruleAge } from './lookup';
 
@@ -25,7 +25,11 @@ export const researchOptionsFor = (
   const slot = p.research[tree];
   const out: ResearchOption[] = [];
   for (const t of content.techs) {
-    if (t.tree !== tree || t.age !== state.age || known.has(t.id)) continue;
+    // Unfinished nodes of earlier ages stay researchable at their original cost (otherwise a
+    // skipped ancient node like Trade locks merchants out forever). They never count toward
+    // the new age's tree-completion meter bonus or the techsResearched milestone, which both
+    // count current-age nodes only.
+    if (t.tree !== tree || AGE_INDEX[t.age] > AGE_INDEX[state.age] || known.has(t.id)) continue;
     if (!t.requires.every((r) => known.has(r))) continue;
     const perTurn = income ?? (tree === 'tech' ? p.income.science : p.income.culture);
     const left = Math.max(0, t.cost - (slot.current === t.id ? slot.progress : 0));
@@ -66,10 +70,38 @@ export const advanceResearch = (ctx: SimCtx, player: PlayerId, tree: Tree, point
   if (node.age === state.age && treeNodes.every((t) => p.techs.includes(t.id))) addAgeProgress(ctx, TREE_COMPLETE_AGE_PROGRESS);
 };
 
+/**
+ * Governments of the current (or, during a transition, the next) age. GDD §7: "Civics unlock
+ * governments" — a government named by some tree node's `unlock government` effect needs one
+ * of those nodes researched; governments no node unlocks are open from the start of their age.
+ */
 export const governmentOptionsFor = (state: GameState, player: PlayerId, content: ContentBundle): string[] => {
-  if (!state.players[player]) return [];
+  const p = state.players[player];
+  if (!p) return [];
   const age = ruleAge(state);
-  return content.governments.filter((g) => g.age === age).map((g) => g.id);
+  return content.governments
+    .filter((g) => g.age === age)
+    .filter((g) => {
+      const unlockers = governmentUnlockers(content)[g.id];
+      return !unlockers || unlockers.some((t) => p.techs.includes(t));
+    })
+    .map((g) => g.id);
+};
+
+const unlockerCache = new WeakMap<ContentBundle, Record<string, string[]>>();
+/** government id -> ids of tree nodes whose modifiers unlock it. */
+const governmentUnlockers = (content: ContentBundle): Record<string, string[]> => {
+  let map = unlockerCache.get(content);
+  if (!map) {
+    map = {};
+    for (const t of content.techs) {
+      for (const m of t.modifiers) {
+        if (m.effect.kind === 'unlock' && m.effect.what === 'government') (map[m.effect.id] ??= []).push(t.id);
+      }
+    }
+    unlockerCache.set(content, map);
+  }
+  return map;
 };
 
 /** Free when there is no government yet or during the transition; otherwise 2 turns of anarchy (GDD §7). */

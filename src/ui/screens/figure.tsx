@@ -4,10 +4,11 @@ import type { FigureState } from '@contracts/sim-api';
 import { content, dispatch, game, lookup, me, myTurn, ownerName, q } from '../store';
 import type { ScreenProps } from './index';
 import { ConfirmSheet, Empty, FigureCard, Screen, Section, Sheet } from './shared/components';
-import { ancestorYield, consumeBurstText } from './shared/describe';
-import { slotIdOfKey, whereText } from './shared/figures';
+import { ancestorYield, consumeBurstText, describeActivate } from './shared/describe';
+import { seatBlockedReason, slotIdOfKey, whereText } from './shared/figures';
+import { CABINET_COOLDOWN_TURNS } from '../../emergence/constants';
 
-type Pending = null | 'seat' | 'deploy' | 'activate' | 'consume' | 'consume-rp' | 'consume-yields';
+type Pending = null | 'seat' | 'deploy' | 'unseat' | 'activate' | 'consume' | 'consume-rp' | 'consume-yields';
 
 /** "Warleader", or "Warleader (2nd)" when a government has two of the same seat. */
 export const seatLabel = (key: string): string => {
@@ -20,7 +21,9 @@ const statusLine = (fs: FigureState | undefined, mine: boolean): string => {
   if (!fs) return 'Not in anyone’s service.';
   if (!mine) return `Serves ${ownerName(fs.owner)}.`;
   const g = game.value;
-  return g ? whereText(g, fs, content) : '';
+  if (!g) return '';
+  const where = whereText(g, fs, content);
+  return fs.location.state === 'seated' ? `Seated in your cabinet as ${where}` : where;
 };
 
 export const FigureScreen = ({ modal }: ScreenProps<'figure'>) => {
@@ -51,9 +54,10 @@ export const FigureScreen = ({ modal }: ScreenProps<'figure'>) => {
   const reasons: string[] = [];
   if (mine && a) {
     if (!turn) reasons.push('You can act on your turn.');
-    if (def.uses.includes('cabinet') && a.seat.length === 0 && loc === 'based') {
-      reasons.push(p && p.anarchyTurns > 0 ? 'No cabinet during anarchy.' : 'No free cabinet seat suits them right now.');
+    if (def.uses.includes('cabinet') && a.seat.length === 0 && loc === 'based' && p) {
+      reasons.push(seatBlockedReason(p, def, g.turn, content, seatLabel, (id) => lookup.figures[id]?.name ?? 'someone'));
     }
+    if (loc === 'seated' && !a.canUnseat && p && p.anarchyTurns > 0) reasons.push('No cabinet changes during anarchy.');
     if (def.uses.includes('unit') && loc === 'based' && a.deploy.length === 0) reasons.push('They can only take the field from one of your cities.');
     if (loc === 'unit' && !a.canRecall) reasons.push('Move them into one of your settlements to bring them home.');
     if (def.activate && def.uses.includes('activate') && !a.canActivate && (loc === 'based' || loc === 'seated' || loc === 'unit')) {
@@ -75,7 +79,7 @@ export const FigureScreen = ({ modal }: ScreenProps<'figure'>) => {
           </button>
         ),
         loc === 'seated' && (
-          <button class="btn" disabled={!turn || !a.canUnseat} onClick={() => run({ type: 'unseatFigure', figure: def.id })} aria-label="Unseat from the cabinet">
+          <button class="btn" disabled={!turn || !a.canUnseat} onClick={() => setPending('unseat')} aria-label="Unseat from the cabinet">
             Unseat
           </button>
         ),
@@ -120,6 +124,42 @@ export const FigureScreen = ({ modal }: ScreenProps<'figure'>) => {
           <p class="muted">They left play. They add nothing to your Legacy score.</p>
         </Section>
       )}
+      {mine && buttons.length > 0 && (
+        <Section title="What you can do">
+          <ul class="scr-mods small muted">
+            {loc === 'based' && def.uses.includes('cabinet') && (
+              <li>
+                <b>Seat</b>: put them in a cabinet seat; their seat bonus applies every turn.
+              </li>
+            )}
+            {loc === 'seated' && (
+              <li>
+                <b>Unseat</b>: they go home; the empty seat cannot be refilled for {CABINET_COOLDOWN_TURNS} turns.
+              </li>
+            )}
+            {loc === 'based' && def.uses.includes('unit') && (
+              <li>
+                <b>Deploy</b>: they take the field as a unit, with the bonus above for them and units beside them.
+              </li>
+            )}
+            {loc === 'unit' && (
+              <li>
+                <b>Recall</b>: bring them home from inside one of your settlements.
+              </li>
+            )}
+            {def.uses.includes('activate') && def.activate && (
+              <li>
+                <b>Activate</b>: a one-time deed; then they retire to the Hall of Ancestors.
+              </li>
+            )}
+            {a?.canConsume && (
+              <li>
+                <b>Consume</b>: they leave play for good in exchange for the reward above.
+              </li>
+            )}
+          </ul>
+        </Section>
+      )}
       {reasons.length > 0 && (
         <Section title="Why some actions are unavailable">
           <ul class="scr-mods small muted">
@@ -150,6 +190,18 @@ export const FigureScreen = ({ modal }: ScreenProps<'figure'>) => {
           ))}
         </Sheet>
       )}
+      {pending === 'unseat' && (
+        <ConfirmSheet
+          title={`Unseat ${def.name}?`}
+          confirmLabel="Unseat"
+          onConfirm={() => run({ type: 'unseatFigure', figure: def.id })}
+          onCancel={() => setPending(null)}
+        >
+          <p>
+            They go home and their seat bonus stops. The empty seat cannot be filled again for {CABINET_COOLDOWN_TURNS} turns.
+          </p>
+        </ConfirmSheet>
+      )}
       {pending === 'activate' && def.activate && (
         <ConfirmSheet
           title={`Activate ${def.name}?`}
@@ -157,7 +209,10 @@ export const FigureScreen = ({ modal }: ScreenProps<'figure'>) => {
           onConfirm={() => run({ type: 'activateFigure', figure: def.id })}
           onCancel={() => setPending(null)}
         >
-          <p>This happens once. Afterwards {def.name} retires to the Hall of Ancestors ({ancestorYield(def.kind)}).</p>
+          <p>
+            <b>{describeActivate(def.activate.effect, def.activate.amount)}.</b> This happens once. Afterwards {def.name} retires to the Hall of
+            Ancestors ({ancestorYield(def.kind)}).
+          </p>
         </ConfirmSheet>
       )}
       {pending === 'consume' && (

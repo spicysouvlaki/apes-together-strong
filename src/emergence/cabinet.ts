@@ -67,6 +67,18 @@ export const syncCabinet = (ctx: SimCtx, player: PlayerId): void => {
   p.cabinetCooldown = cooldown;
 };
 
+/**
+ * Add seats that modifiers grant but the cabinet does not have yet (a tradition, hybrid or
+ * tree node with a `cabinetSlot` effect). Run every turn start: without it such seats only
+ * appeared at the next government change. Never removes seats (that stays with
+ * `syncCabinet`, so anarchy cannot unseat anyone).
+ */
+export const addMissingSeats = (state: GameState, player: PlayerId, content: ContentBundle): void => {
+  const p = state.players[player];
+  if (!p || p.government === null) return;
+  for (const k of cabinetKeys(state, player, content)) if (!(k in p.cabinet)) p.cabinet[k] = null;
+};
+
 export const cabinetSeats = (state: GameState, player: PlayerId, _content: ContentBundle): CabinetSeat[] => {
   const p = state.players[player];
   if (!p) return [];

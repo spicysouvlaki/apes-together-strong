@@ -19,7 +19,7 @@ export const ChronicleScreen = (_: ScreenProps<'chronicle'>) => {
 
   const newGame = () => {
     modal.value = null;
-    route.value = 'title';
+    route.value = 'setup';
   };
 
   return (

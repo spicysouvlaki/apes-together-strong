@@ -45,8 +45,10 @@ export const PALETTE = {
   soil: '#8a6a4a',
   waterSide: '#4f8396',
   river: '#6fa8c8',
-  forest: '#5e8a4e',
-  jungle: '#3f7a46',
+  /** River ribbons: saturated so they read over every land color. */
+  riverRibbon: '#2f86c6',
+  forest: '#4f7d42',
+  jungle: '#2f8a4c',
   marsh: '#7fa392',
   oasis: '#4fb3a8',
   hills: '#a99c6c',
@@ -59,9 +61,22 @@ export const PALETTE = {
   hpLow: '#d9493b',
   select: '#ffffff',
   selectUnit: '#ffd65a',
-  reachable: '#cfe6ff',
+  reachable: '#ffffff',
+  reachableRing: '#1d5fbf',
   attackable: '#e0453a',
   path: '#ffffff',
+  pathBack: '#1f2a36',
+  /** Dark keyline under border bands so light owner colors (yellow, white) read on light land. */
+  borderKeyline: '#23201c',
+  ownRim: '#ffffff',
+  rivalRim: '#2a2522',
+  warRim: '#e0453a',
+  ready: '#fff4b8',
+  shield: '#d6dde6',
+  wallStone: '#cdbfa6',
+  wallDamaged: '#d9493b',
+  resourceBadge: '#fffaf0',
+  tradeRoute: '#fff2c4',
 } as const;
 
 // --- Owner colors ----------------------------------------------------------------------------
@@ -71,7 +86,10 @@ export interface OwnerColors {
   secondary: string;
 }
 
-/** City-states: neutral grey so they never read as a rival empire. */
+/**
+ * City-states: neutral warm grey so they never read as a rival empire; raiders: dark red.
+ * Both are kept far (CIELAB) from every banner color (tests/render-style.test.ts).
+ */
 export const CITY_STATE_COLORS: OwnerColors = { primary: '#9c9a96', secondary: '#f1efe9' };
 /** Crisis raiders (GDD §5): dark red. */
 export const RAIDER_COLORS: OwnerColors = { primary: '#7a1e1e', secondary: '#2a2222' };
@@ -113,16 +131,21 @@ export const classifyFog = (
 };
 
 /** Explored-but-not-visible look: muted and slightly darker, never confused with parchment. */
-export const fogged = (c: Rgb): Rgb => desaturate(c, 0.55, 0.78);
+export const fogged = (c: Rgb): Rgb => desaturate(c, 0.5, 0.8);
+
+/** Explored water stays recognisably blue (land/water must read apart even in memory). */
+export const foggedWater = (c: Rgb): Rgb => desaturate(c, 0.25, 0.82);
 
 /**
  * Final top color of a tile. Unexplored tiles are parchment (no terrain hint); explored ones
  * are dimmed; rivers tint the top slightly blue.
  */
-export const tileTopColor = (terrainColor: Rgb, river: boolean, fog: FogClass): Rgb => {
+export const tileTopColor = (terrainColor: Rgb, river: boolean, fog: FogClass, water = false): Rgb => {
   if (fog === FOG_UNEXPLORED) return parseHexColor(PALETTE.parchment);
-  const base = river ? mix(terrainColor, parseHexColor(PALETTE.river), 0.28) : terrainColor;
-  return fog === FOG_EXPLORED ? fogged(base) : base;
+  // Rivers are drawn as ribbons now; the tile keeps only a faint wet tint.
+  const base = river ? mix(terrainColor, parseHexColor(PALETTE.river), 0.1) : terrainColor;
+  if (fog !== FOG_EXPLORED) return base;
+  return water ? foggedWater(base) : fogged(base);
 };
 
 /** Color for features/props drawn on a tile with the given fog class (unexplored: hidden). */

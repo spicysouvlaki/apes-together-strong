@@ -9,18 +9,53 @@ export interface LabelSpec {
   capital: boolean;
   /** Owner primary color (#rrggbb), drawn as a swatch. */
   color: string;
+  /** Name and population drawn separately (pop in a badge); default: parsed from `text`. */
+  name?: string;
+  population?: number;
+  /** Colorblind pattern id for the swatch (patterns.ts); omitted = solid. */
+  pattern?: number;
+  /** Last-seen memory of a rival settlement under fog (drawn faded, dashed outline). */
+  ghost?: boolean;
+  /** Owner is at war with the viewer (red outline + crossed-swords mark). */
+  war?: boolean;
+  /** City-state (diamond swatch instead of a circle). */
+  cityState?: boolean;
+  /** Wall HP fraction (0..1, quantized to tenths); omitted or 1 = undamaged, no bar. */
+  wall?: number;
 }
+
+export interface LabelExtras {
+  pattern?: number;
+  ghost?: boolean;
+  war?: boolean;
+  cityState?: boolean;
+  wall?: number;
+}
+
+/** Wall fraction quantized to tenths (bounded atlas churn); never rounds damage away. */
+export const wallFraction = (hp: number, maxHp: number): number => {
+  if (maxHp <= 0 || hp >= maxHp) return 1;
+  return Math.min(0.9, Math.max(0, Math.floor((hp / maxHp) * 10) / 10));
+};
 
 export const labelText = (s: Pick<Settlement, 'name' | 'population'>): string => `${s.name}  ${s.population}`;
 
-export const labelSpec = (s: Pick<Settlement, 'name' | 'population' | 'isCapital'>, color: string): LabelSpec => ({
+export const labelSpec = (
+  s: Pick<Settlement, 'name' | 'population' | 'isCapital'>,
+  color: string,
+  extras: LabelExtras = {},
+): LabelSpec => ({
   text: labelText(s),
   capital: s.isCapital,
   color: color.toLowerCase(),
+  name: s.name,
+  population: s.population,
+  ...extras,
 });
 
 /** Cache key: everything that changes the pixels, nothing else. */
-export const labelKey = (spec: LabelSpec): string => `${spec.capital ? '*' : '-'}${spec.color}|${spec.text}`;
+export const labelKey = (spec: LabelSpec): string =>
+  `${spec.capital ? '*' : '-'}${spec.color}|${spec.pattern ?? 0}${spec.ghost ? 'g' : ''}${spec.war ? 'w' : ''}${spec.cityState ? 'c' : ''}${spec.wall !== undefined && spec.wall < 1 ? `h${spec.wall}` : ''}|${spec.text}`;
 
 /**
  * Fixed-capacity LRU of atlas slots keyed by label key. `acquire` returns the slot and whether

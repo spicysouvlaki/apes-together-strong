@@ -64,6 +64,9 @@ const openSeatKinds = (ai: AiCtx): string[] => {
   return out;
 };
 
+/** Offer-score bonus per culture-hint threshold crossed (50, 100). */
+export const HINT_LEAN = 0.9;
+
 export const offerFigureScore = (
   ai: AiCtx,
   def: Figure,
@@ -74,7 +77,12 @@ export const offerFigureScore = (
   let s = pe.kind[def.kind];
   const w = weights[def.culture] ?? 0;
   // Collectors snowball their heaviest cultures (refinement ladders); others lean gently.
-  s += pe.w.collector > 0 ? 0.9 * Math.min(w, 6) : 0.45 * Math.min(w, 5);
+  s += pe.w.collector > 0 ? 0.9 * Math.min(w, 6) : 0.35 * Math.min(w, 5);
+  // Follow the land: the culture hints a player has seen ("Steppe peoples speak of your
+  // herds", GDD §4) are public to that player, so the AI may lean toward the peoples its own
+  // play attracts — the same cue a human gets. It never reads the hidden affinity numbers.
+  const hint = me(ai).hintsShown[def.culture] ?? 0;
+  s += hint >= 100 ? HINT_LEAN * 2 : hint >= 50 ? HINT_LEAN : 0;
   for (const h of ai.content.hybrids) {
     if (!h.cultures.includes(def.culture)) continue;
     const other = h.cultures[0] === def.culture ? h.cultures[1] : h.cultures[0];
@@ -227,6 +235,12 @@ const techScore = (ai: AiCtx, id: string, cost: number, focus: LegacyTrack): num
   }
   // Science focus maximizes nodes completed: cheaper nodes first.
   const exp = focus === 'science' ? 1.25 : 1;
+  // Leftover nodes of a past age are cheap but count for nothing this age (no meter, no
+  // milestone): catch up only on what they unlock (e.g. merchants), at a weighted price.
+  if (tech.age !== ai.state.age) {
+    if (u.units.length + u.buildings.length === 0) return -Infinity;
+    cost *= 4;
+  }
   return v / Math.pow(Math.max(1, cost), exp) + hash01(`${ai.state.seed}|${ai.player}|tech|${id}`) * 0.001;
 };
 

@@ -24,6 +24,9 @@ vi.mock('../src/emergence', () => ({
 }));
 vi.mock('../src/sim/ages', () => ({
   addAgeProgress: vi.fn(),
+  endGame: vi.fn((ctx: { state: GameState }) => {
+    ctx.state.phase = 'ended';
+  }),
   agesWorldPhase: vi.fn(),
   updateMilestones: vi.fn(),
   handleAgesCommand: vi.fn(() => null),
@@ -378,6 +381,7 @@ describe('combat', () => {
     let state = fixtureState();
     const a = addUnit(state, 'p1', 'warrior', at(2, 2), content);
     const g = addUnit(state, 'p2', 'general', at(3, 2), content, { hp: 1, figure: 'some_general' });
+    addSettlement(state, 'p2', at(7, 7)); // so p2 is not eliminated by the loss
     state.wars[warKey('p1', 'p2')] = 1;
     state = run(state, 'p1', { type: 'attack', unit: a.id, target: g.at });
     expect(emergence.onFigureUnitDefeated).toHaveBeenCalledWith(expect.anything(), g.id, 'p1');

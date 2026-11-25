@@ -26,6 +26,21 @@ export const YIELD_NAME: Record<YieldType, string> = {
   influence: 'Influence',
 };
 
+/** One-line meaning of each yield for the legend (plain words, no numbers: those live in content). */
+export const YIELD_HELP: Record<YieldType, string> = {
+  food: 'grows your cities',
+  production: 'builds units, buildings and wonders',
+  gold: 'buys items, upgrades towns, pays upkeep',
+  science: 'researches technologies',
+  culture: 'adopts civics',
+  faith: 'spiritual strength; draws spiritual figures',
+  happiness: 'content people work harder; unrest hurts',
+  influence: 'sends envoys to city-states',
+};
+
+/** Legend order: city yields first, then the empire-wide ones. */
+export const LEGEND_YIELDS: readonly YieldType[] = ['food', 'production', 'gold', 'science', 'culture', 'faith', 'influence', 'happiness'];
+
 /** Stockpiles shown in the top bar, in order. */
 export const HUD_YIELDS: readonly YieldType[] = ['gold', 'science', 'culture', 'faith', 'influence'];
 

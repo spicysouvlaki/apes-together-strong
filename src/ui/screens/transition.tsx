@@ -11,6 +11,11 @@ import { ageLabel, ancestorYield, describeModifiers } from './shared/describe';
 import { weightRows } from './shared/figures';
 import { groupRefinement, TIER_LABEL, type HybridItem, type TraditionItem } from './shared/refinement';
 import { GovernmentList } from './government';
+import { HEAVIEST_CULTURE_DISCOUNT_PERCENT, REFINEMENT_ESCALATION } from '../../sim/ages/constants';
+
+/** Adoptions already made in this transition (display only: the sim prices them; GDD §6). */
+const adoptedThisTransition = (p: { chronicle: readonly { turn: number; kind: string }[] }, turn: number): number =>
+  p.chronicle.filter((e) => e.turn === turn && (e.kind === 'tradition' || e.kind === 'hybrid')).length;
 
 const STEPS = ['recap', 'refine', 'name', 'government', 'begin'] as const;
 type Step = (typeof STEPS)[number];
@@ -75,6 +80,7 @@ export const TransitionScreen = (_: ScreenProps<'transition'>) => {
   const next = () => setStep(STEPS[Math.min(STEPS.length - 1, i + 1)] ?? 'begin');
   const back = i > 0 ? () => setStep(STEPS[i - 1] ?? 'recap') : undefined;
   const weights = q.cultureWeights(g, player, content);
+  const affordable = step === 'begin' ? q.refinementOptions(g, player, content).filter((o) => o.available).length : 0;
   const gov = p.government ? lookup.governments[p.government] : undefined;
   const govForNewAge = gov && gov.age === t.toAge;
 
@@ -218,6 +224,14 @@ export const TransitionScreen = (_: ScreenProps<'transition'>) => {
             </li>
             <li>{Math.floor(p.refinementPoints)} refinement points unspent; half carry over to the next transition.</li>
           </ul>
+          {affordable > 0 && (
+            <p class="scr-banner scr-banner-info small">
+              {affordable === 1 ? 'One tradition is' : `${affordable} traditions and hybrids are`} still within your points.{' '}
+              <button class="btn btn-ghost" onClick={() => setStep('refine')}>
+                Back to refining
+              </button>
+            </p>
+          )}
           <p class="small muted">Units start weaker until upgraded, old buildings give half yields, the cabinet empties and the trees turn to a new age.</p>
         </>
       )}
@@ -233,6 +247,9 @@ export const TransitionScreen = (_: ScreenProps<'transition'>) => {
           onCancel={() => setAdopting(null)}
         >
           <p>Traditions and hybrids are permanent. This spends {adopting.cost} of your {Math.floor(p.refinementPoints)} refinement points.</p>
+          <p class="small muted">
+            Afterwards every other tradition and hybrid costs {REFINEMENT_ESCALATION} more this transition (each adoption raises the next).
+          </p>
         </ConfirmSheet>
       )}
     </Screen>
@@ -250,6 +267,7 @@ const RefineStep = (props: {
   const p = g && player ? g.players[player] : undefined;
   if (!g || !player || !p) return null;
   const options = q.refinementOptions(g, player, content);
+  const bought = adoptedThisTransition(p, g.turn);
   const groups = groupRefinement(p, options, props.weights, content);
   const rows = weightRows(props.weights, content);
   const shown = groups.cultures.filter((c) => props.showAll || c.weight > 0 || c.tiers.some((t) => t.items.some((x) => x.owned)));
@@ -258,12 +276,19 @@ const RefineStep = (props: {
 
   return (
     <>
-      <div class="scr-rp row">
-        <span class="grow">
-          <b>{Math.floor(p.refinementPoints)}</b> refinement points
-        </span>
-        <span class="small muted">Heaviest culture costs less</span>
+      <div class="scr-rp">
+        <div class="row">
+          <span class="grow">
+            <b>{Math.floor(p.refinementPoints)}</b> refinement points to spend
+          </span>
+          {bought > 0 && <span class="chip">{bought} adopted</span>}
+        </div>
       </div>
+      <p class="small muted scr-rp-help">
+          Spend points on traditions (and one hybrid) that last the rest of the game. Your heaviest culture is {Math.abs(HEAVIEST_CULTURE_DISCOUNT_PERCENT)}% cheaper.
+          Each adoption raises the cost of the next by {REFINEMENT_ESCALATION}
+          {bought > 0 ? `; prices below already include +${bought * REFINEMENT_ESCALATION}` : ''}. Unspent points: half carry over.
+      </p>
       <Section title="Your culture">
         {rows.length ? <WeightBars rows={rows} /> : <Empty>No culture weight yet.</Empty>}
       </Section>

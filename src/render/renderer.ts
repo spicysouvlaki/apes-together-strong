@@ -35,14 +35,19 @@ import { GestureRecognizer, LONG_PRESS_MS, type GestureAction } from './gestures
 import { ELEVATION_STEP, LAND_TOP, MAX_ELEVATION } from './heights';
 import { hexToWorld, mapBounds, type MapBounds } from './layout';
 import { World, type FlashKind, type Selection } from './scene/world';
-import type { Renderer, RendererOptions, RenderSelection } from './index';
+import type { RenderHints, Renderer, RendererOptions, RenderSelection, SafeArea } from './index';
 
 const FOV_Y = 40;
 const FOCUS_MS = 380;
 const INERTIA_DECAY_MS = 260;
 const YAW_RATE = 12; // 1/s, exponential approach to the snapped yaw
-/** Normalized (see shortAxisFactor) starting distance: ~7 hexes across the short axis. */
-const DEFAULT_DISTANCE = 12;
+/**
+ * Normalized (see shortAxisFactor) starting distance: ~8 hexes across a portrait phone at the
+ * focus point (GDD §11: start where you can see your surroundings, not one tile).
+ */
+const DEFAULT_DISTANCE = 25;
+/** Default HUD padding (CSS px) that focus() keeps targets out of (top bar, bottom sheet). */
+export const DEFAULT_SAFE_AREA: SafeArea = { top: 100, right: 0, bottom: 180, left: 0 };
 
 interface Tween {
   fromX: number;
@@ -61,6 +66,7 @@ export function createRendererImpl(
 ): Renderer {
   const reduceMotion = options.reduceMotion ?? false;
   const pixelRatioCap = options.pixelRatioCap ?? 2;
+  let safeArea: SafeArea = { ...DEFAULT_SAFE_AREA, ...options.safeArea };
 
   const gl = new WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance', alpha: false });
   gl.setClearColor(new Color(PALETTE.background));
@@ -76,7 +82,7 @@ export function createRendererImpl(
   scene.add(hemi, sun);
 
   const camera = new PerspectiveCamera(FOV_Y, 1, 0.3, 800);
-  const world = new World(content, reduceMotion);
+  const world = new World(content, { reduceMotion, patterns: options.patterns ?? false });
   scene.add(world.root);
 
   // --- Camera state ---------------------------------------------------------------------------
@@ -110,6 +116,14 @@ export function createRendererImpl(
   let lastRenderAt = 0;
   let drawCalls = 0;
   let triangles = 0;
+  let frameMsEma = 0;
+  // Last camera pose used for label layout (re-layout only when it changes).
+  let lpX = NaN;
+  let lpY = NaN;
+  let lpZ = NaN;
+  let lpYaw = NaN;
+  let lpAspect = NaN;
+  let lastSeed: number | null = null;
 
   const tapListeners = new Set<(h: Hex) => void>();
   const longListeners = new Set<(h: Hex) => void>();
@@ -138,13 +152,23 @@ export function createRendererImpl(
     camera.position.set(tx + off.x, off.y, tz + off.z);
     camera.lookAt(tx, 0, tz);
     camera.updateMatrixWorld();
-    world.setIconScale(Math.max(1, Math.min(3, norm / 40)), now());
+    // Strategic icons grow with zoom; units/resources grow a little at regional zoom.
+    world.setZoomScales(Math.max(1, Math.min(3, norm / 40)), Math.max(1, Math.min(1.8, norm / 15)), now());
     const nb = nextZoomBand(norm, band);
     if (nb !== band) {
       band = nb;
       world.setBand(band);
       for (const cb of bandListeners) cb(band);
     }
+  };
+
+  /** Position the camera for the current target without clamping or side effects (focus math). */
+  const placeCamera = (): void => {
+    const norm = distance * shortAxisFactor(camera.aspect || 1);
+    const off = cameraOffset(distance, pitchFor(norm), yaw);
+    camera.position.set(tx + off.x, off.y, tz + off.z);
+    camera.lookAt(tx, 0, tz);
+    camera.updateMatrixWorld();
   };
 
   /** Screen (CSS px, canvas-relative) -> world ray, written into `ray`. */
@@ -241,7 +265,24 @@ export function createRendererImpl(
     }
     if (world.animateFlashes(t)) again = true;
 
+    const camChanged =
+      camera.position.x !== lpX ||
+      camera.position.y !== lpY ||
+      camera.position.z !== lpZ ||
+      yaw !== lpYaw ||
+      camera.aspect !== lpAspect;
+    if (camChanged) {
+      lpX = camera.position.x;
+      lpY = camera.position.y;
+      lpZ = camera.position.z;
+      lpYaw = yaw;
+      lpAspect = camera.aspect;
+    }
+    world.layoutLabels(camera, canvas.clientWidth || 1, canvas.clientHeight || 1, camChanged);
+
     gl.render(scene, camera);
+    const spent = now() - t;
+    frameMsEma = frameMsEma ? frameMsEma * 0.9 + spent * 0.1 : spent;
     drawCalls = gl.info.render.calls;
     triangles = gl.info.render.triangles;
     if (lastRenderAt && t - lastRenderAt < 100) {
@@ -391,6 +432,8 @@ export function createRendererImpl(
   const api: Renderer = {
     setState(state, viewer, visible) {
       const first = lastState === null;
+      if (lastSeed !== null && state.seed !== lastSeed) world.resetMemory();
+      lastSeed = state.seed;
       const sizeChanged = state.map.width !== mapW || state.map.height !== mapH;
       lastState = state;
       lastViewer = viewer;
@@ -410,6 +453,8 @@ export function createRendererImpl(
         tz = w.z;
         tween = null;
         distance = DEFAULT_DISTANCE / shortAxisFactor(camera.aspect || 1);
+        applyCamera();
+        api.focus(start, { instant: true });
       }
       applyCamera();
       requestRender();
@@ -423,14 +468,39 @@ export function createRendererImpl(
         attackable: sel.attackable ?? selection.attackable,
         path: sel.path ?? selection.path,
       };
-      world.setSelection(selection, now());
+      if (world.setSelection(selection, now())) unitsMoving = true;
       requestRender();
     },
 
     focus(hex, opts) {
       const w = hexToWorld(hex);
+      // Put the hex at the center of the HUD-free area, not under the top bar or bottom sheet:
+      // find where that screen point lands on the ground for a camera aimed at the hex, then
+      // shift the aim by the difference (exact for a planar ground at fixed pitch/yaw).
+      const cw = canvas.clientWidth || 1;
+      const ch = canvas.clientHeight || 1;
+      const sa = opts?.safeArea ? { ...safeArea, ...opts.safeArea } : safeArea;
+      const scx = (sa.left + (cw - sa.right)) / 2;
+      const scy = (sa.top + (ch - sa.bottom)) / 2;
+      let aimX = w.x;
+      let aimZ = w.z;
+      const saveX = tx;
+      const saveZ = tz;
+      if (Math.abs(scx - cw / 2) > 0.5 || Math.abs(scy - ch / 2) > 0.5) {
+        tx = w.x;
+        tz = w.z;
+        placeCamera();
+        ground(scx, scy, g0);
+        if (g0.ok) {
+          aimX = w.x + (w.x - g0.x);
+          aimZ = w.z + (w.z - g0.z);
+        }
+        tx = saveX;
+        tz = saveZ;
+        placeCamera();
+      }
       const ext = viewHalfExtents(distance, camera.aspect || 1, FOV_Y);
-      const c = clampTarget(w.x, w.z, bounds, 2, ext.w, ext.h);
+      const c = clampTarget(aimX, aimZ, bounds, 2, ext.w, ext.h);
       vx = 0;
       vz = 0;
       if (opts?.instant || reduceMotion) {
@@ -476,7 +546,31 @@ export function createRendererImpl(
     },
 
     stats() {
-      return { drawCalls, triangles, fps: Math.round(fpsEma) };
+      return { drawCalls, triangles, fps: Math.round(fpsEma), frameMs: Math.round(frameMsEma * 100) / 100 };
+    },
+
+    setHints(hints: Partial<RenderHints>) {
+      if (hints.readyUnits !== undefined) world.setReady(hints.readyUnits, now());
+      requestRender();
+    },
+
+    setPatterns(on: boolean) {
+      world.setPatterns(on);
+      requestRender();
+    },
+
+    setSafeArea(area: Partial<SafeArea>) {
+      safeArea = { ...safeArea, ...area };
+    },
+
+    zoomBy(factor: number) {
+      const cw = canvas.clientWidth || 1;
+      const ch = canvas.clientHeight || 1;
+      tween = null;
+      vx = 0;
+      vz = 0;
+      zoomAt(factor, cw / 2, ch / 2);
+      requestRender();
     },
 
     dispose() {

@@ -316,25 +316,25 @@ export const figureUses = (def: Figure, l: NameLookup): FigureUse[] => {
   if (def.uses.includes('cabinet')) {
     const seats = def.cabinetSlots.map((s) => nameOf(l.cabinetSlots, s));
     const bonus = def.cabinetModifiers.length ? describeModifiers(def.cabinetModifiers, l).join('; ') : 'Counts double for culture weight';
-    out.push({ label: seats.length ? `Seat: ${listOr(seats)}` : 'Cabinet', text: bonus });
+    out.push({ label: seats.length ? `In the cabinet (${listOr(seats)} seat)` : 'In the cabinet', text: bonus });
   }
   if (def.uses.includes('unit')) {
     // Deployed figures' unitModifiers apply to their own unit and adjacent friendly units (sim/units.ts aura).
     const bonus = def.unitModifiers.length
       ? describeModifiers(def.unitModifiers, l, { unitSubject: 'them and adjacent units' }).join('; ')
       : 'Takes the field as a unit';
-    out.push({ label: 'In the field', text: bonus });
+    out.push({ label: 'Deployed as a unit', text: bonus });
   }
   if (def.uses.includes('activate') && def.activate) {
-    out.push({ label: 'Once', text: `${describeActivate(def.activate.effect, def.activate.amount)}, then retires` });
+    out.push({ label: 'Activated once', text: `${describeActivate(def.activate.effect, def.activate.amount)}, then retires` });
   }
-  out.push({ label: 'Consume', text: consumeText(def) });
+  out.push({ label: 'If consumed', text: consumeText(def) });
   return out;
 };
 
-/** "3 refinement points, or +6 gold per turn for 10 turns". */
+/** "3 refinement points (for traditions at the next age), or +6 gold per turn for 10 turns". */
 export const consumeText = (def: Figure): string =>
-  `${def.consumeValue} refinement points, or ${consumeBurstText(def)}`;
+  `${def.consumeValue} refinement points (spent on traditions when the age ends), or ${consumeBurstText(def)}`;
 
 export const consumeBurstText = (def: Figure): string =>
   `+${def.consumeValue * CONSUME_BURST_PER_VALUE} ${YIELD_LABEL[MAIN_YIELD[def.kind]]} per turn for ${CONSUME_BURST_TURNS} turns`;

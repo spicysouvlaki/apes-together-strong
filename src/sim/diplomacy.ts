@@ -33,6 +33,9 @@ import { ci, playerSettlements } from './lookup';
 import { empireModifiers, sumAdd } from './modifiers';
 import { removeUnit } from './units';
 
+/** Chronicle line of the declaring side (annal voice; the AI also reads it to space its wars). */
+export const WAR_DECLARED_TEXT = 'War was declared.';
+
 const validTarget = (state: GameState, target: PlayerId): boolean => {
   if (isCityStateOwner(target)) return state.cityStates[target.slice(CITY_STATE_PREFIX.length)]?.alive === true;
   return state.players[target]?.alive === true;
@@ -52,7 +55,7 @@ export const declareWar = (ctx: SimCtx, player: PlayerId, target: PlayerId): str
     return !((r.owner === player && toOwner === target) || (r.owner === target && toOwner === player));
   });
   ctx.events.push({ type: 'warDeclared', by: player, on: target });
-  addChronicle(state, player, 'war', target, `We went to war.`);
+  addChronicle(state, player, 'war', target, WAR_DECLARED_TEXT);
   return null;
 };
 

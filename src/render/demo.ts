@@ -9,6 +9,11 @@
  *   ?seed=123        noise seed
  *   ?reveal=1        start with fog off (viewer null)
  *   ?reduceMotion=1
+ *   ?patterns=1      colorblind patterns on
+ *   ?bench=1         scripted pan/zoom across all zoom bands; reports frame times per band
+ * Scenario extras: p1 is at war with p2 (red rims/rings), a fortified unit, a damaged city,
+ * a p1 trade route, ready-unit hints, and the "Scout" button walks a unit away so the rival
+ * city it saw turns into a fog-of-war ghost.
  * Not part of the game bundle.
  */
 import { Resource, Terrain, type ContentBundle } from '@contracts/content-schemas';
@@ -306,10 +311,23 @@ const buildState = (map: MapState, content: ContentBundle, seed: number, starts?
   addUnit('p1', 'ram', 'siege', { q: c1.q + 3, r: c1.r + 1 }, { hp: 45 });
   addUnit('p1', 'figure_general', 'commander', { q: c1.q - 2, r: c1.r }, { figure: 'demo_figure' });
   addUnit('p1', 'war_canoe', 'naval', { q: c1.q - 4, r: c1.r + 2 });
-  addUnit('p1', 'scout', 'infantry', { q: c1.q + 5, r: c1.r - 2 }, { hp: 80 });
+  addUnit('p1', 'scout', 'infantry', { q: c1.q + 5, r: c1.r - 2 }, { hp: 80, fortified: true });
+  // Stacked civilian + military on one tile.
+  const cap1 = cap('p1');
+  addUnit('p1', 'builder', 'civilian', cap1);
+  const stackAt = Object.values(units).find((u) => u.owner === 'p1' && u.unitClass === 'infantry')?.at;
+  if (stackAt) {
+    const id = `u${uid++}`;
+    units[id] = { id, owner: 'p1', type: 'settler', unitClass: 'civilian', at: stackAt, hp: 100, movesLeft: 2, fortified: false, hasAttacked: false, figure: null };
+  }
   addUnit('p2', 'spearman', 'infantry', { q: c1.q + 6, r: c1.r - 2 }, { hp: 20 });
   addUnit('raiders', 'warrior_band', 'infantry', { q: c1.q + 4, r: c1.r + 3 });
 
+  // A damaged rival city (walls hp < maxHp) and a p1 trade route between its first two cities.
+  const p2City = Object.values(settlements).find((s) => s.owner === 'p2' && s.kind === 'city');
+  if (p2City) p2City.hp = 55;
+  const p1s = Object.values(settlements).filter((s) => s.owner === 'p1');
+  const tradeRoutes = p1s.length >= 2 && p1s[0] && p1s[1] ? [{ id: 'tr1', owner: 'p1', from: p1s[0].id, to: p1s[1].id }] : [];
   return {
     version: 2,
     seed,
@@ -333,8 +351,8 @@ const buildState = (map: MapState, content: ContentBundle, seed: number, starts?
     deedsDone: [],
     wonders: {},
     cityStates: {},
-    tradeRoutes: [],
-    wars: {},
+    tradeRoutes,
+    wars: { 'p1|p2': 5 },
     crisis: null,
     transition: null,
     result: null,
@@ -414,13 +432,21 @@ const main = async (): Promise<void> => {
   const { state: initial, content } = await build();
   let state = initial;
   let viewer: string | null = params.get('reveal') === '1' ? null : 'p1';
-  const renderer: Renderer = createRenderer(canvas, content, { reduceMotion: params.get('reduceMotion') === '1' });
+  let patterns = params.get('patterns') === '1';
+  const renderer: Renderer = createRenderer(canvas, content, {
+    reduceMotion: params.get('reduceMotion') === '1',
+    patterns,
+    // The demo HUD is small: top stats, bottom button row.
+    safeArea: { top: 70, bottom: 70 },
+  });
   (window as unknown as { renderer: Renderer }).renderer = renderer;
+  Object.defineProperty(window, 'demoState', { get: () => state });
 
   let band = 'close';
   const push = (): void => {
     const visible = computeFog(state, 'p1');
     renderer.setState(state, viewer, viewer === null ? [] : visible);
+    renderer.setHints({ readyUnits: Object.values(state.units).filter((u) => u.owner === 'p1' && u.movesLeft > 0).map((u) => u.id) });
   };
   push();
   renderer.onZoomBand((b) => (band = b));
@@ -457,7 +483,7 @@ const main = async (): Promise<void> => {
     if (sel && reach.some((h) => hexEquals(h, hex))) {
       if (pending && hexEquals(pending, hex)) {
         // Second tap on the same target: move (new snapshot object, like the worker sends).
-        state = { ...state, units: { ...state.units, [sel.id]: { ...sel, at: hex } } };
+        state = { ...state, units: { ...state.units, [sel.id]: { ...sel, at: hex, movesLeft: 0 } } };
         push();
         select(sel.id);
       } else {
@@ -497,27 +523,102 @@ const main = async (): Promise<void> => {
     const u = Object.values(state.units).find((x) => x.owner === 'raiders');
     if (u) renderer.flash(u.at, 'combat');
   });
+  btn('patterns', () => {
+    patterns = !patterns;
+    renderer.setPatterns(patterns);
+  });
+  // Walk the scout back home: rival cities it saw stay as fog-of-war ghosts.
+  let scoutAway = false;
+  btn('scout', () => {
+    const scout = Object.values(state.units).find((u) => u.owner === 'p1' && u.type === 'scout');
+    const home = Object.values(state.settlements).find((s) => s.owner === 'p1' && s.isCapital);
+    if (!scout || !home) return;
+    const far = Object.values(state.settlements).find((s) => s.owner === 'p2');
+    scoutAway = !scoutAway && !!far;
+    const dest = scoutAway && far ? far.at : home.at;
+    state = { ...state, units: { ...state.units, [scout.id]: { ...scout, at: { q: dest.q + 1, r: dest.r } } } };
+    push();
+    infoEl.textContent = `scout -> ${dest.q},${dest.r}`;
+  });
+
+  // Bench: a scripted pan + zoom sweep through every zoom band; reports per-band frame stats.
   let benchRaf = 0;
-  btn('bench', () => {
+  const runBench = (): void => {
     if (benchRaf) {
       cancelAnimationFrame(benchRaf);
       benchRaf = 0;
       return;
     }
-    const t0 = performance.now();
+    const PHASES: { name: string; zoom: number; ms: number }[] = [
+      // Factors from the closest zoom (normalized distance 5): 3 -> 15 (close), 6 -> 30
+      // (regional), 16 -> 80 (strategic).
+      { name: 'close', zoom: 3, ms: 3000 },
+      { name: 'regional', zoom: 6, ms: 3000 },
+      { name: 'strategic', zoom: 16, ms: 3000 },
+    ];
+    const results: string[] = [];
+    let phase = 0;
+    let t0 = performance.now();
+    let last = t0;
+    let frames = 0;
+    let sum = 0;
+    let worst = 0;
+    let cpu = 0;
+    let draws = 0;
+    // Reset to a known zoom (fully in, then out by the phase factor).
+    const setZoom = (factor: number): void => {
+      renderer.zoomBy(1 / 64);
+      renderer.zoomBy(factor);
+    };
+    setZoom(PHASES[0]?.zoom ?? 1);
     const loop = (): void => {
-      const t = (performance.now() - t0) / 1000;
-      const col = Math.round(state.map.width / 2 + Math.cos(t * 0.4) * state.map.width * 0.3);
-      const row = Math.round(state.map.height / 2 + Math.sin(t * 0.5) * state.map.height * 0.3);
+      const tNow = performance.now();
+      const p = PHASES[phase];
+      if (!p) return;
+      const dt = tNow - last;
+      last = tNow;
+      if (frames > 0) {
+        sum += dt;
+        worst = Math.max(worst, dt);
+        cpu += renderer.stats().frameMs;
+        draws = Math.max(draws, renderer.stats().drawCalls);
+      }
+      frames++;
+      const t = (tNow - t0) / 1000;
+      const col = Math.round(state.map.width / 2 + Math.cos(t * 0.9) * state.map.width * 0.3);
+      const row = Math.round(state.map.height / 2 + Math.sin(t * 1.1) * state.map.height * 0.3);
       renderer.focus(offsetToAxial({ col, row }), { instant: true });
+      if (tNow - t0 >= p.ms) {
+        const n = Math.max(1, frames - 1);
+        results.push(`${p.name} (${band}): ${(sum / n).toFixed(1)} ms avg, ${worst.toFixed(0)} worst, cpu ${(cpu / n).toFixed(2)} ms, ${draws} draws`);
+        phase++;
+        const next = PHASES[phase];
+        if (!next) {
+          benchRaf = 0;
+          const text = `bench ${state.map.width}x${state.map.height}: ${results.join(' | ')}`;
+          infoEl.textContent = text;
+          console.log(text);
+          (window as unknown as { benchResult: string }).benchResult = text;
+          return;
+        }
+        setZoom(next.zoom);
+        t0 = tNow;
+        frames = 0;
+        sum = 0;
+        worst = 0;
+        cpu = 0;
+        draws = 0;
+      }
       benchRaf = requestAnimationFrame(loop);
     };
-    loop();
-  });
+    benchRaf = requestAnimationFrame(loop);
+  };
+  btn('bench', runBench);
+  if (params.get('bench') === '1') setTimeout(runBench, 500);
 
   setInterval(() => {
     const s = renderer.stats();
-    statsEl.textContent = `${s.fps} fps · ${s.drawCalls} draws · ${(s.triangles / 1000).toFixed(0)}k tris · ${band}${notes.length ? ' · ' + notes.join('; ') : ''}`;
+    statsEl.textContent = `${s.fps} fps · ${s.frameMs} ms · ${s.drawCalls} draws · ${(s.triangles / 1000).toFixed(0)}k tris · ${band}${notes.length ? ' · ' + notes.join('; ') : ''}`;
   }, 400);
 };
 

@@ -2,12 +2,12 @@
  * Title screen: New game, Continue (newest autosave), Load, Settings.
  */
 import { loadGame, openModal, route, saves } from '../store';
+import { continueSave } from './saves-logic';
 import { loading } from './shell-state';
 
 export function Title() {
   const list = saves.value;
-  const newest = [...list].sort((a, b) => b.savedAt - a.savedAt)[0];
-  const auto = list.find((s) => s.slot === 'auto:0') ?? newest;
+  const auto = continueSave(list);
   const busy = loading.value;
   return (
     <main class="title-screen">

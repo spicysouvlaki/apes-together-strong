@@ -83,7 +83,7 @@ export const MAX_OPEN_OFFERS = 2;
 // --- Legend slot (GDD §3: one per age) ---
 
 /** Legend offer once total affinity across cultures reaches this... */
-export const LEGEND_TOTAL_AFFINITY = 300;
+export const LEGEND_TOTAL_AFFINITY = 450;
 /** ...or the player has recruited this many figures in the current age. */
 export const LEGEND_FIGURES_THIS_AGE = 4;
 

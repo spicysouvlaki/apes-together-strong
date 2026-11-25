@@ -6,13 +6,16 @@
 import type { ContentBundle, LegacyTrack, UnitDef } from '@contracts/content-schemas';
 import { hexDistance } from '@contracts/hex';
 import type { ProductionOption, Settlement } from '@contracts/sim-api';
+import { METER_PER_TURN } from '../sim/ages/constants';
 import { tradeRouteCap } from '../sim/diplomacy';
 import { ci, playerSettlements } from '../sim/lookup';
 import { queries } from '../sim/queries';
 import { exec, me, type AiCtx } from './ctx';
 import { buildingValue, figureOf } from './decisions';
+import { modifiersScore } from './persona';
 import { ownedLuxuries, siteLegal, siteScore } from './sites';
-import { enemiesAtWar, hostilesNear, isMilitary, ownSettlements, ownUnits } from './world';
+import { aggression, pickWarTarget, warPreparation, type WarTarget } from './war';
+import { enemiesAtWar, hostilesNear, isMilitary, militaryPower, ownSettlements, ownUnits } from './world';
 
 /** Sites scoring below this are not worth a settler. */
 export const MIN_SITE_SCORE = 14;
@@ -48,11 +51,23 @@ export interface EmpirePlan {
   /** Wonder ids some own city is already building (never two cities on one wonder). */
   wonderItems: string[];
   atWar: boolean;
+  /** The settlement the army is marching on (at war) or massing toward (preparing), if any. */
+  warGoal: WarTarget | null;
+  /** True while building up for a war not yet declared. */
+  preparing: boolean;
+  /** A neighbour's army clearly outweighs ours: keep more defenders (peaceful AIs are not helpless). */
+  threatened: boolean;
   rushFigures: number;
   sites: Site[];
   goldIncome: number;
   happiness: number;
 }
+
+/** Rough age-meter gain per turn relative to the bare tick (milestones, figures and wonders add ~80%). */
+const AGE_METER_PACE = 1.8;
+/** Turns until the age meter reaches 100, estimated from public information. */
+export const ageTurnsLeft = (ai: AiCtx): number =>
+  Math.max(0, (100 - ai.state.ageProgress) / (AGE_METER_PACE * METER_PER_TURN[ai.state.speed]));
 
 const unitDef = (content: ContentBundle, id: string | null): UnitDef | undefined => (id ? ci(content).units[id] : undefined);
 
@@ -119,10 +134,26 @@ export const makePlan = (ai: AiCtx, focus: LegacyTrack): EmpirePlan => {
     }
   }
   const military = units.filter((u) => isMilitary(u) && !u.figure).length;
-  const atWar = enemiesAtWar(state, player).length > 0;
+  const enemies = enemiesAtWar(state, player);
+  const atWar = enemies.length > 0;
   const pe = ai.persona;
+  const prep = atWar ? null : warPreparation(ai);
+  const warGoal = atWar ? pickWarTarget(ai, enemies) : prep;
+  // Deterrence: a neighbour (settlements within 12) whose army is 1.4× ours.
+  const myPower = militaryPower(state, player, content);
+  let threatened = false;
+  for (const rival of state.playerOrder) {
+    if (rival === player || !state.players[rival]?.alive) continue;
+    if (militaryPower(state, rival, content) < Math.max(20, myPower * 1.4)) continue;
+    const near = ownSettlements(state, rival).some((r) => own.some((o) => hexDistance(o.at, r.at) <= 12));
+    if (near) threatened = true;
+  }
   const base = own.length + 1 + Math.floor(pe.w.warmonger * own.length * 0.5);
-  const armyTarget = atWar ? base + 3 + pe.w.warmonger * 2 : base + (state.crisis ? 1 : 0);
+  const armyTarget = atWar
+    ? base + 3 + pe.w.warmonger * 2
+    : prep
+      ? base + 2 + Math.round(aggression(ai))
+      : base + (state.crisis ? 1 : 0) + (threatened ? 2 : 0);
   let rushFigures = 0;
   for (const id of Object.keys(state.figures)) {
     const f = state.figures[id];
@@ -149,6 +180,9 @@ export const makePlan = (ai: AiCtx, focus: LegacyTrack): EmpirePlan => {
     wondersQueued,
     wonderItems,
     atWar,
+    warGoal,
+    preparing: prep !== null,
+    threatened,
     rushFigures,
     sites: findSites(ai),
     goldIncome: p.income.gold,
@@ -230,8 +264,8 @@ export const chooseProduction = (ai: AiCtx, s: Settlement, plan: EmpirePlan): st
     }
   }
 
-  // 3. War production.
-  if (plan.atWar && plan.military + plan.militaryQueued < plan.armyTarget) {
+  // 3. War production (also while massing for a planned war).
+  if ((plan.atWar || plan.preparing) && plan.military + plan.militaryQueued < plan.armyTarget) {
     // Every third unit ranged, every fourth a siege engine for the walls.
     const n = plan.military + plan.militaryQueued;
     const m = bestMilitary(ai, opts, n % 3 === 2, n % 4 === 3);
@@ -278,15 +312,21 @@ export const chooseProduction = (ai: AiCtx, s: Settlement, plan: EmpirePlan): st
       v = buildingValue(content, o.item, pe);
       const def = ci(content).buildings[o.item];
       // Unhappy empires value amenities much more (unrest stops growth below −10).
-      if (def && plan.happiness < 5) v += (def.yields.happiness ?? 0) * (5 - plan.happiness) * 0.6;
+      if (def && plan.happiness < 5) v += (def.yields.happiness ?? 0) * (6 - plan.happiness) * 0.9;
       if (def && def.defense > 0 && hostiles.length > 0) v += 4;
+      // Walls when a war is on or a stronger neighbour looms (peaceful AIs dig in).
+      if (def && def.defense > 0 && (plan.atWar || plan.threatened)) v += 2.5;
       v = (v + 0.5) / Math.max(1, o.cost / 40);
     } else if (o.kind === 'wonder') {
       if (o.turns > MAX_WONDER_TURNS || plan.wondersQueued >= wonderLimit || plan.wonderItems.includes(o.item)) continue;
       const w = ci(content).wonders[o.item];
       if (!w) continue;
-      v = 2 + 1.5 * pe.w.builder + (plan.focus === 'culture' ? 2 : 0) + plan.rushFigures * 1.5;
+      // Wonders are age-locked (src/sim/settlements availableItems): don't start one that
+      // cannot be finished before the age ends.
+      if (o.turns > ageTurnsLeft(ai) + 2) continue;
+      v = 2.5 + 1.5 * pe.w.builder + (plan.focus === 'culture' ? 2 : 0) + plan.rushFigures * 1.5;
       for (const amount of Object.values(w.yields)) v += (amount ?? 0) * 0.5;
+      v += modifiersScore(w.modifiers, pe) * 0.4;
       v = v / Math.max(1, o.cost / 120);
     } else continue;
     if (v > bestScore) {
@@ -351,6 +391,18 @@ export const spendGold = (ai: AiCtx, plan: EmpirePlan): void => {
       break;
     }
     exec(ai, { type: 'upgradeSettlement', settlement: t.s.id });
+  }
+
+  // Unhappy (GDD §7: below 0 every point costs yields, below −10 growth stops): buy amenity
+  // buildings already in production before anything else.
+  if (plan.happiness < -3) {
+    for (const s of ownSettlements(ai.state, player)) {
+      const item = s.production.item;
+      const def = item ? ci(content).buildings[item] : undefined;
+      if (!item || !def || (def.yields.happiness ?? 0) <= 0) continue;
+      const opt = queries.productionOptions(ai.state, s.id, content).find((o) => o.item === item);
+      if (opt && gold() - opt.goldCost >= reserve / 2) exec(ai, { type: 'buyItem', settlement: s.id, item });
+    }
   }
 
   // Rush the cheapest-to-finish items when gold piles up (keeping savings for a town upgrade).

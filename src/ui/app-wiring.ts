@@ -22,14 +22,16 @@ import {
   openModal,
   ownerName,
   pushToast,
+  pushToasts,
   q,
   route,
   saves,
   thinking,
 } from './store';
-import { eventFlash, eventToToast, type EventNames, type FlashKindSpec } from './shell/event-toasts';
+import { eventFlash, eventToToast, rankToasts, type EventNames, type FlashKindSpec, type ToastSpec } from './shell/event-toasts';
 import { tileIndexOf } from './shell/hexutil';
-import { idleConfirmedTurn, lastTap, loading, settings, skipped, updateReady } from './shell/shell-state';
+import { endTurnSent, idleConfirmedTurn, lastTap, loading, settings, skipped, updateReady } from './shell/shell-state';
+import { RESUME_SLOT } from './shell/saves-logic';
 
 let flashHandler: ((hex: Hex, kind: FlashKindSpec) => void) | null = null;
 /** The map view registers the renderer's flash here. */
@@ -37,7 +39,12 @@ export const setMapFlashHandler = (fn: ((hex: Hex, kind: FlashKindSpec) => void)
   flashHandler = fn;
 };
 
-const eventNames = (state: GameState): EventNames => ({
+const eventNames = (state: GameState, prev: GameState | null): EventNames => ({
+  unit: (id) => {
+    const u = state.units[id] ?? prev?.units[id];
+    if (!u) return null;
+    return (u.figure ? lookup.figures[u.figure]?.name : undefined) ?? lookup.units[u.type]?.name ?? null;
+  },
   owner: (id) => ownerName(id),
   figure: (id) => lookup.figures[id]?.name ?? 'A figure',
   settlement: (id) => {
@@ -67,10 +74,12 @@ const isMyTurnStart = (prev: GameState | null, next: GameState, my: PlayerId | n
 
 const onState = (state: GameState, events: SimEvent[]): void => {
   const prev = game.value;
+  snapshotCount++;
   game.value = state;
   lastEvents.value = events;
   thinking.value = null;
   loading.value = null;
+  endTurnSent.value = false;
   if (route.value !== 'game') route.value = 'game';
   const my = me.value;
   if (!my) return;
@@ -85,11 +94,14 @@ const onState = (state: GameState, events: SimEvent[]): void => {
   if (state.phase === 'transition' && prev?.phase !== 'transition') openModal({ kind: 'transition' });
   if (state.phase === 'ended' && prev?.phase !== 'ended') openModal({ kind: 'chronicle' });
 
-  const names = eventNames(state);
+  // One ranked batch per snapshot: most important first, overflow folded into one line.
+  const names = eventNames(state, prev);
+  const specs: ToastSpec[] = [];
   for (const ev of events) {
     const t = eventToToast(ev, my, names);
-    if (t) pushToast(t.text, t.tone, t.action);
+    if (t) specs.push(t);
   }
+  pushToasts(rankToasts(specs));
 
   // Flashes only where the player can see (never leak hidden positions).
   const visible = new Set(q.visibleTiles(state, my, content));
@@ -125,6 +137,7 @@ const onMessage = (msg: FromWorker): void => {
     case 'error':
       thinking.value = null;
       loading.value = null;
+      endTurnSent.value = false;
       lastError.value = msg.message;
       pushToast(msg.message, 'bad');
       return;
@@ -152,6 +165,29 @@ const applySettingsEffect = (): (() => void) =>
     root.classList.toggle('reduce-motion', s.reduceMotion);
     root.classList.toggle('cb-patterns', s.colorblindPatterns);
   });
+
+/**
+ * iOS may kill a backgrounded tab, and autosaves only happen at turn start. When the page is
+ * hidden mid-turn, save to the reserved resume slot (an explicit `save`, no protocol change) so
+ * Continue picks up the moves made this turn.
+ */
+let snapshotCount = 0;
+let lastHiddenSave = -1;
+const watchHiddenSave = (): void => {
+  const saveIfPlaying = (): void => {
+    const g = game.value;
+    if (!client || route.value !== 'game' || !g || g.phase === 'ended') return;
+    if (thinking.value !== null) return; // the worker is busy; the turn-start autosave covers it
+    // Skip if no new snapshot arrived since the last hidden save.
+    if (snapshotCount === lastHiddenSave) return;
+    lastHiddenSave = snapshotCount;
+    client.save(RESUME_SLOT);
+  };
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') saveIfPlaying();
+  });
+  window.addEventListener('pagehide', saveIfPlaying);
+};
 
 let client: SimClient | null = null;
 
@@ -181,6 +217,7 @@ export const initApp = (): void => {
   });
   void requestPersistentStorage();
   nudgeAddToHomeScreen();
+  watchHiddenSave();
   // Reset per-turn UI state when leaving a game.
   effect(() => {
     if (route.value !== 'game') {

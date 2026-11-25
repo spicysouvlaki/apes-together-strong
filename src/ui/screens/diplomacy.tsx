@@ -1,7 +1,17 @@
 /** Diplomacy (GDD §7 "Diplomacy", "City-states"): rivals, war and peace, envoys. */
 import { useState } from 'preact/hooks';
 import { warKey, type PlayerId } from '@contracts/sim-api';
-import { MIN_WAR_TURNS, PEACE_INFLUENCE_COST } from '../../sim/constants';
+import { MIN_WAR_TURNS, PEACE_INFLUENCE_COST, SUZERAIN_MIN_ENVOYS } from '../../sim/constants';
+import { YIELD_GLYPH, signed } from '../shell/format';
+
+const INF = YIELD_GLYPH.influence;
+
+/**
+ * Envoys still needed to lead: at least the minimum, and one more than whoever leads now (a tie
+ * keeps the incumbent; sim/diplomacy.ts). Display arithmetic only, the sim decides.
+ */
+const envoysToLead = (mine: number, top: { id: string | null; n: number }, me: string): number =>
+  Math.max(SUZERAIN_MIN_ENVOYS, top.id && top.id !== me ? top.n + 1 : 0) - mine;
 import { content, dispatch, game, lastError, lookup, me, myTurn, ownerName, q } from '../store';
 import type { ScreenProps } from './index';
 import { ConfirmSheet, CultureChip, Empty, Screen, Section } from './shared/components';
@@ -26,7 +36,7 @@ export const DiplomacyScreen = (_: ScreenProps<'diplomacy'>) => {
   };
 
   return (
-    <Screen title="Diplomacy" label="Diplomacy" headerExtra={<span class="chip" aria-label={`${influence} influence`}>◆ {influence} influence</span>}>
+    <Screen title="Diplomacy" label="Diplomacy" headerExtra={<span class="chip" aria-label={`${influence} influence`}>{INF} {influence} influence</span>}>
       <Section title="Rivals">
         {rivals.length === 0 && <Empty>You have met no rivals.</Empty>}
         <ul class="scr-list">
@@ -59,9 +69,10 @@ export const DiplomacyScreen = (_: ScreenProps<'diplomacy'>) => {
                           <span class="muted"> · peace possible from turn {since + MIN_WAR_TURNS}</span>
                         )}
                       </p>
-                      <div class="scr-chips" aria-label="Their people">
+                      <div class="scr-chips" aria-label="Famous people they hold, by culture">
+                        <span class="small muted">Famous people:</span>
                         {mix.length === 0 ? (
-                          <span class="small muted">No famous people yet</span>
+                          <span class="small muted">none yet</span>
                         ) : (
                           mix.map((m) => <CultureChip culture={m.culture} suffix={<b> {m.count}</b>} />)
                         )}
@@ -74,7 +85,7 @@ export const DiplomacyScreen = (_: ScreenProps<'diplomacy'>) => {
                             onClick={() => act(`peace:${r.id}`, { type: 'makePeace', target: r.id })}
                             aria-label={`Make peace with ${ownerName(r.id)} for ${PEACE_INFLUENCE_COST} influence`}
                           >
-                            Make peace (◆ {PEACE_INFLUENCE_COST})
+                            Make peace ({INF} {PEACE_INFLUENCE_COST})
                           </button>
                         ) : (
                           <button class="btn" disabled={!turn} onClick={() => setConfirmWar(r.id)} aria-label={`Declare war on ${ownerName(r.id)}`}>
@@ -92,7 +103,10 @@ export const DiplomacyScreen = (_: ScreenProps<'diplomacy'>) => {
         </ul>
       </Section>
 
-      <Section title="City-states" note="Envoys win a city-state's favor, and its people come to know you: famous people of that culture are drawn to your court.">
+      <Section
+        title="City-states"
+        note={`Envoys win a city-state's favor, and famous people of its culture are drawn to your court. Whoever has the most envoys (at least ${SUZERAIN_MIN_ENVOYS}) is its suzerain, its protector, and gets the bonus shown.`}
+      >
         {Object.keys(g.cityStates).length === 0 && <Empty>No city-states known.</Empty>}
         <ul class="scr-list">
           {Object.values(g.cityStates).map((cs) => {
@@ -126,6 +140,9 @@ export const DiplomacyScreen = (_: ScreenProps<'diplomacy'>) => {
                         {top.id && top.id !== player ? ` · Most: ${ownerName(top.id)} (${top.n})` : ''}
                         <br />
                         Suzerain: <b>{suz ? (suz === player ? 'You' : ownerName(suz)) : 'None'}</b>
+                        {suz !== player && (
+                          <span class="muted"> · {envoysToLead(mine, top, player)} more to become suzerain</span>
+                        )}
                       </p>
                       <p class="small muted">
                         Suzerain gets: {describeModifiers(def.suzerainModifiers, lookup).join('; ')}
@@ -137,9 +154,14 @@ export const DiplomacyScreen = (_: ScreenProps<'diplomacy'>) => {
                           onClick={() => act(`envoy:${cs.id}`, { type: 'sendEnvoy', cityState: cs.id })}
                           aria-label={`Send an envoy to ${def.name} for ${cost} influence`}
                         >
-                          Send envoy (◆ {cost})
+                          Send envoy ({INF} {cost})
                         </button>
                       </div>
+                      {influence < cost && turn && (
+                        <p class="small muted">
+                          Needs {cost} influence; you have {influence} ({signed(p.income.influence)} per turn).
+                        </p>
+                      )}
                       {err && acted === `envoy:${cs.id}` && <p class="scr-error" role="alert">{err}</p>}
                     </>
                   )}
@@ -162,7 +184,7 @@ export const DiplomacyScreen = (_: ScreenProps<'diplomacy'>) => {
           onCancel={() => setConfirmWar(null)}
         >
           <p>
-            Peace costs ◆ {PEACE_INFLUENCE_COST} influence and is only possible after {MIN_WAR_TURNS} turns of war. Trade routes between
+            Peace costs {INF} {PEACE_INFLUENCE_COST} influence and is only possible after {MIN_WAR_TURNS} turns of war. Trade routes between
             you stop.
           </p>
         </ConfirmSheet>

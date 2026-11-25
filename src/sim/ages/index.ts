@@ -14,6 +14,7 @@ import { adoptHybrid, adoptTradition } from './refinement';
 import { beginTransition, endGame, finishTransition } from './transition';
 
 export { addAgeProgress } from './meter';
+export { endGame } from './transition';
 export { updateMilestones, milestones } from './milestones';
 export { refinementOptions } from './refinement';
 export { score } from './score';

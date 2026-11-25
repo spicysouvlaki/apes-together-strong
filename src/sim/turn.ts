@@ -3,7 +3,7 @@
  * their turn the world phase runs (raiders, city-states, age meter and crises), then the
  * next turn's start-of-turn sim runs for every living player.
  */
-import { YIELDS } from '@contracts/content-schemas';
+import { YIELDS, type ContentBundle } from '@contracts/content-schemas';
 import { hexDistance, hexNeighbors } from '@contracts/hex';
 import { RAIDER_PLAYER, isCityStateOwner, type GameState, type PlayerId, type Unit } from '@contracts/sim-api';
 import { emergenceTick } from '../emergence';
@@ -97,6 +97,18 @@ export const startOfTurnForPlayer = (ctx: SimCtx, player: PlayerId): void => {
   updateMilestones(ctx, player);
   p.stats.battlesWonThisTurn = 0;
   p.stats.citiesCapturedThisTurn = 0;
+};
+
+/** Recompute the shown per-turn `income` and `happiness` without paying anything out. */
+export const refreshIncome = (state: GameState, player: PlayerId, content: ContentBundle): void => {
+  const p = state.players[player];
+  if (!p || !p.alive) return;
+  const emp = empireModifiers(state, player, content);
+  p.happiness = computeHappiness(state, player, content, emp);
+  const { income } = computeEmpire(state, player, content, emp);
+  const next = {} as typeof income;
+  for (const y of YIELDS) next[y] = income[y];
+  p.income = next;
 };
 
 export const firstAlive = (state: GameState): PlayerId | undefined =>

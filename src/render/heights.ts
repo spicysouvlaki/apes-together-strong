@@ -9,13 +9,13 @@ export const WATER_TOP = 0.04;
 /** Top of flat land at elevation 0. */
 export const LAND_TOP = 0.16;
 /** Extra height per elevation step (hills, highlands). */
-export const ELEVATION_STEP = 0.16;
+export const ELEVATION_STEP = 0.22;
 /** Elevation is clamped so a bad map value can't build a tower. */
 export const MAX_ELEVATION = 4;
 /** Unexplored tiles are drawn as a flat parchment sheet at this height (hides relief). */
 export const FOG_TOP = 0.1;
 /** Height of a mountain's peak cone above its tile top. */
-export const MOUNTAIN_PEAK = 0.75;
+export const MOUNTAIN_PEAK = 0.9;
 /** How far below y = 0 the prism sides extend (the "cake slice"). */
 export const BASE_Y = -0.35;
 

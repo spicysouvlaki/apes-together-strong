@@ -92,6 +92,8 @@ export const FEATURE_YIELDS: Record<string, Yields> = {
 export const FEATURE_MOVE_COST: Record<string, number> = { hills: 2, forest: 2, jungle: 2, marsh: 2 };
 /** Feature defense bonus (GDD §7: hills +3, forest +2). */
 export const FEATURE_DEFENSE: Record<string, number> = { hills: 3, forest: 2, jungle: 2 };
+/** Food lost on every polar-climate tile unless an `ignoreCold` modifier applies (GDD §7 map bands). */
+export const COLD_FOOD_PENALTY = 1;
 /** River tiles give +1 gold. */
 export const RIVER_GOLD = 1;
 /** Move cost for land units on water once they can embark. */

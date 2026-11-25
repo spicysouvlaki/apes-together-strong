@@ -225,7 +225,10 @@ export const availableItems = (state: GameState, s: Settlement, content: Content
     out.push({ item: b.id, kind: 'building' });
   }
   for (const w of content.wonders) {
-    if (state.wonders[w.id] || AGE_INDEX[w.age] > age) continue;
+    // Wonders belong to their age (GDD §7 "~8 wonders per age"): a past age's wonder is no
+    // longer buildable, otherwise it is a trivial bargain for whoever is behind (autoplay: 85%
+    // of ancient wonders were finished in the classical age). Banked progress stays.
+    if (state.wonders[w.id] || AGE_INDEX[w.age] !== age) continue;
     if (w.requiresTech && !known.has(w.requiresTech)) continue;
     if (!conditionMatches(w.requires, env)) continue;
     out.push({ item: w.id, kind: 'wonder' });

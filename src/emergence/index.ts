@@ -12,6 +12,7 @@ import type { CultureId, PlayerId, PlayerState } from '@contracts/sim-api';
 import type { SimCtx } from '../sim/ctx';
 import { updateAffinity } from './affinity';
 import { GP_START_THRESHOLD } from './constants';
+import { addMissingSeats } from './cabinet';
 import { tickSeatedTurns } from './lifecycle';
 import { checkDeeds, createPointsOffers, dropOffer, maybeOfferLegend } from './offers';
 import { accrueGp, gpGain } from './points';
@@ -60,6 +61,7 @@ export const emergenceTick = (ctx: SimCtx, player: PlayerId): void => {
   const { state, content } = ctx;
   const p = state.players[player];
   if (!p || !p.alive) return;
+  addMissingSeats(state, player, content);
   const measures = measurePlayer(state, player, content);
   const contributions = signalContributions(state, player, content, measures);
   updateAffinity(ctx, player, contributions);

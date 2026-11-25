@@ -82,3 +82,16 @@ export const nextIdleUnit = (
   }
   return list[0] ?? null;
 };
+
+/**
+ * A unit that could found the player's first settlement, or null when they already have one
+ * (or no founder). `canFoundType` comes from content (UnitDef.canFound); legality of the spot
+ * is still the sim's call (q.canFound) when the player taps Found.
+ */
+export const firstFounder = (state: GameState, me: PlayerId, canFoundType: (type: string) => boolean): string | null => {
+  if (ownSettlements(state, me).length > 0) return null;
+  const u = Object.values(state.units)
+    .filter((x) => x.owner === me && canFoundType(x.type))
+    .sort((a, b) => compareIds(a.id, b.id))[0];
+  return u ? u.id : null;
+};
