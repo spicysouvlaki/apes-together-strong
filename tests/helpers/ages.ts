@@ -341,6 +341,7 @@ export const makeState = (playerIds: PlayerId[] = ['p1', 'p2', 'p3'], over: Part
     speed: 'standard',
     mapSize: 'small',
     finalAge: 'classical',
+    difficulty: 'normal',
     turn: 10,
     age: 'ancient',
     phase: 'playing',

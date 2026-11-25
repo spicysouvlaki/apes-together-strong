@@ -199,6 +199,7 @@ export const makeState = (content: ContentBundle, opts: StateOptions = {}): Game
     speed: 'standard',
     mapSize: 'small',
     finalAge: 'classical',
+    difficulty: 'normal',
     turn: 1,
     age: opts.age ?? 'ancient',
     phase: 'playing',

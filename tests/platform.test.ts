@@ -117,7 +117,7 @@ describe('settings', () => {
     const setup = { seed: 7, mapSize: 'small', speed: 'quick', players: [] };
     updateSettings({ textScale: 120, lastSetup: setup as never }, st);
     updateSettings({ colorblindPatterns: true }, st);
-    expect(loadSettings(st)).toEqual({ textScale: 120, reduceMotion: false, colorblindPatterns: true, lastSetup: setup });
+    expect(loadSettings(st)).toEqual({ sfxVolume: 80, musicVolume: 50, muted: false, textScale: 120, reduceMotion: false, colorblindPatterns: true, lastSetup: setup });
   });
 });
 

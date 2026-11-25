@@ -72,6 +72,9 @@ export const queries: SimQueries = {
   envoyCost: (state, player, cityState) => envoyCostFor(state, player, cityState),
   cabinetSeats,
   figureActions,
+  // TODO(sim): implement settleSites and pathTo (contracts: added for settler hints and multi-turn moves).
+  settleSites: () => [],
+  pathTo: () => null,
   cultureWeights,
   refinementOptions,
   milestones,

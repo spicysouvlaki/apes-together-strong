@@ -334,6 +334,7 @@ const buildState = (map: MapState, content: ContentBundle, seed: number, starts?
     speed: 'standard',
     mapSize: 'small',
     finalAge: 'classical',
+    difficulty: 'normal',
     turn: 12,
     age: 'ancient',
     phase: 'playing',

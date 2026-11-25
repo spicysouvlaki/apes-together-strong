@@ -53,11 +53,19 @@ npm run autoplay          # scripts/autoplay.ts, headless AI-vs-AI games (to be 
 60 fps panning (never below 30) · under 150 draw calls · AI turn under 3 s late game ·
 save/load under 500 ms, save under 2 MB · install under 150 MB · memory under 600 MB.
 
-## Art for now
+## Art and audio direction
 
-Stand-in art only until the game is fun: procedural hex prisms colored from
-`content/terrain.json`, primitive shapes for buildings and units, colored-initial cards for
-figure portraits. Don't spend effort on final art or audio.
+The owner has asked for the game to look and sound like a crafted indie game now, not
+stand-in art. Target: the Dorfromantik / Townscaper diorama of `docs/GDD.md §11` — beveled
+low-poly hex tiles with soil sides, muted biome pastels, warm key light, parchment fog,
+painted-figurine units, and settlements built from per-culture motif kits so hybrid cultures
+look hybrid. The UI has its own identity: bundled typefaces (offline), a drawn SVG icon set
+(no emoji), illustrated figure cards and culture crests, banners, and motion.
+
+Until generated assets exist, everything is procedural and lives in the repo: geometry and
+shaders in `src/render`, SVG and CSS in `src/ui`, Web Audio synthesis in `src/audio`.
+Avoid the generic look (system fonts, emoji icons, plain rounded cards, flat primitives).
+Performance budgets below still apply.
 
 ## Content rules
 

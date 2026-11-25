@@ -12,6 +12,7 @@ const NONE: FigureActions = {
   canRecall: false,
   canActivate: false,
   canConsume: false,
+  blocked: {},
 };
 
 export const figureActions = (state: GameState, figure: FigureId, content: ContentBundle): FigureActions => {
@@ -29,6 +30,8 @@ export const figureActions = (state: GameState, figure: FigureId, content: Conte
     canRecall: recallError(state, owner, figure, content) === null,
     canActivate: activateError(state, owner, figure, content) === null,
     canConsume: consumeError(state, owner, figure, content) === null,
+    // TODO(emergence): fill with the validators' reasons (contracts: FigureActions.blocked).
+    blocked: {},
   };
 };
 

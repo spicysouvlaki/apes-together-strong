@@ -68,6 +68,7 @@ const createGame: Sim['createGame'] = (setup: GameSetup, content: ContentBundle)
     speed: setup.speed,
     mapSize: setup.mapSize,
     finalAge: setup.finalAge ?? 'classical',
+    difficulty: setup.difficulty ?? 'normal',
     turn: 1,
     age: AGES[0],
     phase: 'playing',

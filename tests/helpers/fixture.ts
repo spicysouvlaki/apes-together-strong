@@ -188,6 +188,7 @@ export const fixtureState = (opts: { width?: number; height?: number; players?: 
     speed: 'standard',
     mapSize: 'small',
     finalAge: 'classical',
+    difficulty: 'normal',
     turn: 1,
     age: 'ancient',
     phase: 'playing',

@@ -20,6 +20,11 @@ export type OfferId = string;
 
 export type MapSize = 'small' | 'standard' | 'large';
 export type GameSpeed = 'quick' | 'standard' | 'epic';
+/**
+ * Difficulty only changes rival yields (GDD §9: "yield bonuses and depth, never hidden
+ * information"): 'easy' handicaps AI players, 'hard' boosts them, 'normal' is even.
+ */
+export type Difficulty = 'easy' | 'normal' | 'hard';
 
 /** Settlements of city-states are owned by the pseudo-player `cs:<cityStateId>`. */
 export const CITY_STATE_PREFIX = 'cs:';
@@ -48,6 +53,8 @@ export interface GameSetup {
   players: PlayerSetup[];
   /** Last age to play; the game ends when its meter hits 100. Default 'classical' (M4). */
   finalAge?: Age;
+  /** Default 'normal'. */
+  difficulty?: Difficulty;
 }
 
 // ---------------------------------------------------------------------------
@@ -323,6 +330,7 @@ export interface GameState {
   speed: GameSpeed;
   mapSize: MapSize;
   finalAge: Age;
+  difficulty: Difficulty;
   turn: number;
   age: Age;
   /**
@@ -507,6 +515,12 @@ export interface FigureActions {
   canRecall: boolean;
   canActivate: boolean;
   canConsume: boolean;
+  /**
+   * Player-facing reason for each action that is NOT available right now and could be
+   * ("The seat was just vacated; free on turn 14", "No wonder is being built"). Actions that
+   * never apply to this figure (a statesman cannot deploy) are simply absent.
+   */
+  blocked: Partial<Record<'seat' | 'deploy' | 'unseat' | 'recall' | 'activate' | 'consume', string>>;
 }
 
 export interface RefinementOption {
@@ -542,6 +556,17 @@ export interface SimQueries {
   /** Tiles holding something this unit can attack right now. */
   attackTargets(state: GameState, unit: UnitId, content: ContentBundle): Hex[];
   canFound(state: GameState, unit: UnitId, content: ContentBundle): boolean;
+  /**
+   * Explored tiles near the unit (within ~8) where this settler-type unit could legally found
+   * a settlement, best sites first (food, fresh water, coast, resources). Empty for other units.
+   */
+  settleSites(state: GameState, unit: UnitId, content: ContentBundle): { hex: Hex; score: number }[];
+  /**
+   * Cheapest path for a multi-turn move over tiles the owner has explored, excluding the
+   * start tile and including `to`; null when unreachable. The UI sends `moveUnit` along it,
+   * as far as `reachable` allows each turn.
+   */
+  pathTo(state: GameState, unit: UnitId, to: Hex, content: ContentBundle): Hex[] | null;
   /** Settlements a merchant unit could open a route to from where it stands. */
   tradeTargets(state: GameState, unit: UnitId, content: ContentBundle): SettlementId[];
   productionOptions(state: GameState, settlement: SettlementId, content: ContentBundle): ProductionOption[];

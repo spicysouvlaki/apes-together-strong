@@ -10,6 +10,10 @@ export interface Settings {
   reduceMotion: boolean;
   /** Patterns in addition to colors on borders, units and charts. */
   colorblindPatterns: boolean;
+  /** Sound-effect and ambience volumes, 0–100; `muted` silences both. */
+  sfxVolume: number;
+  musicVolume: number;
+  muted: boolean;
   /** The last game setup, to prefill the setup screen. */
   lastSetup: GameSetup | null;
 }
@@ -32,6 +36,9 @@ export const defaultSettings = (): Settings => ({
   textScale: 100,
   reduceMotion: prefersReducedMotion(),
   colorblindPatterns: false,
+  sfxVolume: 80,
+  musicVolume: 50,
+  muted: false,
   lastSetup: null,
 });
 
@@ -55,11 +62,16 @@ export const sanitizeSettings = (value: unknown): Settings => {
   const d = defaultSettings();
   if (!value || typeof value !== 'object') return d;
   const v = value as Record<string, unknown>;
+  const vol = (x: unknown, fallback: number): number =>
+    typeof x === 'number' && Number.isFinite(x) ? Math.min(100, Math.max(0, Math.round(x))) : fallback;
   const scale = typeof v.textScale === 'number' && Number.isFinite(v.textScale) ? Math.round(v.textScale) : d.textScale;
   return {
     textScale: Math.min(TEXT_SCALE_MAX, Math.max(TEXT_SCALE_MIN, scale)),
     reduceMotion: typeof v.reduceMotion === 'boolean' ? v.reduceMotion : d.reduceMotion,
     colorblindPatterns: typeof v.colorblindPatterns === 'boolean' ? v.colorblindPatterns : d.colorblindPatterns,
+    sfxVolume: vol(v.sfxVolume, d.sfxVolume),
+    musicVolume: vol(v.musicVolume, d.musicVolume),
+    muted: typeof v.muted === 'boolean' ? v.muted : d.muted,
     lastSetup: isSetup(v.lastSetup) ? v.lastSetup : null,
   };
 };
