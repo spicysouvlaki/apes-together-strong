@@ -35,7 +35,7 @@
     "modifiers": [{ "scope": "tile", "when": { "resource": ["copper"] }, "effect": { "kind": "yield", "yield": "production", "add": 1 } }],
     "description": "+2 production, +2 culture; +2 building great-people points per turn; +1 production on Copper tiles.",
     "history": {
-      "note": "A bronze ritual cauldron cast at Anyang in the late Shang dynasty (c. 13th-11th century BCE) for a royal mother; its name is also read Simuwu. At about 830 kg it is the heaviest bronze known from ancient China.",
+      "note": "A bronze ritual cauldron cast at Anyang in the late Shang dynasty (c. 13th–11th century BCE) for a royal mother; its name is also read Simuwu. At about 833 kg it is the heaviest bronze vessel known from ancient China.",
       "source": "National Museum of China, 'Houmuwu Ding'; Encyclopaedia Britannica, 'Anyang'"
     } },
   { "id": "marib_dam", "name": "Marib Dam", "age": "ancient", "cost": 200, "culture": "arab", "affinity": 25,
@@ -51,14 +51,14 @@
     "modifiers": [{ "scope": "empire", "effect": { "kind": "gpPoints", "gp": "exploration", "percent": 15 } }],
     "description": "+2 culture, +1 faith; +2 exploration great-people points per turn; exploration great-people points +15%.",
     "history": {
-      "note": "Hundreds of carved rock panels at Tanum in Bohuslän, Sweden, made by Nordic Bronze Age communities roughly 1700-500 BCE, show ships, ploughing, hunting and ritual, long before the Viking Age.",
+      "note": "Hundreds of carved rock panels at Tanum in Bohuslän, Sweden, made by Nordic Bronze Age communities roughly 1700–500 BCE, show ships, ploughing, hunting and ritual, long before the Viking Age.",
       "source": "UNESCO, 'Rock Carvings in Tanum'"
     } },
   { "id": "dolmen_of_menga", "name": "Dolmen of Menga", "age": "ancient", "cost": 160, "culture": "spanish", "affinity": 20,
     "yields": { "faith": 2, "culture": 1 }, "gp": { "faith": 2 }, "requiresTech": "ancestor_worship",
     "description": "+2 faith, +1 culture; +2 faith great-people points per turn.",
     "history": {
-      "note": "A megalithic tomb at Antequera built around 3800-3600 BCE by Neolithic Iberians, thousands of years before Spain existed. Roofed with slabs of over 100 tonnes, it faces the mountain called the Peña de los Enamorados.",
+      "note": "A megalithic tomb at Antequera built around 3800–3600 BCE by Neolithic farmers, thousands of years before Spain existed. Its largest roof slab weighs some 150 tonnes, and it faces the mountain called the Peña de los Enamorados.",
       "source": "UNESCO, 'Antequera Dolmens Site' (2016)"
     } },
 
@@ -67,7 +67,7 @@
     "modifiers": [{ "scope": "empire", "effect": { "kind": "yield", "yield": "culture", "percent": 10 } }],
     "description": "+4 culture; +2 building great-people points per turn; +10% culture.",
     "history": {
-      "note": "Temple of Athena on the Athenian Acropolis, built 447-432 BCE under Pericles, designed by Iktinos and Kallikrates with sculpture overseen by Pheidias. It was partly paid for with tribute from Athens' Delian League allies.",
+      "note": "Temple of Athena on the Athenian Acropolis, built 447–432 BCE under Pericles, designed by Iktinos and Kallikrates with sculpture overseen by Pheidias. It was partly paid for with tribute from Athens' Delian League allies.",
       "source": "Encyclopaedia Britannica, 'Parthenon'"
     } },
   { "id": "great_wall", "name": "Great Wall", "age": "classical", "cost": 420, "culture": "chinese", "affinity": 30,
@@ -83,7 +83,7 @@
     "modifiers": [{ "scope": "empire", "effect": { "kind": "yield", "yield": "science", "percent": 10 } }],
     "description": "+4 science; +3 thought great-people points per turn; +10% science.",
     "history": {
-      "note": "The Bayt al-Hikma of Abbasid Baghdad, prominent under al-Ma'mun (r. 813-833), was a palace library tied to the movement translating Greek, Persian and Syriac works into Arabic. Historians debate how large an institution it was.",
+      "note": "The Bayt al-Hikma of Abbasid Baghdad, prominent under al-Maʾmūn (r. 813–833), was a palace library tied to the movement translating Greek, Persian and Syriac works into Arabic. Historians debate how large an institution it was.",
       "source": "Encyclopaedia Britannica, 'House of Wisdom'; D. Gutas, Greek Thought, Arabic Culture (1998)"
     } },
   { "id": "jelling_stones", "name": "Jelling Stones", "age": "classical", "cost": 320, "culture": "norse", "affinity": 25,
@@ -107,7 +107,7 @@
     "modifiers": [{ "scope": "empire", "effect": { "kind": "affinityGain", "percent": 10 } }],
     "description": "+3 gold, +2 influence; +2 statesman great-people points per turn; +10% affinity gain with every culture.",
     "history": {
-      "note": "At Möngke Khan's court in Karakorum, Guillaume Boucher, a Parisian goldsmith taken captive in Hungary, built a silver tree whose pipes poured wine, mare's milk and meads. William of Rubruck saw it in 1254.",
+      "note": "At Möngke Khan's court in Karakorum, Guillaume Boucher, a Parisian goldsmith taken captive in Hungary, built a silver tree whose pipes poured wine, mare's milk, mead and rice wine. William of Rubruck saw it in 1254.",
       "source": "William of Rubruck, The Mission of Friar William of Rubruck, trans. P. Jackson (1990); Encyclopaedia Britannica, 'Karakorum'"
     } },
   { "id": "shangdu", "name": "Shangdu (Xanadu)", "age": "classical", "cost": 360, "culture": "mongol", "affinity": 25,
@@ -127,7 +127,7 @@
     ],
     "description": "Polar or boreal settlements only. +2 culture; +2 exploration great-people points per turn; all units +1 vision; +1 food on tundra and snow tiles.",
     "history": {
-      "note": "About 100 inuksuit, stone figures built by Inuit and their ancestors, stand at Inuksuk Point (Enukso Point) on Baffin Island, a National Historic Site of Canada. Inuksuit mark routes, caches and hunting places; their ages here are uncertain.",
-      "source": "Parks Canada, 'Inuksuk National Historic Site of Canada' (Directory of Federal Heritage Designations)"
+      "note": "About 100 inuksuit, stone figures built by Inuit and their ancestors, stand at Inuksuk Point (Enukso Point) on Baffin Island, a National Historic Site of Canada. Inuksuit mark routes, caches and hunting places; some here may be very old, and their ages are uncertain.",
+      "source": "Canadian Register of Historic Places, 'Enukso Point National Historic Site of Canada' (designated 1969)"
     } }
 ]

@@ -35,7 +35,7 @@
     ],
     "description": "Suzerain: +2 culture; wonders cost 10% less.",
     "history": {
-      "note": "Delta city of the goddess Neith. Its princes ruled independently from about 730 BCE and, as the 26th Dynasty (664-525 BCE), led a revival of Old Kingdom art and writing styles.",
+      "note": "Delta city of the goddess Neith. Its princes ruled independently from about 730 BCE and, as the 26th Dynasty (664–525 BCE), led a revival of Old Kingdom art and writing styles.",
       "source": "Encyclopaedia Britannica, 'Sais'; I. Shaw (ed.), The Oxford History of Ancient Egypt (2000)"
     } },
   { "id": "sparta", "name": "Sparta", "culture": "greek", "type": "military",
@@ -64,7 +64,7 @@
     ],
     "description": "Suzerain: +5% culture; statesman great-people points +20%.",
     "history": {
-      "note": "Capital of the Zhou-era state of Lu for some eight centuries until 249 BCE. Lu's court chronicle, the Spring and Autumn Annals (722-481 BCE), named a whole era of Chinese history.",
+      "note": "Capital of the Zhou-era state of Lu for some eight centuries until 249 BCE. Lu's court chronicle, the Spring and Autumn Annals (722–481 BCE), named a whole era of Chinese history.",
       "source": "Encyclopaedia Britannica, 'Lu'; UNESCO, 'Temple and Cemetery of Confucius and the Kong Family Mansion in Qufu'"
     } },
   { "id": "visby", "name": "Visby", "culture": "norse", "type": "trade",
@@ -73,7 +73,7 @@
     ],
     "description": "Suzerain: +2 gold in coastal settlements.",
     "history": {
-      "note": "Port of Gotland that grew from Viking-Age trade into a walled Hanseatic hub of the Baltic in the 12th-14th centuries. Valdemar IV of Denmark took the island in 1361 after a bloody battle outside its walls.",
+      "note": "Port of Gotland that grew from Viking-Age trade into a walled Hanseatic hub of the Baltic in the 12th–14th centuries. Valdemar IV of Denmark took the island in 1361 after a bloody battle outside its walls.",
       "source": "UNESCO, 'Hanseatic Town of Visby'"
     } },
   { "id": "lejre", "name": "Lejre", "culture": "norse", "type": "sacred",
@@ -83,8 +83,8 @@
     ],
     "description": "Suzerain: +2 faith, +2 influence.",
     "history": {
-      "note": "Royal and cult seat on Zealand with great halls from the 6th-10th centuries, remembered in legend as home of the Skjöldung kings. Thietmar of Merseburg described mass sacrifices there; historians treat this cautiously.",
-      "source": "T. Christensen, Lejre: Fact and Fable (2007); Thietmar of Merseburg, Chronicon I.17"
+      "note": "Royal and cult seat on Zealand with great halls from the 6th–10th centuries, remembered in legend as home of the Skjöldung kings. Thietmar of Merseburg (c. 1015) wrote of mass sacrifices there every nine years; historians treat this cautiously.",
+      "source": "J. D. Niles, with T. Christensen and M. Osborn, Beowulf and Lejre (2007); Thietmar of Merseburg, Chronicon I.17"
     } },
   { "id": "naujan", "name": "Naujan", "culture": "inuit", "type": "cultural",
     "suzerainModifiers": [
@@ -112,7 +112,7 @@
     ],
     "description": "Suzerain: all units +4 combat strength against siege units.",
     "history": {
-      "note": "Celtiberian hill town that resisted Rome for two decades. Scipio Aemilianus besieged it in 134-133 BCE; starving, many defenders killed themselves, and Rome sold the survivors into slavery.",
-      "source": "Appian, Iberian Wars 76-98; Encyclopaedia Britannica, 'Numantia'"
+      "note": "Celtiberian hill town that resisted Rome for two decades. Scipio Aemilianus besieged it in 134–133 BCE; starving, many defenders killed themselves, and Rome sold the survivors into slavery.",
+      "source": "Appian, Iberian Wars 76–98; Encyclopaedia Britannica, 'Numantia'"
     } }
 ]
