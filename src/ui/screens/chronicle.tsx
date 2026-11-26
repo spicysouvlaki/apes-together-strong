@@ -46,7 +46,7 @@ export const ChronicleScreen = (_: ScreenProps<'chronicle'>) => {
         <>
           {story && <ShareButtons story={story} ended={ended} turn={g.turn} />}
           {ended ? (
-            <button class="btn btn-primary" onClick={newGame} aria-label="Start a new game">
+            <button class="btn btn-primary chron-new" onClick={newGame} aria-label="Start a new game">
               New game
             </button>
           ) : (

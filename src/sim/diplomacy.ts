@@ -33,6 +33,7 @@ import { ci, playerSettlements } from './lookup';
 import { empireModifiers, sumAdd } from './modifiers';
 import { removeUnit } from './units';
 import { speak } from './voice';
+import { answerThreat, onWarDeclared, settlePeace, threatPendingError, warnInsteadOfWar } from './war-intent';
 
 /** Chronicle line of the declaring side (annal voice; the AI also reads it to space its wars). */
 export const WAR_DECLARED_TEXT = 'War was declared.';
@@ -49,7 +50,12 @@ export const declareWar = (ctx: SimCtx, player: PlayerId, target: PlayerId): str
   if (!validTarget(state, target)) return 'There is no such civilization or city-state.';
   const key = warKey(player, target);
   if (state.wars[key] !== undefined) return 'You are already at war with them.';
+  // Wave 13: an AI threatens a human before it fights them (src/sim/war-intent.ts).
+  const pending = threatPendingError(state, player, target);
+  if (pending) return pending;
+  if (warnInsteadOfWar(ctx, player, target)) return null;
   state.wars[key] = state.turn;
+  onWarDeclared(state, player, target);
   // Trade routes between the two stop.
   state.tradeRoutes = state.tradeRoutes.filter((r) => {
     const toOwner = state.settlements[r.to]?.owner;
@@ -68,7 +74,12 @@ export const makePeace = (ctx: SimCtx, player: PlayerId, target: PlayerId): stri
   if (!p) return 'That player is not in this game.';
   const key = warKey(player, target);
   const began = state.wars[key];
-  if (began === undefined) return 'You are not at war with them.';
+  if (began === undefined) {
+    // Wave 13: with no war, "peace" answers a threat — the threatener stands down, or the
+    // threatened player buys it off (src/sim/war-intent.ts).
+    const answered = answerThreat(ctx, player, target);
+    return answered === undefined ? 'You are not at war with them.' : answered;
+  }
   if (state.turn - began < MIN_WAR_TURNS) {
     const left = MIN_WAR_TURNS - (state.turn - began);
     return `Peace is possible after ${MIN_WAR_TURNS} turns of war (${left} more ${left === 1 ? 'turn' : 'turns'}).`;
@@ -76,6 +87,7 @@ export const makePeace = (ctx: SimCtx, player: PlayerId, target: PlayerId): stri
   if (p.stock.influence < PEACE_INFLUENCE_COST)
     return `Making peace costs ${PEACE_INFLUENCE_COST} influence; you have ${Math.floor(p.stock.influence)}.`;
   p.stock.influence -= PEACE_INFLUENCE_COST;
+  settlePeace(ctx, player, target, ctx.content);
   delete state.wars[key];
   ctx.events.push({ type: 'peaceMade', a: player, b: target });
   speak(ctx, player, target, 'peace');

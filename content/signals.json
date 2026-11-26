@@ -49,7 +49,7 @@
   { "id": "trade_routes", "description": "Trade routes owned", "measure": "tradeRoutes", "hint": "your caravans", "weights": { "arab": 15, "chinese": 5 } },
   { "id": "trade_with_culture", "description": "Trade routes to settlements of each culture", "measure": "tradeRoutesWithCulture", "hint": "your trade with their lands", "weights": { "egyptian": 16, "greek": 16, "chinese": 16, "arab": 16, "norse": 16, "inuit": 16, "mongol": 16, "spanish": 16 } },
   { "id": "suzerain_of_culture", "description": "City-states of each culture you are suzerain of", "measure": "suzerainOfCulture", "hint": "your friendship with their city", "weights": { "egyptian": 30, "greek": 30, "chinese": 30, "arab": 30, "norse": 30, "inuit": 30, "mongol": 30, "spanish": 30 } },
-  { "id": "wonders_built", "description": "Wonders built", "measure": "wondersBuilt", "hint": "your monuments", "weights": { "egyptian": 18, "chinese": 10, "greek": 4 } },
+  { "id": "wonders_built", "description": "Wonders built", "measure": "wondersBuilt", "hint": "your wonders", "weights": { "egyptian": 18, "chinese": 10, "greek": 4 } },
   { "id": "techs_researched", "description": "Technologies and civics completed this age", "measure": "techsResearched", "hint": "your scholars", "weights": { "greek": 1, "chinese": 0.29, "arab": 0.15 } },
   { "id": "envoys_sent", "description": "Envoys sent", "measure": "envoysSent", "hint": "your envoys", "weights": { "greek": 0.22, "arab": 0.18 } },
   { "id": "faith_income", "description": "Faith per turn", "measure": "faithIncome", "hint": "your temples", "weights": { "egyptian": 0.19, "arab": 0.1, "inuit": 0.21 } },

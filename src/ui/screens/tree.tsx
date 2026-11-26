@@ -9,6 +9,8 @@ import { ageLabel, describeModifiers } from './shared/describe';
 import { DEFAULT_TREE_METRICS, layoutTree, unlockedBy } from './shared/tree-layout';
 import { num } from '../shell/format';
 import { Icon } from '../art/Icon';
+import { PLAN_MAX, researchPlan, togglePlan } from '../shell/research-plan';
+import { nodeAction, planWaits } from '../shell/tree-actions';
 
 /** Taller cells than the default so each node can say what it gives; scales with text size. */
 const textScale = (): number => {
@@ -56,7 +58,7 @@ export const TreeScreen = ({ modal }: ScreenProps<'tree'>) => {
   const nodes = content.techs.filter((t) => t.tree === tree && t.age === g.age);
   const earlierDone = content.techs.filter((t) => t.tree === tree && t.age !== g.age && p.techs.includes(t.id)).length;
   const k = Math.max(1, textScale());
-  const layout = layoutTree(nodes, { ...DEFAULT_TREE_METRICS, cellW: Math.round(150 * k), cellH: Math.round(112 * k) });
+  const layout = layoutTree(nodes, { ...DEFAULT_TREE_METRICS, cellW: Math.round(150 * k), cellH: Math.round(138 * k) });
   const glyph = <Icon name={tree === 'tech' ? 'science' : 'culture'} size="sm" />;
   const pointName = tree === 'tech' ? 'science' : 'culture';
   const options = q.researchOptions(g, player, tree, content);
@@ -75,6 +77,53 @@ export const TreeScreen = ({ modal }: ScreenProps<'tree'>) => {
   const turnsOf = (id: string): number | null => options.find((o) => o.id === id)?.turns ?? null;
   const doneCount = nodes.filter((n) => p.techs.includes(n.id)).length;
   const perTurn = tree === 'tech' ? p.income.science : p.income.culture;
+
+  const planned = researchPlan.value[tree];
+  const busy = slot.current !== null;
+  /** One tap starts research (wave 13: picks took two taps ~30 times a game). */
+  const research = (id: string): void => {
+    dispatch({ type: 'setResearch', tree, id });
+    setDetail(null);
+    // "Pick one in each tree" (guide): go straight on to the other tree if it is idle.
+    if (idle(otherTree)) openModal({ kind: 'tree', tree: otherTree });
+    // Nothing else to pick: back to the map, where the next decision waits
+    // (playtest 4: "Back to the map" after every pick, about 20 extra taps a game).
+    else closeModal();
+  };
+  const verb = tree === 'tech' ? 'Research' : 'Study';
+  /** The Research / Plan strip at the foot of a node card. */
+  const actions = (n: Tech, st: NodeState) => {
+    const a = nodeAction(st, busy, planned.indexOf(n.id), planned.length, PLAN_MAX);
+    if (a.kind === 'none') return null;
+    return (
+      <span class="scr-node-acts">
+        {a.kind === 'research' && (
+          <button class="btn btn-primary scr-node-go" disabled={!myTurn.value} onClick={() => research(n.id)} aria-label={`${verb} ${n.name} now`}>
+            <Icon name={tree === 'tech' ? 'science' : 'culture'} size="sm" /> {verb}
+          </button>
+        )}
+        {a.plan !== 'hidden' && (
+          <button
+            class={`btn scr-node-plan${a.plan === 'planned' ? ' is-planned' : ''}`}
+            disabled={a.plan === 'full'}
+            aria-pressed={a.plan === 'planned'}
+            onClick={() => togglePlan(tree, n.id)}
+            aria-label={a.plan === 'planned' ? `Planned ${a.order} of ${planned.length}: ${n.name}. Tap to unplan.` : a.plan === 'full' ? `The plan holds ${PLAN_MAX}` : `Plan ${n.name} next`}
+          >
+            {a.plan === 'planned' ? (
+              <>
+                <span class="scr-plan-n tnum">{a.order}</span> Planned
+              </>
+            ) : (
+              <>
+                <Icon name="plus" size="sm" /> Plan
+              </>
+            )}
+          </button>
+        )}
+      </span>
+    );
+  };
 
   const node = detail ? byId[detail] : undefined;
   const nodeState = node ? stateOf(node.id) : 'locked';
@@ -113,6 +162,11 @@ export const TreeScreen = ({ modal }: ScreenProps<'tree'>) => {
         <span class="chip scr-key scr-key-available"><Icon name="star" size="sm" /> Available</span>
         <span class="chip scr-key scr-key-locked"><Icon name="locked" size="sm" /> Locked</span>
       </div>
+      <p class="small muted scr-plan-note">
+        {planned.length > 0
+          ? `Planned next: ${planned.map((id) => byId[id]?.name ?? lookup.techs[id]?.name ?? id).join(', then ')}. Each starts by itself when ${tree === 'tech' ? 'research' : 'study'} is free.${planWaits(planned, options.map((o) => o.id), p.techs, slot.current, content.techs)}`
+          : `Tap Plan on up to ${PLAN_MAX} nodes and they start by themselves, in order, when ${tree === 'tech' ? 'research' : 'study'} is free.`}
+      </p>
       {nodes.length === 0 ? (
         <Empty>No {tree === 'tech' ? 'technologies' : 'civics'} in this age.</Empty>
       ) : (
@@ -139,21 +193,22 @@ export const TreeScreen = ({ modal }: ScreenProps<'tree'>) => {
               const st = stateOf(n.id);
               const turns = turnsOf(n.id);
               return (
-                <button
-                  class={`scr-node scr-node-${st}`}
+                <div
+                  class={`scr-node scr-node-${st}${planned.includes(n.id) ? ' is-planned' : ''}`}
                   style={{ left: `${c.x}px`, top: `${c.y}px`, width: `${c.w}px`, height: `${c.h}px` }}
-                  onClick={() => setDetail(n.id)}
-                  aria-label={`${n.name}, ${STATE_LABEL[st]}. ${n.description}`}
                 >
-                  <span class="scr-node-name">{n.name}</span>
-                  <span class="scr-node-desc">{n.description}</span>
-                  {st === 'researching' && <Bar value={slot.progress} max={n.cost} label={`${n.name} progress`} />}
-                  <span class="scr-node-meta">
-                    {st === 'done'
-                      ? <><Icon name="done" size="sm" /> Done</>
-                      : <>{st === 'locked' ? <Icon name="locked" size="sm" /> : glyph} {n.cost}{st !== 'locked' && turns !== null ? ` · ${turns} ${turns === 1 ? 'turn' : 'turns'}` : ''}</>}
-                  </span>
-                </button>
+                  <button class="scr-node-open" onClick={() => setDetail(n.id)} aria-label={`${n.name}, ${STATE_LABEL[st]}. ${n.description} Details.`}>
+                    <span class="scr-node-name">{n.name}</span>
+                    <span class="scr-node-desc">{n.description}</span>
+                    {st === 'researching' && <Bar value={slot.progress} max={n.cost} label={`${n.name} progress`} />}
+                    <span class="scr-node-meta">
+                      {st === 'done'
+                        ? <><Icon name="done" size="sm" /> Done</>
+                        : <>{st === 'locked' ? <Icon name="locked" size="sm" /> : glyph} {n.cost}{st !== 'locked' && turns !== null ? ` · ${turns} ${turns === 1 ? 'turn' : 'turns'}` : ''}</>}
+                    </span>
+                  </button>
+                  {actions(n, st)}
+                </div>
               );
             })}
           </div>
@@ -168,15 +223,18 @@ export const TreeScreen = ({ modal }: ScreenProps<'tree'>) => {
               const st = stateOf(n.id);
               const turns = turnsOf(n.id);
               return (
-                <button class={`scr-node scr-node-${st} scr-node-flow`} onClick={() => setDetail(n.id)} aria-label={`${n.name}, ${ageLabel(n.age)} age, ${STATE_LABEL[st]}. ${n.description}`}>
-                  <span class="scr-node-name">{n.name}</span>
-                  <span class="scr-node-desc">{n.description}</span>
-                  {st === 'researching' && <Bar value={slot.progress} max={n.cost} label={`${n.name} progress`} />}
-                  <span class="scr-node-meta">
-                    {glyph} {n.cost}
-                    {turns !== null ? ` · ${turns} ${turns === 1 ? 'turn' : 'turns'}` : ''} · {ageLabel(n.age)}
-                  </span>
-                </button>
+                <div class={`scr-node scr-node-${st} scr-node-flow${planned.includes(n.id) ? ' is-planned' : ''}`}>
+                  <button class="scr-node-open" onClick={() => setDetail(n.id)} aria-label={`${n.name}, ${ageLabel(n.age)} age, ${STATE_LABEL[st]}. ${n.description} Details.`}>
+                    <span class="scr-node-name">{n.name}</span>
+                    <span class="scr-node-desc">{n.description}</span>
+                    {st === 'researching' && <Bar value={slot.progress} max={n.cost} label={`${n.name} progress`} />}
+                    <span class="scr-node-meta">
+                      {glyph} {n.cost}
+                      {turns !== null ? ` · ${turns} ${turns === 1 ? 'turn' : 'turns'}` : ''} · {ageLabel(n.age)}
+                    </span>
+                  </button>
+                  {actions(n, st)}
+                </div>
               );
             })}
           </div>
@@ -188,23 +246,24 @@ export const TreeScreen = ({ modal }: ScreenProps<'tree'>) => {
           title={node.name}
           onCancel={() => setDetail(null)}
           footer={
-            nodeState === 'available' ? (
-              <button
-                class="btn btn-primary"
-                disabled={!myTurn.value}
-                onClick={() => {
-                  dispatch({ type: 'setResearch', tree, id: node.id });
-                  setDetail(null);
-                  // "Pick one in each tree" (guide): go straight on to the other tree if it is idle.
-                  if (idle(otherTree)) openModal({ kind: 'tree', tree: otherTree });
-                  // Nothing else to pick: back to the map, where the next decision waits
-                  // (playtest 4: "Back to the map" after every pick, about 20 extra taps a game).
-                  else closeModal();
-                }}
-                aria-label={`${tree === 'tech' ? 'Research' : 'Adopt'} ${node.name}`}
-              >
-                {tree === 'tech' ? 'Research' : 'Adopt'} {node.name}
-              </button>
+            nodeState === 'available' || nodeState === 'locked' ? (
+              <>
+                {(nodeState === 'locked' || busy) && (
+                  <button
+                    class="btn"
+                    disabled={!planned.includes(node.id) && planned.length >= PLAN_MAX}
+                    aria-pressed={planned.includes(node.id)}
+                    onClick={() => togglePlan(tree, node.id)}
+                  >
+                    {planned.includes(node.id) ? 'Unplan' : planned.length >= PLAN_MAX ? `Plan is full (${PLAN_MAX})` : 'Plan next'}
+                  </button>
+                )}
+                {nodeState === 'available' && (
+                  <button class="btn btn-primary" disabled={!myTurn.value} onClick={() => research(node.id)} aria-label={`${busy ? 'Switch to' : verb} ${node.name}`}>
+                    {busy ? 'Switch to it' : `${verb} ${node.name}`}
+                  </button>
+                )}
+              </>
             ) : undefined
           }
         >

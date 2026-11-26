@@ -9,7 +9,8 @@ import type { YieldType } from '@contracts/content-schemas';
 import { closeModal, content, dispatch, game, lastError, lookup, me, myTurn, openModal, q } from '../store';
 import { YIELD_ICON, YIELD_NAME, capitalize, growthText, num, signed, turnsText } from './format';
 import { FOOD_PER_POP, UNREST_THRESHOLD, UPGRADE_COST_BASE, UPGRADE_COST_PER_POP } from '../../sim/constants';
-import { MAX_QUEUE, queueAdd, queueChoices, queueFullNote, queueMove, queueRemove, suggestContext, suggestionLabel, suggestNext } from './build-queue';
+import { useEscape } from './use-escape';
+import { MAX_QUEUE, queueAdd, queueChoices, queueFullNote, queueMove, queueRemove, suggestContext, suggestionLabel, suggestNext, switchPlan } from './build-queue';
 import { namingLine, strongestCulture, upgradeCostReason } from './city-lines';
 import { Icon } from '../art/Icon';
 import { FigurePortrait } from '../art/game-art';
@@ -50,6 +51,9 @@ export function CitySheet({ settlement }: { settlement: string }) {
   // Set when a queue edit was sent; an error arriving meanwhile is shown inline (the sim may
   // refuse the whole list, e.g. an item that stopped being legal).
   const [queueSent, setQueueSent] = useState(false);
+  // While changing: put the old item back at the front of the queue (wave 13), unless waved off.
+  const [keepOld, setKeepOld] = useState(true);
+  useEscape(closeModal);
   // The Buy button that was tapped once and waits for its second tap (see below).
   const [armed, setArmed] = useState<string | null>(null);
   useEffect(() => {
@@ -86,6 +90,15 @@ export function CitySheet({ settlement }: { settlement: string }) {
     setQueueSent(true);
     dispatch({ type: 'setProductionQueue', settlement: s.id, items: items.slice(0, MAX_QUEUE) });
   };
+  const oneOff = (item: string): boolean => !lookup.units[item];
+  /** Start `item` now; while changing, the old pick goes back to the front of the queue. */
+  const startItem = (item: string): void => {
+    const plan = current && picking === 'current' ? switchPlan(current, queue, item, oneOff) : null;
+    dispatch({ type: 'setProduction', settlement: s.id, item });
+    if (plan && plan.keeps && keepOld) sendQueue(plan.queue);
+  };
+  // Room to keep the old pick (a pick from the queue itself makes room too; startItem checks that).
+  const canKeep = !!current && (queue.length < MAX_QUEUE || queue.includes(current));
   const ctx = !current && options.length > 0 ? suggestContext(g, s.id, content, (a, b) => q.atWar(g, a, b), q.settlementCap(g, my, content)) : null;
   const suggestion = ctx ? suggestNext(options, ctx) : null;
   const named = mine
@@ -239,6 +252,24 @@ export function CitySheet({ settlement }: { settlement: string }) {
             </p>
           )}
 
+          {picking === 'current' && current && (
+            <label class={`keep-old${canKeep ? '' : ' is-off'}`}>
+              <input type="checkbox" checked={canKeep && keepOld} disabled={!canKeep} onChange={(e) => setKeepOld((e.target as HTMLInputElement).checked)} />
+              <span class="grow">
+                {canKeep ? (
+                  <>
+                    Then go back to <b>{itemName(current)}</b>
+                    <span class="small muted"> · it waits first in the queue; progress so far goes into the new pick</span>
+                  </>
+                ) : (
+                  <>
+                    <b>{itemName(current)}</b> will be dropped
+                    <span class="small muted"> · the queue is full</span>
+                  </>
+                )}
+              </span>
+            </label>
+          )}
           {(picking !== null || !current) &&
             GROUPS.map((grp) => {
               const pool = picking === 'queue' ? queueChoices(options, current, queue) : options;
@@ -255,14 +286,20 @@ export function CitySheet({ settlement }: { settlement: string }) {
                           class="prod-main"
                           disabled={!canAct}
                           aria-pressed={picking === 'queue' ? undefined : active}
-                          aria-label={picking === 'queue' ? `Then build ${itemName(o.item)}` : undefined}
+                          aria-label={
+                            picking === 'queue'
+                              ? `Then build ${itemName(o.item)}`
+                              : picking === 'current' && current && o.item !== current && canKeep && keepOld
+                                ? `Build ${itemName(o.item)} first, then back to ${itemName(current)}`
+                                : undefined
+                          }
                           onClick={() => {
                             if (picking === 'queue') {
                               sendQueue(queueAdd(queue, o.item));
                               setPicking(null);
                               return;
                             }
-                            dispatch({ type: 'setProduction', settlement: s.id, item: o.item });
+                            if (o.item !== current) startItem(o.item);
                             setPicking(null);
                           }}
                         >

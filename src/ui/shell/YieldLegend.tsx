@@ -3,7 +3,7 @@
  * tapping the top-bar stockpiles; also reachable from the menu. Display only.
  */
 import type { PlayerState } from '@contracts/sim-api';
-import { HUD_YIELDS, LEGEND_YIELDS, YIELD_HELP, YIELD_ICON, YIELD_NAME, happinessWord, num, signed } from './format';
+import { HUD_YIELDS, LEGEND_YIELDS, YIELD_HELP, YIELD_ICON, YIELD_NAME, happinessWord, isRateYield, num, signed } from './format';
 import { Icon } from '../art/Icon';
 
 export function YieldLegend({ player, onClose }: { player: PlayerState | null; onClose: () => void }) {
@@ -27,7 +27,7 @@ export function YieldLegend({ player, onClose }: { player: PlayerState | null; o
             </span>
             {player && HUD_YIELDS.includes(y) && (
               <span class="small legend-num">
-                {Math.floor(player.stock[y])} ({signed(player.income[y])})
+                {isRateYield(y) ? `${signed(player.income[y])} / turn` : `${Math.floor(player.stock[y])} (${signed(player.income[y])})`}
               </span>
             )}
             {player && y === 'happiness' && (
@@ -38,7 +38,7 @@ export function YieldLegend({ player, onClose }: { player: PlayerState | null; o
           </li>
         ))}
       </ul>
-      <p class="small muted legend-foot">Top bar: what you have, and below it the change per turn.</p>
+      <p class="small muted legend-foot">Top bar: gold, faith and influence show what you have, with the change per turn below. Science and culture show what flows into research each turn.</p>
     </div>
   );
 }

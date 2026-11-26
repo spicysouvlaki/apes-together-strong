@@ -67,6 +67,34 @@ const openSeatKinds = (ai: AiCtx): string[] => {
 /** Offer-score bonus for a figure that brings a planned hybrid's second culture toward its weight. */
 export const HYBRID_PLAN_BONUS = 1.4;
 
+/** Offer-score bonus for a figure of the AI's one target hybrid (`targetHybrid`) while short of its weight. */
+export const HYBRID_TARGET_BONUS = 2.2;
+
+/**
+ * The hybrid this AI works toward: of the hybrids of this age or the next, the one whose two
+ * cultures it is closest to completing (weights counted up to the hybrid's minimum; ties in
+ * content order), once it holds at least one figure of either culture. Public information only.
+ */
+export const targetHybrid = (ai: AiCtx, weights: Record<CultureId, number>): { cultures: readonly CultureId[]; minWeight: number } | null => {
+  const ageIdx = AGES.indexOf(ai.state.age);
+  let best: { cultures: readonly CultureId[]; minWeight: number } | null = null;
+  let bestScore = 0;
+  for (const h of ai.content.hybrids) {
+    if (AGES.indexOf(h.age) > ageIdx + 1 || me(ai).hybrids.includes(h.id)) continue;
+    const [a, b] = h.cultures;
+    if (!a || !b) continue;
+    const wa = Math.min(weights[a] ?? 0, h.minWeight);
+    const wb = Math.min(weights[b] ?? 0, h.minWeight);
+    // Both halves count, the weaker one a little more (a pair needs both).
+    const score = wa + wb + 0.5 * Math.min(wa, wb);
+    if (score > bestScore) {
+      bestScore = score;
+      best = { cultures: h.cultures, minWeight: h.minWeight };
+    }
+  }
+  return best;
+};
+
 /** Offer-score bonus per culture-hint threshold crossed (50, 100). */
 export const HINT_LEAN = 0.9;
 
@@ -99,6 +127,11 @@ export const offerFigureScore = (
     plan = Math.max(plan, (short ? HYBRID_PLAN_BONUS : 0.6) * (1 + 0.5 * pe.w.collector));
   }
   s += plan;
+  // Wave 13 (fewer offers, ~7 figures by the first transition): spread plans reach no hybrid,
+  // so the AI commits to one — the hybrid whose two cultures it is closest to — and favours
+  // both of its cultures until each has the weight.
+  const target = targetHybrid(ai, weights);
+  if (target && target.cultures.includes(def.culture) && (weights[def.culture] ?? 0) < target.minWeight) s += HYBRID_TARGET_BONUS;
   if (def.uses.includes('cabinet') && seatKinds.includes(def.kind)) s += 0.8;
   s += def.consumeValue * 0.1;
   s += hash01(`${ai.state.seed}|${ai.player}|fig|${def.id}`) * 0.3;

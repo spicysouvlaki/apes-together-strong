@@ -96,6 +96,24 @@
 .age-seal.crisis { animation: seal-pulse 1.8s ease-in-out infinite; }
 @keyframes seal-pulse { 50% { box-shadow: 0 0 0 4px rgba(155, 52, 38, 0.25), 0 1px 2px rgba(0, 0, 0, 0.45); } }
 
+/* Where you stand (wave 13): a small ledger pill beside the age meter; place over gap. */
+.hud-standing {
+  flex: none; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0; min-height: 36px; min-width: 58px;
+  padding: 1px 7px 2px; border-radius: 2px; cursor: pointer; font: inherit; color: var(--ink); line-height: 1.05;
+  background: var(--grain), rgba(216, 196, 156, 0.45); border: 1px solid rgba(70, 48, 20, 0.22); border-top: 2px solid var(--ink-faint);
+}
+.hud-standing-place { font-family: var(--font-display); font-weight: 700; font-size: min(0.74rem, 12.5px); white-space: nowrap; }
+.hud-standing-gap { font-size: min(0.64rem, 11px); color: var(--ink-soft); white-space: nowrap; font-variant-numeric: tabular-nums lining-nums; }
+.hud-standing.is-first { border-top-color: var(--gold); }
+.hud-standing.is-first .hud-standing-place { color: #7d5810; }
+.hud-standing.is-behind { border-top-color: var(--madder); }
+.hud-standing.is-behind .hud-standing-gap { color: var(--madder-deep); }
+.hud-standing:active { filter: brightness(0.94); transform: translateY(1px); }
+.reduce-motion .hud-standing:active { transform: none; }
+.hud-yield.is-rate .hud-yield-inc { letter-spacing: 0.04em; font-variant-caps: all-small-caps; }
+.aim-slip { border-left-color: var(--woad); border-color: rgba(46, 77, 109, 0.4); }
+.aim-slip .endgame-kicker { color: var(--woad); }
+
 /* The player's banner hanging under the top bar (taps open the Chronicle). */
 .hud-banner {
   position: fixed; z-index: 9; left: 8px; top: calc(var(--safe-top) + 84px); width: var(--tap); min-height: 56px; padding: 0; border: 0;
@@ -560,3 +578,11 @@ input[type='range'] { min-height: var(--tap); accent-color: var(--woad); }
 }
 .endgame-text { font-size: 0.86rem; line-height: 1.3; }
 .endgame-goals:active { filter: brightness(0.95); }
+
+/* Changing production keeps the old pick (wave 13): one checkbox line above the options. */
+.keep-old {
+  display: flex; align-items: flex-start; gap: 10px; margin: 8px 0 2px; padding: 8px 10px; min-height: var(--tap);
+  border: 1px dashed rgba(46, 77, 109, 0.45); border-radius: 3px; background: rgba(238, 242, 244, 0.6); font-size: 0.9rem; line-height: 1.3; cursor: pointer;
+}
+.keep-old input { width: 20px; height: 20px; margin: 1px 0 0; accent-color: var(--woad); flex: none; }
+.keep-old.is-off { border-color: rgba(155, 52, 38, 0.4); background: rgba(155, 52, 38, 0.06); cursor: default; }

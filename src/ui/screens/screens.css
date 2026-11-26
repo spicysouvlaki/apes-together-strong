@@ -200,7 +200,24 @@
 }
 .scr-earlier { margin-top: 14px; }
 .scr-earlier-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
-.scr-node.scr-node-flow { position: relative; min-height: 96px; }
+.scr-node.scr-node-flow { position: relative; min-height: 120px; }
+/* Wave 13: the card body opens details; its foot holds one-tap Research or Plan. */
+.scr-node-open {
+  all: unset; box-sizing: border-box; flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 2px; cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.scr-node-open:focus-visible { outline: 2px solid var(--woad); outline-offset: 2px; }
+.scr-node-desc { -webkit-line-clamp: 2; }
+.scr-node-acts { display: flex; gap: 4px; margin-top: 4px; }
+.scr-node-acts .btn { min-height: 34px; min-width: 0; padding: 0 8px; font-size: 0.8rem; flex: 1; gap: 4px; }
+.scr-node-go { flex: 1.4 !important; }
+.scr-node-plan.is-planned { color: var(--woad); border-color: var(--woad); background: var(--grain), linear-gradient(#eef2f4, #d9e2ea); }
+.scr-plan-n {
+  display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 50%;
+  background: var(--woad); color: #f8f0dc; font-size: 0.7rem; font-weight: 800;
+}
+.scr-node.is-planned { border-color: var(--woad); border-style: solid; opacity: 0.9; }
+.scr-plan-note { margin: -4px 0 8px; }
 .scr-key-done { color: var(--verdigris); }
 .scr-key-researching { color: var(--woad); border-color: var(--woad); }
 .scr-key-available { color: var(--ochre); border-color: var(--gold); }
@@ -329,3 +346,15 @@
 .scr-carry-row:last-child { border-bottom: 0; }
 .scr-carry-crest { flex: none; padding-top: 2px; }
 .scr-carry-fx { display: block; }
+
+/* Legacy: where you stand (wave 13). */
+.lg-compare { width: 100%; border-collapse: collapse; font-size: 0.86rem; margin: 4px 0 8px; }
+.lg-compare th, .lg-compare td { padding: 4px 6px; border-bottom: 1px solid var(--line); text-align: right; }
+.lg-compare th[scope='row'], .lg-compare thead th:first-child { text-align: left; font-weight: 500; }
+.lg-compare thead th { font-family: var(--font-display); font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-faint); font-weight: 700; }
+.lg-compare tr.is-behind td:last-child { color: var(--madder-deep); font-weight: 700; }
+.lg-compare tr.is-ahead td:nth-child(2) { color: var(--verdigris); font-weight: 700; }
+.lg-compare tr.lg-total th, .lg-compare tr.lg-total td { border-bottom: 3px double var(--rule); font-weight: 700; font-family: var(--font-display); }
+.lg-gains-head { margin-top: 10px; }
+.lg-compare caption { text-align: left; caption-side: top; padding-bottom: 2px; font-style: italic; }
+.lg-gains li { margin-bottom: 2px; }

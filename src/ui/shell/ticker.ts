@@ -31,6 +31,8 @@ export const isThreat = (ev: SimEvent, me: PlayerId): boolean => {
 export interface TickerItem {
   id: number;
   threat?: boolean;
+  /** A rival leader speaking: a slip too (wave 13). */
+  voice?: string;
 }
 
 /** At most this many threat slips at once (older ones wait in the ticker's list). */
@@ -41,7 +43,7 @@ export const splitToasts = <T extends TickerItem>(list: readonly T[]): { slips: 
   const slips: T[] = [];
   const ticker: T[] = [];
   for (const t of list) {
-    if (t.threat && slips.length < MAX_SLIPS) slips.push(t);
+    if ((t.threat || t.voice) && slips.length < MAX_SLIPS) slips.push(t);
     else ticker.push(t);
   }
   return { slips, ticker };
@@ -56,3 +58,12 @@ export const SLIP_DURATION_MS = 9000;
 
 /** "2 more" counter next to the ticker line (null when nothing else waits). */
 export const tickerMore = (queue: number): string | null => (queue > 1 ? `+${queue - 1}` : null);
+
+/**
+ * While a unit is in hand, threat slips fold into the ticker (they would cover the map the unit
+ * acts on, playtest 3); a leader's words stay a slip, one at a time (wave 13: never folded).
+ */
+export const splitWhileAnswering = <T extends TickerItem>(list: readonly T[]): { slips: T[]; ticker: T[] } => {
+  const voice = list.find((t) => t.voice);
+  return { slips: voice ? [voice] : [], ticker: list.filter((t) => t !== voice) };
+};

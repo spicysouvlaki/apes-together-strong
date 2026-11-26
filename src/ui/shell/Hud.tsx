@@ -44,6 +44,13 @@ import { UnitSheet } from './UnitSheet';
 import { quitToTitle } from './Panels';
 import { nearestGoals, showGoals } from './endgame-goals';
 import { LAST_CHANCE_METER } from '../../sim/ages/constants';
+import { momentUp } from './moment-guard';
+import { standingLine, standingOf, standingTag } from './standing';
+import { hasMet } from '../screens/shared/envoy';
+import { aimInputs, pickAim } from './aims';
+import { advice } from './guide-state';
+import { ownerName } from '../store';
+import { isRateYield } from './format';
 
 const SHELL_KINDS: ReadonlySet<ModalKind> = new Set(['city', 'tileInfo', 'menu', 'saves', 'settings', 'codex', 'log']);
 export const isRegistered = (kind: ModalKind): boolean => SHELL_KINDS.has(kind) || !!screens[kind as ScreenKind];
@@ -111,6 +118,32 @@ function HudBanner() {
   );
 }
 
+/** Where you stand (wave 13): a pill beside the age meter; tap for the Legacy screen. */
+const standing = computed(() => {
+  const g = game.value;
+  const my = me.value;
+  if (!g || !my || g.phase === 'ended') return null;
+  return standingOf(g, my, (id) => q.score(g, id, content), (id) => hasMet(g, my, id));
+});
+
+function StandingTag() {
+  const s = standing.value;
+  if (!s) return null;
+  const tag = standingTag(s);
+  const line = standingLine(s, ownerName);
+  const tone = s.of <= 1 ? '' : s.rank === 1 ? ' is-first' : s.behind !== null && s.behind > 0 ? ' is-behind' : '';
+  return (
+    <button class={`hud-standing${tone}`} aria-label={`Standing: ${line}. Open legacy.`} onClick={() => openModal({ kind: 'legacy' })}>
+      <span class="hud-standing-place" aria-hidden="true">
+        {tag.place}
+      </span>
+      <span class="hud-standing-gap tnum" aria-hidden="true">
+        {tag.gap}
+      </span>
+    </button>
+  );
+}
+
 function TopBar() {
   const p = myPlayer.value;
   const g = game.value;
@@ -121,18 +154,30 @@ function TopBar() {
       <button
         class="hud-yields"
         aria-expanded={legendOpen.value}
-        aria-label={`${HUD_YIELDS.map((y) => `${YIELD_NAME[y]} ${Math.floor(p.stock[y])}, ${signed(p.income[y])} per turn`).join('; ')}. Show what the symbols mean.`}
+        aria-label={`${HUD_YIELDS.map((y) => (isRateYield(y) ? `${YIELD_NAME[y]} ${Math.round(p.income[y])} per turn` : `${YIELD_NAME[y]} ${Math.floor(p.stock[y])}, ${signed(p.income[y])} per turn`)).join('; ')}. Show what the symbols mean.`}
         onClick={() => (legendOpen.value = !legendOpen.value)}
       >
-        {HUD_YIELDS.map((y) => (
-          <span class={`hud-yield y-${y}`} key={y} aria-hidden="true">
-            <span class="hud-yield-top">
-              <Icon name={YIELD_ICON[y]} />
-              <TickNumber value={Math.floor(p.stock[y])} />
+        {HUD_YIELDS.map((y) =>
+          // Science and culture are never spent from a stock: each turn's income goes straight
+          // into research (sim/turn.ts advanceResearch). Their rate is the number that matters.
+          isRateYield(y) ? (
+            <span class={`hud-yield y-${y} is-rate`} key={y} aria-hidden="true">
+              <span class="hud-yield-top">
+                <Icon name={YIELD_ICON[y]} />
+                <TickNumber value={Math.round(p.income[y])} />
+              </span>
+              <span class="hud-yield-inc">per turn</span>
             </span>
-            <span class="hud-yield-inc">{signed(p.income[y])}</span>
-          </span>
-        ))}
+          ) : (
+            <span class={`hud-yield y-${y}`} key={y} aria-hidden="true">
+              <span class="hud-yield-top">
+                <Icon name={YIELD_ICON[y]} />
+                <TickNumber value={Math.floor(p.stock[y])} />
+              </span>
+              <span class="hud-yield-inc">{signed(p.income[y])}</span>
+            </span>
+          ),
+        )}
       </button>
       <button class="hud-icon" aria-label="Menu" onClick={() => openModal({ kind: 'menu' })}>
         <Icon name="menu" />
@@ -149,6 +194,7 @@ function TopBar() {
           <span class="hud-age-name">{AGE_NAME[g.age]}</span>
           <AgeTrack progress={g.ageProgress} crisisAt={crisisAt(g.age)} crisis={crisis} />
         </button>
+        <StandingTag />
         <span class="hud-pill hud-turn" aria-label={`Turn ${g.turn}`}>
           <Icon name="turn" size="sm" /> <span class="tnum">{g.turn}</span>
         </span>
@@ -172,6 +218,8 @@ const endTurn = (): void => {
   const my = me.value;
   if (!g || !my || !myTurn.value || endTurnSent.value) return;
   if (performance.now() - hudShiftAt < SHIFT_GUARD_MS) return;
+  // A moment (first contact, a recruit, the resume card) is up: it gets seen first (wave 13).
+  if (momentUp.value) return;
   const pl = plan.value;
   if (pl.mode === 'next' && pl.next) {
     openDecision(pl.next);
@@ -233,7 +281,7 @@ const openDecision = (d: Prompt): void => {
 function EndTurnButton() {
   const pl = plan.value;
   const busy = thinking.value !== null || endTurnSent.value;
-  const disabled = busy || !myTurn.value;
+  const disabled = busy || !myTurn.value || momentUp.value;
   const label = busy ? 'Rivals are moving…' : pl.mode === 'next' && pl.next ? `Next: ${decisionLabel(pl.next)}` : 'End Turn';
   const badge = pl.mode === 'end' ? pl.advisory.length : 0;
   const isNext = pl.mode === 'next' && !!pl.next && !busy;
@@ -375,6 +423,42 @@ function EndgameGoals() {
 }
 
 /**
+ * A quiet turn's longer aim (wave 13): only when nothing needs an answer and the guide is silent,
+ * one slip names the nearest thing worth working toward. Tap to go there.
+ */
+function AimSlip() {
+  const g = game.value;
+  const my = me.value;
+  const pl = plan.value;
+  if (!g || !my || !myTurn.value || momentUp.value || pl.mode !== 'end' || pl.next || advice.value) return null;
+  if (showGoals(g.age, g.finalAge, g.ageProgress, g.phase)) return null; // the endgame slip speaks then
+  const inputs = aimInputs(g, my, content, q, resting.value);
+  const aim = inputs ? pickAim(inputs) : null;
+  if (!aim) return null;
+  const go = (): void => {
+    if (aim.action.kind === 'unit') selectUnit(aim.action.unit, { focus: true });
+    else {
+      const m = aim.action.modal;
+      if (m.kind === 'city') {
+        const s = g.settlements[m.settlement];
+        if (s) focusMap(s.at);
+      }
+      openModal(m);
+    }
+  };
+  return (
+    <button class={`endgame-goals aim-slip aim-${aim.id}`} onClick={go} aria-label={`Next aim: ${aim.text}`}>
+      <span class="endgame-kicker" aria-hidden="true">
+        <Icon name={aim.id === 'envoy' ? 'envoy' : aim.id === 'wonder' ? 'builder' : aim.id === 'explore' ? 'explorer' : 'milestone'} size="sm" /> Next aim
+      </span>
+      <span class="endgame-text" aria-hidden="true">
+        {aim.text}
+      </span>
+    </button>
+  );
+}
+
+/**
  * Shown when the human has no settlement and no settler left (sim sets alive=false). The rivals
  * may play on, but the player's story is over: offer the Chronicle and a way out.
  */
@@ -467,6 +551,7 @@ export function Hud() {
       {!sheetOpen && (
         <BottomStack>
           {!unitSelected && <EndgameGoals />}
+          {!unitSelected && <AimSlip />}
           <AdviceCard />
           <div class="hud-controls">
             <QuickButtons />

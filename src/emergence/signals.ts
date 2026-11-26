@@ -247,7 +247,7 @@ export const nameCityStates = (state: GameState, player: PlayerId, culture: Cult
 };
 
 /**
- * The (up to two) strongest signals for `culture` that may be cited as a reason, each with its
+ * The (up to `limit`, default two) strongest signals for `culture` that may be cited as a reason, each with its
  * number-aware hint: the measured amount (contribution / weight) must be one the player really
  * has (reasons.ts `citable`), and plurals follow the count (playtest 3).
  */
@@ -257,6 +257,7 @@ export const citedSignals = (
   contributions: Contributions,
   culture: CultureId,
   content: ContentBundle,
+  limit = 2,
 ): { signal: Signal; value: number; hint: string }[] => {
   const settlements = ownSettlements(state, player).length;
   const out: { signal: Signal; value: number; hint: string }[] = [];
@@ -266,7 +267,7 @@ export const citedSignals = (
     if (!citable(x.signal.measure, amount)) continue;
     const hint = numberedHint(x.signal.hint, x.signal.measure, amount, settlements);
     out.push({ ...x, hint: x.signal.measure === 'suzerainOfCulture' ? nameCityStates(state, player, culture, content, hint) : hint });
-    if (out.length === 2) break;
+    if (out.length >= limit) break;
   }
   return out;
 };

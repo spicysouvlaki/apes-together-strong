@@ -210,7 +210,10 @@ describe('activate', () => {
       expect(activate(state, id).err).toBeNull();
       expectRetired(state, id);
     }
-    expect(state.players.p1!.stock).toMatchObject({ science: 60, culture: 11, gold: 12, faith: 13, influence: 14 });
+    // Wave 13: science and culture bursts go into research (the stocks are never spent).
+    expect(state.players.p1!.stock).toMatchObject({ science: 0, culture: 0, gold: 12, faith: 13, influence: 14 });
+    expect(state.players.p1!.research.tech.progress).toBe(60);
+    expect(state.players.p1!.research.civic.progress).toBe(11);
   });
 
   it('explore_reveal reveals tiles around settlements and units', () => {

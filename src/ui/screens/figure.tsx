@@ -11,7 +11,7 @@ import { slotIdOfKey, whereText } from './shared/figures';
 import { CABINET_COOLDOWN_TURNS } from '../../emergence/constants';
 import { Icon } from '../art/Icon';
 
-type Pending = null | 'seat' | 'deploy' | 'unseat' | 'activate' | 'consume' | 'consume-rp' | 'consume-yields';
+type Pending = null | 'seat' | 'deploy' | 'unseat' | 'activate' | 'consume';
 
 /** "Warleader", or "Warleader (2nd)" when a government has two of the same seat. */
 export const seatLabel = (key: string): string => {
@@ -79,7 +79,13 @@ export const FigureScreen = ({ modal }: ScreenProps<'figure'>) => {
   const buttons = mine && a
     ? [
         loc === 'based' && def.uses.includes('cabinet') && (
-          <button class="btn btn-primary" disabled={!turn || a.seat.length === 0} onClick={() => setPending('seat')} aria-label="Seat in the cabinet">
+          <button
+            class="btn btn-primary"
+            disabled={!turn || a.seat.length === 0}
+            // One fitting seat: seat them in one tap (wave 13); several: choose which.
+            onClick={() => (a.seat.length === 1 && a.seat[0] ? run({ type: 'seatFigure', figure: def.id, slot: a.seat[0] }) : setPending('seat'))}
+            aria-label={a.seat.length === 1 && a.seat[0] ? `Seat as ${seatLabel(a.seat[0])}` : 'Seat in the cabinet'}
+          >
             <Icon name="seat" /> Seat
           </button>
         ),
@@ -252,35 +258,21 @@ export const FigureScreen = ({ modal }: ScreenProps<'figure'>) => {
       {pending === 'consume' && (
         <Sheet title={`Consume ${shortName(def.name)}?`} onCancel={() => setPending(null)}>
           <p class="small muted">
-            <GlossText text="They leave play for good and add nothing to your Legacy score. Choose what you gain:" />
+            <GlossText text="They leave play for good and add nothing to your Legacy score. This cannot be undone. Tap what you gain:" />
           </p>
-          <button class="btn scr-option" onClick={() => setPending('consume-rp')} aria-label="Gain refinement points">
+          <button class="btn scr-option" onClick={() => run({ type: 'consumeFigure', figure: def.id, as: 'refinement' })} aria-label={`Consume for ${def.consumeValue} refinement points`}>
             <span class="grow">
               <b>{def.consumeValue} refinement points</b>
               <br />
               <span class="small muted">Spent on traditions at the next age</span>
             </span>
           </button>
-          <button class="btn scr-option" onClick={() => setPending('consume-yields')} aria-label="Gain a yield burst">
+          <button class="btn scr-option" onClick={() => run({ type: 'consumeFigure', figure: def.id, as: 'yields' })} aria-label={`Consume for ${consumeBurstText(def)}`}>
             <span class="grow">
               <b>{consumeBurstText(def)}</b>
             </span>
           </button>
         </Sheet>
-      )}
-      {(pending === 'consume-rp' || pending === 'consume-yields') && (
-        <ConfirmSheet
-          title={`Consume ${shortName(def.name)}?`}
-          confirmLabel="Consume"
-          danger
-          onConfirm={() => run({ type: 'consumeFigure', figure: def.id, as: pending === 'consume-rp' ? 'refinement' : 'yields' })}
-          onCancel={() => setPending(null)}
-        >
-          <p>
-            You gain {pending === 'consume-rp' ? `${def.consumeValue} refinement points` : consumeBurstText(def)}. {def.name} leaves play and
-            cannot come back. This cannot be undone.
-          </p>
-        </ConfirmSheet>
       )}
     </Screen>
   );

@@ -33,8 +33,8 @@ export const YIELD_HELP: Record<YieldType, string> = {
   food: 'grows your cities',
   production: 'builds units, buildings and wonders',
   gold: 'buys items, upgrades towns, pays upkeep',
-  science: 'researches technologies',
-  culture: 'adopts civics',
+  science: 'researches technologies; each turn’s science goes straight into the tech tree',
+  culture: 'studies civics; each turn’s culture goes straight into the civic tree',
   faith: 'spiritual strength; draws spiritual figures',
   happiness: 'content people work harder; unrest hurts',
   influence: 'sends envoys to city-states',
@@ -45,6 +45,15 @@ export const LEGEND_YIELDS: readonly YieldType[] = ['food', 'production', 'gold'
 
 /** Stockpiles shown in the top bar, in order. */
 export const HUD_YIELDS: readonly YieldType[] = ['gold', 'science', 'culture', 'faith', 'influence'];
+
+/**
+ * Yields the HUD shows as a rate, not a stockpile (wave 13 playtest: "science 412" grew without
+ * limit and with no visible use). The sim adds each turn's science and culture straight to the
+ * tech and civic trees (sim/turn.ts advanceResearch); nothing ever spends their stock. Gold, faith
+ * (drained into faith great-people points) and influence are spent, so they keep their stock.
+ */
+export const RATE_YIELDS: ReadonlySet<YieldType> = new Set(['science', 'culture']);
+export const isRateYield = (y: YieldType): boolean => RATE_YIELDS.has(y);
 
 export const AGE_NAME: Record<Age, string> = {
   ancient: 'Ancient',

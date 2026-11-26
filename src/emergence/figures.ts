@@ -15,8 +15,10 @@ import type { Command, FigureId, FigureState, GameState, Offer, PlayerId, Settle
 import type { SimCtx } from '../sim/ctx';
 import { addAgeProgress } from '../sim/ages';
 import { costPercent, applyCostPercent, playerModifiers } from '../sim/modifiers';
+import { advanceResearch } from '../sim/research';
 import { removeUnit, spawnUnit } from '../sim/units';
 import { speak } from '../sim/voice';
+import { addAffinity } from './affinity';
 import { cultureWeights } from './queries';
 import { baseAtHome, slotAccepts, slotIdOfKey, vacateSeat } from './cabinet';
 import * as K from './constants';
@@ -329,6 +331,7 @@ const recruit = (ctx: SimCtx, player: PlayerId, offer: Offer, figureId: FigureId
   dropOffer(state, offer.id, false);
   ctx.events.push({ type: 'figureRecruited', figure: figureId, player });
   addAgeProgress(ctx, K.RECRUIT_AGE_PROGRESS);
+  addAffinity(ctx, player, def.culture, K.RECRUIT_AFFINITY);
 
   // Unique worldwide (GDD §3): pull the figure from every rival's open offer.
   for (const other of state.offers.slice()) {
@@ -404,11 +407,13 @@ const applyActivateEffect = (ctx: SimCtx, player: PlayerId, fs: FigureState, def
       s.production.progress += amount;
       return;
     }
+    // Wave 13: stock.science / stock.culture are running totals nothing spends; a burst goes
+    // into the research slots instead (completing the node and banking any overflow as usual).
     case 'culture_burst':
-      p.stock.culture += amount;
+      advanceResearch(ctx, player, 'civic', amount);
       return;
     case 'science_burst':
-      p.stock.science += amount;
+      advanceResearch(ctx, player, 'tech', amount);
       return;
     case 'gold_burst':
       p.stock.gold += amount;

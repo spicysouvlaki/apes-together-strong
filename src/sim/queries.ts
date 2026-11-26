@@ -3,9 +3,10 @@
  * map/settlement/unit/tree queries and re-exports the figure queries from src/emergence and
  * the refinement/legacy queries from src/sim/ages. Never mutates state.
  */
-import type { Decision, ProductionOption, SimQueries } from '@contracts/sim-api';
+import type { ContentBundle } from '@contracts/content-schemas';
+import type { Decision, GameState, PlayerId, ProductionOption, SimQueries } from '@contracts/sim-api';
 import { cabinetSeats, cultureWeights, figureActions } from '../emergence';
-import { milestones, refinementOptions, score } from './ages';
+import { milestones, refinementOptions, score, scoreBreakdown, type ScoreBreakdown } from './ages';
 import { attackTargetsOf, isHostile } from './combat';
 import { combatPreview } from './combat-preview';
 import { envoyCostFor, tradeTargetsOf } from './diplomacy';
@@ -15,6 +16,7 @@ import { governmentOptionsFor, researchOptionsFor } from './research';
 import { availableItems, canFoundAt, goldCostOf, itemCost, upgradeCostOf } from './settlements';
 import { settleSitesFor } from './sites';
 import { findPaths, planPath, visibleTileSet } from './units';
+import { contactsOf } from './voice';
 import { growthCost, settlementCapFor, settlementYields, workedTilesWithYields } from './yields';
 
 export const queries: SimQueries = {
@@ -121,3 +123,38 @@ export const queries: SimQueries = {
 export { crisisResponseBlocked } from './ages/crisis';
 /** Gold a unit returns when disbanded where it stands now (0 outside its owner's borders). */
 export { disbandRefund } from './units';
+
+// --- Wave 13 (not yet in SimQueries; src/contracts is frozen) ----------------------------
+
+/** One row of the standings a player may see during play. */
+export interface Standing {
+  player: PlayerId;
+  score: number;
+  breakdown: ScoreBreakdown;
+}
+
+/**
+ * Score standing during play, as `viewer` may see it: their own row plus every rival they have
+ * met (`contactsOf`), highest first (ties in turn order). Unmet rivals are left out, so the UI
+ * never leaks a people the player has not found. Each row carries the score breakdown.
+ */
+export const standings = (state: GameState, viewer: PlayerId, content: ContentBundle): Standing[] => {
+  const met = contactsOf(state, viewer);
+  return state.playerOrder
+    .filter((id) => id === viewer || (met[id] === true && state.players[id] !== undefined))
+    .map((id) => {
+      const breakdown = scoreBreakdown(state, id, content);
+      return { player: id, score: breakdown.total, breakdown };
+    })
+    .sort((a, b) => b.score - a.score || state.playerOrder.indexOf(a.player) - state.playerOrder.indexOf(b.player));
+};
+
+/** Has `player` met `other` (seen their land or units)? The gate for naming a rival in news. */
+export const hasMet = (state: GameState, player: PlayerId, other: PlayerId): boolean => player === other || contactsOf(state, player)[other] === true;
+
+/** Open war threats against `player` (who, which city, the turn war may come), soonest first. */
+export { threatsAgainst, peaceTerms, warGoalOf, type WarIntent } from './war-intent';
+/** Happiness each war costs `player`, by foe (the happiness breakdown's war line). */
+export { warWeariness } from './yields';
+export { WAR_TRIBUTE_INFLUENCE } from './constants';
+export type { ScoreBreakdown };

@@ -55,9 +55,9 @@ export const FIRST_OFFER_TURN = 8;
  * - flood: at most one points offer per turn, and none within OFFER_MIN_GAP_TURNS of the
  *   player's last recruit (points keep banking meanwhile).
  */
-export const OFFER_DROUGHT_TURNS = 6;
+export const OFFER_DROUGHT_TURNS = 10;
 export const OFFER_DROUGHT_MIN_FILL = 0.45;
-export const OFFER_MIN_GAP_TURNS = 2;
+export const OFFER_MIN_GAP_TURNS = 7;
 /**
  * A pool banks at most this many times its threshold. Points keep accruing while a pool has
  * no eligible figures or offers are capped; without a ceiling they would flood the next age.
@@ -153,6 +153,11 @@ export const PASSED_OVER_WEIGHT_MULT = 0.08;
 export const PASSED_OVER_SOURCE = 'passed:';
 /** The draw guarantees one candidate from the player's top N affinity cultures. */
 export const TOP_CULTURES_GUARANTEED = 3;
+/**
+ * Wave 13: a culture held at this weight or more makes its hybrid partners "wanted"; an offer
+ * with none of them swaps one candidate for one (offers.ts `hybridPartners`).
+ */
+export const HYBRID_NUDGE_MIN_WEIGHT = 2;
 /** Points-offers (incl. legends) a player may have open at once; further points bank. */
 export const MAX_OPEN_OFFERS = 2;
 /**
@@ -179,7 +184,17 @@ export const LEGEND_FIGURES_THIS_AGE = 4;
 // --- Figures (GDD §3 "Figure states and actions") ---
 
 export const CABINET_COOLDOWN_TURNS = 2;
-export const RECRUIT_AGE_PROGRESS = 0.5;
+/**
+ * Age-meter points per recruit. Wave 13: offers come about 40% less often, so each recruit
+ * moves the age a little more and ages keep their length.
+ */
+export const RECRUIT_AGE_PROGRESS = 0.8;
+/**
+ * Wave 13 ("offers felt like an interruption without much choice"): fewer offers, and each
+ * choice steers the next ones — a recruited figure adds this much affinity to their culture,
+ * so the court you choose draws more of its own (and hybrids stay reachable with fewer figures).
+ */
+export const RECRUIT_AFFINITY = 0;
 /** Consume-for-yields: a burst of the figure's main yield lasting this many turns. */
 export const CONSUME_BURST_TURNS = 10;
 /** Per-turn burst = consumeValue × this. */

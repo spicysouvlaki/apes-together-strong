@@ -95,14 +95,8 @@ export function MenuPanel() {
         <GameFacts />
         <button
           class="btn"
-          onClick={() =>
-            askConfirm({
-              title: 'Quit to the title screen?',
-              body: 'Your game is saved automatically after every move. Continue picks it up where you left off.',
-              confirmLabel: 'Quit',
-              onConfirm: quitToTitle,
-            })
-          }
+          // Saved after every move: quitting loses nothing, so no confirm (wave 13 confirm policy).
+          onClick={quitToTitle}
         >
           <Icon name="quit" /> Quit to title
         </button>

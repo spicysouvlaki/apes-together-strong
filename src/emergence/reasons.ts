@@ -10,7 +10,7 @@
 import type { SignalMeasure } from '@contracts/content-schemas';
 import type { FigureId, GameState } from '@contracts/sim-api';
 
-export type ReasonFamily = 'land' | 'goods' | 'towns' | 'arms' | 'ties' | 'learning';
+export type ReasonFamily = 'land' | 'goods' | 'towns' | 'arms' | 'ties' | 'learning' | 'works' | 'faith';
 
 export const REASON_FAMILY: Record<SignalMeasure, ReasonFamily> = {
   ownedTerrain: 'land',
@@ -33,8 +33,8 @@ export const REASON_FAMILY: Record<SignalMeasure, ReasonFamily> = {
   techsResearched: 'learning',
   scienceIncome: 'learning',
   cultureIncome: 'learning',
-  faithIncome: 'learning',
-  wondersBuilt: 'learning',
+  faithIncome: 'faith',
+  wondersBuilt: 'works',
   exploredPercent: 'learning',
 };
 
@@ -50,6 +50,9 @@ export const REASON_TEMPLATES: Record<ReasonFamily, readonly string[]> = {
   arms: ['drawn by {h}', 'stirred by the songs of {h}', 'drawn by tales of {h}'],
   ties: ['drawn by {h}', 'arriving in the wake of {h}', 'won over by {h}'],
   learning: ['drawn by {h}', 'inspired by {h}', 'eager to learn from {h}'],
+  // Wave 13: "eager to learn from your monument" read oddly; wonders and temples get their own.
+  works: ['drawn by {h}', 'travelling to marvel at {h}', 'inspired by {h}'],
+  faith: ['drawn by {h}', 'called by {h}', 'seeking the quiet of {h}'],
 };
 
 /** Last resort: no signal the player has adds to the figure's culture (offers.ts `offerReason`). */

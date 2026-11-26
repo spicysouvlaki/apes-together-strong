@@ -19,6 +19,7 @@ import { advanceResearch } from './research';
 import { growSettlement, produceInSettlement } from './settlements';
 import { findPaths, refreshUnitsOf, removeUnit, unitUpkeep, updateExplored } from './units';
 import { contactsOf, greetNewContacts, hasHuman } from './voice';
+import { lapseThreats } from './war-intent';
 import { STOCK_YIELDS, computeEmpire, computeHappiness, militaryUpkeep } from './yields';
 
 const hostileAdjacent = (state: GameState, owner: PlayerId, at: { q: number; r: number }): boolean => {
@@ -130,6 +131,7 @@ export const startOfTurnForPlayer = (ctx: SimCtx, player: PlayerId): void => {
   const p = state.players[player];
   if (!p || !p.alive) return;
   if (p.anarchyTurns > 0) p.anarchyTurns--;
+  lapseThreats(ctx, player);
   p.effects = p.effects.filter((e) => e.untilTurn === -1 || e.untilTurn >= state.turn);
   const emp = empireModifiers(state, player, content);
 

@@ -56,3 +56,25 @@ export const POSTURE_LINE: Record<Posture, string> = {
 };
 
 export const postureOf = (state: GameState, player: PlayerId, content: ContentBundle): Posture => posture(state, player, content);
+
+/**
+ * A rival leader speaking outside first contact (wave 13: the war warning before an AI declares,
+ * borders, peace, wonders): the notice starts with their speaker name. Such a notice is shown as
+ * a small slip in that leader's voice, with their banner, and is never folded into "+N more".
+ * Matches on the speaker name exactly as first contact does, so it works whatever `kind` the sim
+ * gives it ('other' this wave).
+ */
+export const voicedNotice = (ev: SimEvent, me: PlayerId, states: readonly (GameState | null)[], content: ContentBundle): FirstContactMoment | null => {
+  if (ev.type !== 'notice' || ev.kind === 'firstContact' || (ev.player !== null && ev.player !== me)) return null;
+  for (const s of states) {
+    const who = s ? speakerOf(s, ev.text, me, content) : null;
+    if (who) return { player: who, quote: quoteOf(ev.text) };
+  }
+  return null;
+};
+
+/** The speaker part of a voiced notice ("The Conqueror of Avarga: “…”" -> "The Conqueror of Avarga"). */
+export const speakerPart = (text: string): string => {
+  const i = text.indexOf(':');
+  return i > 0 ? text.slice(0, i) : '';
+};

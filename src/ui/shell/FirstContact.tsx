@@ -11,13 +11,19 @@ import { resumeRecap } from './resume-recap';
 import { recruitReveal } from './recruit-reveal';
 import { AutoFocusButton } from './AutoFocusButton';
 import { leaderTitle } from '../screens/shared/chronicle-story';
+import { useGuardedBackdrop } from './moment-guard';
 
 const cap = (s: string): string => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
 
 export function FirstContact() {
   const m = firstContacts.value[0];
   const g = game.value;
-  if (!m || !g || g.phase !== 'playing' || modal.value || resumeRecap.value || recruitReveal.value) return null;
+  const visible = !!m && !!g && g.phase === 'playing' && !modal.value && !resumeRecap.value && !recruitReveal.value;
+  // A tap already on its way (to End Turn) must not close the card unseen (wave 13).
+  const onBackdrop = useGuardedBackdrop(visible ? m?.player : null, () => {
+    firstContacts.value = firstContacts.value.slice(1);
+  });
+  if (!m || !g || !visible) return null;
   const p = g.players[m.player];
   if (!p) {
     firstContacts.value = firstContacts.value.slice(1);
@@ -29,7 +35,7 @@ export function FirstContact() {
   };
   const name = cap(ownerName(m.player));
   return (
-    <div class="confirm-backdrop recap-backdrop" onClick={next}>
+    <div class="confirm-backdrop recap-backdrop" onClick={onBackdrop}>
       <section class="confirm card recap contact-card" role="dialog" aria-modal="true" aria-label={`First contact: ${name}`} onClick={(e) => e.stopPropagation()}>
         <div class="recap-head">
           <PlayerBanner player={p} width={44} />

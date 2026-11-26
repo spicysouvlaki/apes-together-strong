@@ -4,6 +4,7 @@
  */
 import { useEffect, useState } from 'preact/hooks';
 import { Term } from '../shell/GlossarySheet';
+import { needsConfirm } from '../shell/confirm-policy';
 import type { RefinementOption } from '@contracts/sim-api';
 import { closeModal, content, dispatch, game, lookup, me, ownerName, q } from '../store';
 import type { ScreenProps } from './index';
@@ -219,7 +220,12 @@ export const TransitionScreen = (_: ScreenProps<'transition'>) => {
           weights={weights}
           showAll={showAll}
           onShowAll={() => setShowAll(true)}
-          onAdopt={setAdopting}
+          onAdopt={(a) =>
+            // Single tap with the price on the button (wave 13 confirm policy, shell/confirm-policy.ts).
+            needsConfirm(a.kind === 'tradition' ? 'adoptTradition' : 'adoptHybrid')
+              ? setAdopting(a)
+              : dispatch(a.kind === 'tradition' ? { type: 'adoptTradition', tradition: a.id } : { type: 'adoptHybrid', hybrid: a.id })
+          }
         />
       )}
 
@@ -458,7 +464,7 @@ const RefineCard = (props: { item: TraditionItem | HybridItem; onAdopt: (a: Adop
               onClick={() => props.onAdopt({ kind: hybrid ? 'hybrid' : 'tradition', id: item.def.id, name: item.def.name, cost: opt.cost })}
               aria-label={`Adopt ${item.def.name} for ${opt.cost} points`}
             >
-              <Icon name="plus" /> Adopt
+              <Icon name="plus" /> Adopt · {opt.cost} pts
             </button>
           ) : (
             <span class="small muted">{opt.blocked}</span>

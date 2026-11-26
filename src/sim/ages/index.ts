@@ -17,7 +17,7 @@ export { addAgeProgress } from './meter';
 export { endGame } from './transition';
 export { updateMilestones, milestones } from './milestones';
 export { refinementOptions } from './refinement';
-export { score } from './score';
+export { score, scoreBreakdown, type ScoreBreakdown } from './score';
 
 /**
  * World phase, once per turn after every player has ended their turn and before the next

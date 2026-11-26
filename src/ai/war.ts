@@ -23,6 +23,7 @@ import { MIN_WAR_TURNS, PEACE_INFLUENCE_COST } from '../sim/constants';
 import { WAR_DECLARED_TEXT } from '../sim/diplomacy';
 import { ci, tileAt } from '../sim/lookup';
 import { posture, warHeldBack } from '../sim/voice';
+import { peaceTerms, stoodDownFrom, warGoalOf, warIntentsBy, warObjectiveFor } from '../sim/war-intent';
 import { exec, me, type AiCtx } from './ctx';
 import { hashStr } from './util';
 import { cityStatesAtWar, enemiesAtWar, militaryPower, ownSettlements } from './world';
@@ -48,6 +49,8 @@ const LOCAL_DEFENSE_RADIUS = 3;
 const STALEMATE_TURNS = 22;
 /** A war that has taken a settlement ends this many turns after the capture (consolidate). */
 const CONSOLIDATE_TURNS = 3;
+/** Happiness below which an AI not ahead in a war seeks peace (war weariness, wave 13). */
+export const WEARY_HAPPINESS = -2;
 /** No new war on the same rival this soon after the last declaration on them. */
 const REDECLARE_TURNS = 30;
 
@@ -112,7 +115,11 @@ export const pickWarTarget = (ai: AiCtx, rivals: readonly PlayerId[]): WarTarget
   for (const rival of rivals) {
     const theirs = ownSettlements(state, rival);
     if (theirs.length === 0) continue;
+    // Wave 13: a war on a human is announced over one city (src/sim/war-intent.ts); weigh that
+    // city only, so the AI fights for what it named.
+    const named = state.players[rival]?.isHuman === true ? (warGoalOf(state, ai.player, rival) ?? warObjectiveFor(state, ai.player, rival)?.id ?? null) : null;
     for (const s of theirs) {
+      if (named !== null && s.id !== named) continue;
       if (!ours.has(continent(s.at))) continue;
       if (theirs.length === 1 && state.age === 'ancient' && !isCityStateOwner(rival)) continue;
       let distance = Infinity;
@@ -149,8 +156,63 @@ const lastDeclaredOn = (ai: AiCtx, rival: PlayerId): number => {
 /** Living rivals we have not declared on recently (so wars do not follow one another back to back). */
 const livingRivals = (ai: AiCtx): PlayerId[] =>
   ai.state.playerOrder.filter(
-    (id) => id !== ai.player && ai.state.players[id]?.alive === true && ai.state.turn - lastDeclaredOn(ai, id) >= REDECLARE_TURNS,
+    (id) =>
+      id !== ai.player &&
+      ai.state.players[id]?.alive === true &&
+      ai.state.turn - lastDeclaredOn(ai, id) >= REDECLARE_TURNS &&
+      !stoodDownFrom(ai.state, ai.player, id),
   );
+
+/**
+ * The settlement our army fights for: the announced objective of a war on a human while the
+ * enemy still holds it (wave 13: the AI commits to what it named), else the best target now.
+ */
+export const committedWarTarget = (ai: AiCtx, foes: readonly PlayerId[]): WarTarget | null => {
+  for (const foe of foes) {
+    const goal = warGoalOf(ai.state, ai.player, foe);
+    const s = goal ? ai.state.settlements[goal] : undefined;
+    if (!s || s.owner !== foe) continue;
+    const own = ownSettlements(ai.state, ai.player);
+    let distance = Infinity;
+    for (const o of own) distance = Math.min(distance, hexDistance(o.at, s.at));
+    return { rival: foe, settlement: s, distance, defense: localDefense(ai, s) };
+  }
+  return pickWarTarget(ai, foes);
+};
+
+/** Is a threat still worth carrying out? Our force near the named city still has an edge. */
+const threatStillHolds = (ai: AiCtx, target: PlayerId, objective: string): boolean => {
+  const s = ai.state.settlements[objective];
+  if (!s || s.owner !== target || !ai.state.players[target]?.alive) return false;
+  if (enemiesAtWar(ai.state, ai.player).length > 0) return false;
+  const force = strikeForce(ai, s.at);
+  const mine = militaryPower(ai.state, ai.player, ai.content);
+  const theirs = Math.max(1, militaryPower(ai.state, target, ai.content));
+  // Looser than the bar for threatening at all, so a threat is not dropped on a whim; a real
+  // garrison (the answer the warning asked for) tips it.
+  return force.units >= 2 && force.power >= localDefense(ai, s) * WAR_THREAT_HOLD_EDGE && mine >= theirs * 0.9;
+};
+
+/** A threatened city's defence must stay below our local force over this factor, or we stand down. */
+export const WAR_THREAT_HOLD_EDGE = 1.3;
+
+/**
+ * Carry out or withdraw our open threats (wave 13): when one is due and still holds, declare
+ * (the sim starts the war); when it no longer holds, stand down (`makePeace` with no war).
+ * Returns true while a threat is pending, so no other war is started meanwhile.
+ */
+export const followThroughThreats = (ai: AiCtx): boolean => {
+  let pending = false;
+  for (const t of warIntentsBy(ai.state, ai.player)) {
+    if (!threatStillHolds(ai, t.target, t.objective)) {
+      exec(ai, { type: 'makePeace', target: t.target });
+      continue;
+    }
+    if (ai.state.turn >= t.due) exec(ai, { type: 'declareWar', target: t.target });
+    else pending = true;
+  }
+  return pending;
+};
 
 /**
  * The war this AI is building toward (no declaration yet), or null. Used by the economy to
@@ -189,6 +251,7 @@ export const pickCityStateTarget = (ai: AiCtx): WarTarget | null => {
 
 export const considerWar = (ai: AiCtx, _military: number): void => {
   const { state, player, content } = ai;
+  if (followThroughThreats(ai)) return;
   if (state.turn < EARLIEST_WAR_TURN) return;
   if (enemiesAtWar(state, player).length > 0 || cityStatesAtWar(state, player).length > 0) return;
   // Consider it now and then, not every turn.
@@ -250,10 +313,20 @@ export const considerPeace = (ai: AiCtx): void => {
     // Nothing worth taking left within reach: the war has done what it could.
     const spent = pickWarTarget(ai, [enemy]) === null;
     const stalemate = captured === null && state.turn - began >= STALEMATE_TURNS + (aggressive ? 6 : 0);
-    // Traders and wary neighbours offer the human peace as soon as the war allows (unless winning).
+    // Wave 13: peace terms make the score of the war matter (src/sim/war-intent.ts).
+    const terms = peaceTerms(state, player, enemy);
+    const ahead = terms?.payee === player;
+    // War weariness grows with the war (src/sim/yields.ts): a sour home front ends wars we are not winning.
+    const weary = me(ai).happiness < WEARY_HAPPINESS && !ahead;
+    // An announced objective still in enemy hands: we keep fighting for it (no early peace).
+    const goal = warGoalOf(state, player, enemy);
+    const objectiveOpen = goal !== null && state.settlements[goal]?.owner === enemy;
+    const declaredByUs = lastDeclaredOn(ai, enemy) >= began;
+    // Traders and wary neighbours the human attacked offer peace as soon as the war allows,
+    // unless they are winning it (then the human pays the terms).
     const pose = posture(state, player, content);
-    const conciliatory = state.players[enemy]?.isHuman === true && (pose === 'trader' || pose === 'wary') && captured === null;
-    if (losing || consolidated || spent || stalemate || conciliatory) exec(ai, { type: 'makePeace', target: enemy });
+    const conciliatory = state.players[enemy]?.isHuman === true && !declaredByUs && (pose === 'trader' || pose === 'wary') && captured === null && !ahead;
+    if (losing || weary || stalemate || conciliatory || ((consolidated || spent) && !objectiveOpen)) exec(ai, { type: 'makePeace', target: enemy });
   }
   // City-state wars end once the city is taken (the war lapses) or when they stall.
   for (const cs of cityStatesAtWar(state, player)) {

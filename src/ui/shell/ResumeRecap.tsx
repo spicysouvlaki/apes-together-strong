@@ -9,6 +9,7 @@ import { PlayerBanner } from '../art/game-art';
 import { Icon } from '../art/Icon';
 import { recapLines, resumeRecap } from './resume-recap';
 import { AutoFocusButton } from './AutoFocusButton';
+import { useGuardedBackdrop } from './moment-guard';
 
 const AGE_NAME: Record<string, string> = { ancient: 'Ancient', classical: 'Classical', exploration: 'Exploration', modern: 'Modern' };
 
@@ -16,7 +17,11 @@ export function ResumeRecap() {
   const r = resumeRecap.value;
   const g = game.value;
   const my = me.value;
-  if (!r || !g || !my || g.phase !== 'playing' || modal.value) return null;
+  const visible = !!r && !!g && !!my && g.phase === 'playing' && !modal.value;
+  const onBackdrop = useGuardedBackdrop(visible ? `${r?.seed}:${r?.turn}` : null, () => {
+    resumeRecap.value = null;
+  });
+  if (!r || !g || !my || !visible) return null;
   const p = g.players[my];
   if (!p) return null;
   const v = buildPeople(g, my, q.cultureWeights(g, my, content), content);
@@ -28,7 +33,7 @@ export function ResumeRecap() {
   };
   const name = v?.name ? v.name.charAt(0).toUpperCase() + v.name.slice(1) : 'Your people, not yet named';
   return (
-    <div class="confirm-backdrop recap-backdrop" onClick={close}>
+    <div class="confirm-backdrop recap-backdrop" onClick={onBackdrop}>
       <section class="confirm card recap" role="dialog" aria-modal="true" aria-label="The story so far" onClick={(e) => e.stopPropagation()}>
         <div class="recap-head">
           <PlayerBanner player={p} width={44} />

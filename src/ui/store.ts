@@ -63,6 +63,8 @@ export interface Toast {
   at?: Hex;
   /** A threat to answer now (shell/ticker.ts): shown as a slip; everything else runs in the ticker. */
   threat?: boolean;
+  /** A rival leader speaking (wave 13): shown as a small slip with their banner, never folded. */
+  voice?: PlayerId;
   /**
    * Game turn the news belongs to. At the start of the player's next turn older news leaves the
    * ticker (it stays in the turn log): playtest 4 found T29 lines still queued at T31 and

@@ -133,3 +133,29 @@ export const suggestNext = (options: readonly ProductionOption[], ctx: SuggestCo
  */
 export const suggestionLabel = (name: string, why: string, where?: string): string =>
   `Suggested${where ? ` for ${where}` : ''}: build ${name}. ${why.charAt(0).toUpperCase()}${why.slice(1)}.`;
+
+/**
+ * "Change" production without losing the old pick (wave 13 playtest: Change silently dropped the
+ * item being built). The new item starts now and the old one goes to the front of the queue, so the
+ * city goes back to it next. Mirrors the sim's rules: a one-off (building, wonder) the new pick was
+ * queued as leaves the queue (sim setProduction unqueues it), the queue holds MAX_QUEUE, and a
+ * one-off is never queued twice. `keeps` false = the old item would be dropped (queue full, or
+ * nothing to keep). Pure.
+ */
+export const switchPlan = (
+  current: string | null,
+  queue: readonly string[],
+  next: string,
+  isOneOff: (item: string) => boolean,
+  max: number = MAX_QUEUE,
+): { queue: string[]; keeps: boolean } => {
+  const rest = isOneOff(next) ? queue.filter((x) => x !== next) : [...queue];
+  if (!current || current === next) return { queue: rest, keeps: false };
+  if (isOneOff(current) && rest.includes(current)) return { queue: rest, keeps: true };
+  if (rest.length >= max) return { queue: rest, keeps: false };
+  return { queue: [current, ...rest], keeps: true };
+};
+
+/** "Build Granary first, then back to Warrior" — the line on each option while changing. */
+export const switchLine = (nextName: string, currentName: string, keeps: boolean): string =>
+  keeps ? `${nextName} first, then back to ${currentName}` : `Replaces ${currentName} (the queue is full)`;

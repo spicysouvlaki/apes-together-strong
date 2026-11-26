@@ -36,9 +36,10 @@ import { isThreat } from './shell/ticker';
 import { endTurnSent, enemyConfirmedTurn, idleSheetTurn, lastTap, loading, pushLog, settings, turnLog, skipped, updateReady } from './shell/shell-state';
 import { continueStandingOrders, initStandingOrders, runStandingOrders } from './shell/standing-orders';
 import { initGuide } from './shell/guide-state';
+import { initResearchPlan, runResearchPlan } from './shell/research-plan';
 import { resumeRecap, shouldRecap } from './shell/resume-recap';
 import { idleSheetOpen } from './shell/IdleSheet';
-import { contactMoments, firstContacts } from './shell/first-contact';
+import { contactMoments, firstContacts, voicedNotice } from './shell/first-contact';
 import { namingLine, strongestCulture } from './shell/city-lines';
 import { hexDistance } from '@contracts/hex';
 import { audio, setAudioPlanOptions } from '../audio';
@@ -101,6 +102,8 @@ const eventNames = (state: GameState, prev: GameState | null): EventNames => ({
 });
 
 let pendingUpdateApply = false;
+/** Research-plan commands still in flight; the last one's snapshot (or error) starts the orders. */
+let planInFlight = 0;
 
 const isMyTurnStart = (prev: GameState | null, next: GameState, my: PlayerId | null): boolean =>
   !!my &&
@@ -154,7 +157,11 @@ const onState = (state: GameState, events: SimEvent[]): void => {
     if (folded.has(ev)) continue;
     if (ev.type === 'productionCompleted' && wonderDone.has(`${ev.settlement}:${ev.item}`)) continue;
     const t = eventToToast(ev, my, names);
-    if (t) specs.push(isThreat(ev, my) ? { ...t, threat: true } : t);
+    if (!t) continue;
+    // A rival leader's words (war warning, borders, peace…) are their own slip (wave 13).
+    const voiced = voicedNotice(ev, my, [state, prev], content);
+    if (voiced) specs.push({ ...t, voice: voiced.player, keep: true });
+    else specs.push(isThreat(ev, my) ? { ...t, threat: true } : t);
   }
   pushToasts(rankToasts(specs).map((t) => ({ ...t, turn: state.turn })));
   // Meeting a people is a moment of its own (wave 11), on top of its line in the news.
@@ -162,9 +169,14 @@ const onState = (state: GameState, events: SimEvent[]): void => {
   if (met.length > 0) firstContacts.value = [...firstContacts.value, ...met.filter((m) => !firstContacts.value.some((x) => x.player === m.player))];
   pushLog(state.turn, dedupeByScreen(specs));
 
-  // Standing orders: start this turn's moves, or continue a run waiting on this snapshot.
-  if (turnStart) runStandingOrders();
-  else continueStandingOrders();
+  // The research plan goes first (wave 13): a planned node starts instead of an idle prompt. Its
+  // snapshot then starts the standing orders, so the two runs never interleave their commands.
+  if (turnStart) {
+    planInFlight = runResearchPlan(state, my);
+    if (planInFlight === 0) runStandingOrders();
+  } else if (planInFlight > 0) {
+    if (--planInFlight === 0) runStandingOrders();
+  } else continueStandingOrders();
 
   // Flashes only where the player can see (never leak hidden positions).
   const visible = new Set(q.visibleTiles(state, my, content));
@@ -204,7 +216,9 @@ const onMessage = (msg: FromWorker): void => {
       lastError.value = msg.message;
       audio.play('error');
       pushToast(msg.message, 'bad');
-      continueStandingOrders();
+      if (planInFlight > 0) {
+        if (--planInFlight === 0) runStandingOrders();
+      } else continueStandingOrders();
       return;
   }
 };
@@ -257,6 +271,7 @@ export const initApp = (): void => {
   applySettingsEffect();
   initUiAudio();
   initStandingOrders();
+  initResearchPlan();
   initGuide();
 
   void registerServiceWorker({

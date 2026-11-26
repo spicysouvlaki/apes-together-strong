@@ -10,7 +10,10 @@ import { CodexScreen } from './Codex';
 import { TurnLog } from './TurnLog';
 import { screens, type ScreenKind } from '../screens';
 import { CitySheet } from './CitySheet';
-import { SLIP_DURATION_MS, splitToasts, tickerDuration, tickerMore } from './ticker';
+import { SLIP_DURATION_MS, splitToasts, splitWhileAnswering, tickerDuration, tickerMore } from './ticker';
+import { game } from '../store';
+import { PlayerBanner } from '../art/game-art';
+import { quoteOf, speakerPart } from './first-contact';
 import { MenuPanel, SavesPanel, SettingsPanel } from './Panels';
 import { TileInfo } from './TileInfo';
 import { Icon } from '../art/Icon';
@@ -113,6 +116,41 @@ function ThreatSlip({ t, i }: { t: Toast; i: number }) {
   );
 }
 
+/**
+ * A rival leader speaking (wave 13: the war warning came as one folded line). Their banner, who
+ * speaks, and their words; tap to open Nations, where war and peace are answered.
+ */
+function VoiceSlip({ t, i }: { t: Toast; i: number }) {
+  useEffect(() => {
+    const timer = setTimeout(() => dismissToast(t.id), SLIP_DURATION_MS);
+    return () => clearTimeout(timer);
+  }, [t.id]);
+  const p = t.voice ? game.value?.players[t.voice] : undefined;
+  const who = speakerPart(t.text);
+  const quote = quoteOf(t.text);
+  return (
+    <div class="voice-slip" role="status" style={{ animationDelay: `${i * 80}ms` }}>
+      <span class="voice-banner" aria-hidden="true">
+        {p ? <PlayerBanner player={p} width={24} /> : <Icon name="nations" />}
+      </span>
+      <button
+        class="voice-text"
+        onClick={() => {
+          dismissToast(t.id);
+          openModal({ kind: 'diplomacy' });
+        }}
+        aria-label={`${t.text} Tap to open Nations.`}
+      >
+        {who && <span class="voice-who">{who}</span>}
+        <span class="voice-quote">“{quote}”</span>
+      </button>
+      <button class="threat-close" aria-label="Dismiss" onClick={() => dismissToast(t.id)}>
+        <Icon name="close" size="sm" />
+      </button>
+    </div>
+  );
+}
+
 export function Toasts() {
   const list = toasts.value;
   if (list.length === 0) return null;
@@ -126,15 +164,13 @@ export function Toasts() {
   // Once the player has a unit in hand they are answering the threat: the slips fold into the
   // one-line ticker so they no longer cover the raiders the unit is about to strike (playtest 3).
   const answering = selection.value.unit !== null;
-  const { slips, ticker } = answering ? { slips: [], ticker: list } : splitToasts(list);
+  const { slips, ticker } = answering ? splitWhileAnswering(list) : splitToasts(list);
   return (
     <div class={`toasts${route.value === 'game' ? '' : ' toasts-free'}`} aria-live="polite">
       <Ticker items={ticker} />
       {slips.length > 0 && (
         <div class="threat-slips">
-          {slips.map((t, i) => (
-            <ThreatSlip key={t.id} t={t} i={i} />
-          ))}
+          {slips.map((t, i) => (t.voice ? <VoiceSlip key={t.id} t={t} i={i} /> : <ThreatSlip key={t.id} t={t} i={i} />))}
         </div>
       )}
     </div>

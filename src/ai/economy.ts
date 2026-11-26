@@ -14,7 +14,7 @@ import { exec, me, type AiCtx } from './ctx';
 import { buildingValue, figureOf } from './decisions';
 import { modifiersScore } from './persona';
 import { aiSiteScorer, siteLegal } from './sites';
-import { aggression, pickWarTarget, warPreparation, type WarTarget } from './war';
+import { aggression, committedWarTarget, warPreparation, type WarTarget } from './war';
 import { enemiesAtWar, hostilesNear, isMilitary, militaryPower, ownSettlements, ownUnits, warFoes } from './world';
 import { canEmbarkPlayer } from '../sim/units';
 import { posture } from '../sim/voice';
@@ -187,7 +187,7 @@ export const makePlan = (ai: AiCtx, focus: LegacyTrack): EmpirePlan => {
   const atWar = foes.length > 0;
   const pe = ai.persona;
   const prep = atWar ? null : warPreparation(ai);
-  const warGoal = atWar ? pickWarTarget(ai, foes) : prep;
+  const warGoal = atWar ? committedWarTarget(ai, foes) : prep;
   // Deterrence: a neighbour (settlements within 12) whose army is 1.4× ours.
   const myPower = militaryPower(state, player, content);
   let threatened = false;

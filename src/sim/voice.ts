@@ -11,8 +11,8 @@
  */
 import type { ContentBundle } from '@contracts/content-schemas';
 import { hexNeighbors } from '@contracts/hex';
-import type { GameState, PlayerId, Settlement } from '@contracts/sim-api';
-import { WAR_WARNING_SOURCE, WAR_WARNING_TURNS } from './constants';
+import { warKey, type GameState, type PlayerId, type Settlement } from '@contracts/sim-api';
+import { WAR_INTENT_SOURCE, WAR_WARNING_SOURCE, WAR_WARNING_TURNS } from './constants';
 import type { SimCtx } from './ctx';
 import { capitalOf, tileAt, tileIndex } from './lookup';
 import { visibleTileSet } from './units';
@@ -48,7 +48,26 @@ export const speakerName = (state: GameState, player: PlayerId, content: Content
   return cap ? `${leader} of ${cap.name}` : leader;
 };
 
-export type Occasion = 'contact' | 'borders' | 'warOnYou' | 'warByYou' | 'peace' | 'figureWanted' | 'wonderTheirs' | 'wonderYours';
+export type Occasion =
+  | 'contact'
+  | 'borders'
+  | 'warWarning'
+  | 'standDown'
+  | 'appeased'
+  | 'warOnYou'
+  | 'warByYou'
+  | 'peace'
+  | 'figureWanted'
+  | 'wonderTheirs'
+  | 'wonderYours';
+
+/**
+ * Occasions about war itself. Wave 13: the others (greetings, borders, wonders, figures) are
+ * friendly or neutral small talk and are not spoken while the two are at war or the speaker
+ * has threatened war ("Our borders meet. Good neighbours make good markets." came the turn
+ * after that trader declared war).
+ */
+const WAR_OCCASIONS: ReadonlySet<Occasion> = new Set<Occasion>(['warWarning', 'standDown', 'appeased', 'warOnYou', 'warByYou', 'peace']);
 
 /** `{f}` = a figure's name, `{w}` = a wonder's name, `{c}` = a city name. */
 export const VOICE: Record<Occasion, Record<Posture, string>> = {
@@ -63,6 +82,26 @@ export const VOICE: Record<Occasion, Record<Posture, string>> = {
     rival: 'Our borders touch. Settle wisely; every valley you claim is one we wanted.',
     trader: 'Our borders meet. Good neighbours make good markets.',
     wary: 'Your borders now touch ours. We will build our walls a little higher.',
+  },
+  // Wave 13 (src/sim/war-intent.ts): a threat names the city it wants ({c}), hints at the
+  // grievance, and says how to answer it — guard the city, or send gifts (tribute).
+  warWarning: {
+    aggressor: '{c} lies open and your soldiers are few. Guard it well, or send us gifts worthy of a king, for soon our spears come for it.',
+    rival: 'You have grown too fast, and {c} stands on land that should be ours. Garrison it, or pay us to look elsewhere. We will not ask twice.',
+    trader: 'Your markets grow fat while ours go hungry, and {c} is the fattest. Pay what you owe us, or we will come and collect it ourselves.',
+    wary: 'Your soldiers gather too close to our walls. Give us cause to trust you, gifts or a quiet border, or we strike {c} before you strike us.',
+  },
+  standDown: {
+    aggressor: 'Your walls at {c} have grown teeth. We will wait for a better day.',
+    rival: '{c} is well guarded. Another time, then.',
+    trader: 'Cooler heads have prevailed. Let the caravans run, and let {c} keep its gold.',
+    wary: 'We see you mean us no harm. We stand down, for now.',
+  },
+  appeased: {
+    aggressor: 'Your gifts are accepted. {c} may sleep easy, for now.',
+    rival: 'A wise payment. {c} is yours, for now.',
+    trader: 'The debt is settled. Our caravans will visit {c} as friends.',
+    wary: 'Your gifts speak for you. We will keep our soldiers home.',
   },
   warOnYou: {
     aggressor: 'Words are over. Our armies march on your lands.',
@@ -112,7 +151,7 @@ export const voiceText = (
   const line = VOICE[occasion][posture(state, speaker, content)]
     .replace('{f}', vars.f ?? '')
     .replace('{w}', vars.w ?? '')
-    .replace('{c}', vars.c ?? '');
+    .replace('{c}', vars.c ?? 'your city');
   return `${speakerName(state, speaker, content)}: “${line}”`;
 };
 
@@ -139,19 +178,44 @@ const holdWar = (state: GameState, ai: PlayerId, human: PlayerId): void => {
 export const warHeldBack = (state: GameState, ai: PlayerId, human: PlayerId): boolean =>
   state.players[ai]?.effects.some((e) => e.source === WAR_WARNING_SOURCE + human && e.untilTurn >= state.turn) === true;
 
-/** Send a message from an AI civ to a human player (no-op for any other pair). */
+/** True while `ai` has threatened `human` with war (an open intent, src/sim/war-intent.ts). */
+const threatening = (state: GameState, ai: PlayerId, human: PlayerId): boolean =>
+  state.players[ai]?.effects.some((e) => e.source.startsWith(`${WAR_INTENT_SOURCE}${human}:`)) === true;
+
+/**
+ * Send a message from an AI civ to a human player (no-op for any other pair). `extra` adds
+ * the notice's optional fields (a war warning names its objective and the turns left).
+ */
 export const speak = (
   ctx: SimCtx,
   speaker: PlayerId,
   listener: PlayerId,
   occasion: Occasion,
   vars: { f?: string; w?: string; c?: string } = {},
+  extra: { settlement?: string; amount?: number } = {},
 ): void => {
-  if (!isAi(ctx.state, speaker) || !isHuman(ctx.state, listener)) return;
-  if (occasion === 'contact' || occasion === 'borders') holdWar(ctx.state, speaker, listener);
-  const text = voiceText(ctx.state, speaker, occasion, ctx.content, vars);
-  // First contact is the one voiced occasion the UI ranks on its own ('firstContact').
-  ctx.events.push(occasion === 'contact' ? { type: 'notice', player: listener, kind: 'firstContact', text } : { type: 'notice', player: listener, text });
+  const { state } = ctx;
+  if (!isAi(state, speaker) || !isHuman(state, listener)) return;
+  if (occasion === 'contact' || occasion === 'borders') holdWar(state, speaker, listener);
+  if (!WAR_OCCASIONS.has(occasion)) {
+    // Wave 13: no small talk with someone you are fighting or have just threatened.
+    if (state.wars[warKey(speaker, listener)] !== undefined || threatening(state, speaker, listener)) return;
+    // Wave 13: a people the human has never met does not remark on their court (unmet leak).
+    // (Touching borders is a meeting in itself.)
+    if (occasion !== 'contact' && occasion !== 'borders' && !contactsOf(state, listener)[speaker]) return;
+  }
+  const text = voiceText(state, speaker, occasion, ctx.content, vars);
+  // First contact is the one voiced occasion the UI ranks on its own ('firstContact'). Threat
+  // lines carry kind 'other' plus the named city (`settlement`) and, for a warning, the turns
+  // left (`amount`). TODO(contracts): a 'warWarning' NoticeKind and the speaker's id.
+  const threat = occasion === 'warWarning' || occasion === 'standDown' || occasion === 'appeased';
+  ctx.events.push(
+    occasion === 'contact'
+      ? { type: 'notice', player: listener, kind: 'firstContact', text }
+      : threat
+        ? { type: 'notice', player: listener, kind: 'other', text, ...extra }
+        : { type: 'notice', player: listener, text },
+  );
 };
 
 /**
@@ -272,3 +336,13 @@ export const noteBordersTouch = (ctx: SimCtx, s: Settlement, before: Record<Play
     else speak(ctx, s.owner, other, 'borders');
   }
 };
+
+/**
+ * Is this notice text a war warning? (Tooling, scripts/lib/fun-audit.ts, and the UI until the
+ * contract has a 'warWarning' notice kind.) Matches the fixed part of any posture's line.
+ */
+export const isWarWarningText = (text: string): boolean =>
+  Object.values(VOICE.warWarning).some((line) => {
+    const parts = line.split('{c}').filter((x) => x.length > 8);
+    return parts.length > 0 && parts.every((x) => text.includes(x));
+  });

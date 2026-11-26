@@ -13,7 +13,7 @@ import { queries } from '../sim/queries';
 import { posture } from '../sim/voice';
 import { exec, me, type AiCtx } from './ctx';
 import { settlesOverseas, type EmpirePlan } from './economy';
-import { pickWarTarget } from './war';
+import { committedWarTarget } from './war';
 import { aiSiteScorer, siteLegal } from './sites';
 import { UNREACHABLE, isWaterTile, landField, landStepCost, waterField } from './util';
 import { enemiesAtWar, hostilesNear, isMilitary, ownSettlements, ownUnits, warFoes } from './world';
@@ -433,7 +433,7 @@ export const moveMilitary = (ai: AiCtx, plan?: EmpirePlan): void => {
   const enemies = warFoes(ai.state, player);
   // The war goal is the same settlement the war was declared for (src/ai/war.ts), re-scored
   // each turn from public information, so the whole army converges on one place.
-  const goal = enemies.length > 0 ? pickWarTarget(ai, enemies) : null;
+  const goal = enemies.length > 0 ? committedWarTarget(ai, enemies) : null;
   const target = goal?.settlement ?? null;
   const targetField = target ? landField(ai.state, content, [idxOf(ai, target.at)], 80, player) : null;
   // Gather: only close in once three units stand within 5 of the target (counted once per turn).

@@ -29,6 +29,7 @@ import { ConfirmSheet, CultureChip, Empty, Screen, Section } from './shared/comp
 import { capitalize, describeModifiers } from './shared/describe';
 import { figureCountsByCulture } from './shared/figures';
 import { envoyNeedsConfirm, hasMet, INFLUENCE_WARNING } from './shared/envoy';
+import { needsConfirm } from '../shell/confirm-policy';
 
 export const DiplomacyScreen = (_: ScreenProps<'diplomacy'>) => {
   const [confirmWar, setConfirmWar] = useState<PlayerId | null>(null);
@@ -105,7 +106,7 @@ export const DiplomacyScreen = (_: ScreenProps<'diplomacy'>) => {
                           <button
                             class="btn btn-primary"
                             disabled={!turn || influence < PEACE_INFLUENCE_COST || g.turn - since < MIN_WAR_TURNS}
-                            onClick={() => setConfirmPeace(r.id)}
+                            onClick={() => (needsConfirm('makePeace') ? setConfirmPeace(r.id) : act(`peace:${r.id}`, { type: 'makePeace', target: r.id }))}
                             aria-label={`Make peace with ${ownerName(r.id)} for ${PEACE_INFLUENCE_COST} influence`}
                           >
                             <Icon name="peace" /> Make peace <Cost n={PEACE_INFLUENCE_COST} />

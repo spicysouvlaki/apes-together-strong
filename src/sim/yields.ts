@@ -38,7 +38,9 @@ import {
   UNHAPPY_YIELD_PERCENT_MAX,
   UNHAPPY_YIELD_PERCENT_PER_POINT,
   UNIT_GOLD_UPKEEP,
+  WAR_WEARINESS_MAX,
   WAR_WEARINESS_PER_WAR,
+  WAR_WEARINESS_TURNS_PER_POINT,
   WORK_RADIUS,
 } from './constants';
 import { ci, playerSettlements, round2, tileAt, tilesInRange } from './lookup';
@@ -266,6 +268,23 @@ export const warCount = (state: GameState, player: PlayerId): number => {
 };
 
 /**
+ * Happiness each war costs `player`, by foe (GDD §7 "− war weariness"; wave 13): the base
+ * WAR_WEARINESS_PER_WAR, +1 per WAR_WEARINESS_TURNS_PER_POINT turns the war has lasted, at
+ * most WAR_WEARINESS_MAX. The UI may show it as the happiness breakdown's war line.
+ */
+export const warWeariness = (state: GameState, player: PlayerId): Record<PlayerId, number> => {
+  const out: Record<PlayerId, number> = {};
+  for (const key of Object.keys(state.wars).sort()) {
+    const [a, b] = key.split('|');
+    if (a === undefined || b === undefined || (a !== player && b !== player)) continue;
+    const began = state.wars[key] ?? state.turn;
+    const grown = Math.floor(Math.max(0, state.turn - began) / WAR_WEARINESS_TURNS_PER_POINT);
+    out[a === player ? b : a] = Math.min(WAR_WEARINESS_MAX, WAR_WEARINESS_PER_WAR + grown);
+  }
+  return out;
+};
+
+/**
  * Empire happiness (GDD §7): base + luxuries (each kind once) + amenities − 1 per pop above 5
  * per settlement − cap penalty − war weariness.
  */
@@ -293,7 +312,7 @@ export const computeHappiness = (
   h += yieldMods(emp, 'empire', { state, content, player }).add.happiness ?? 0;
   const over = mine.length - settlementCapFor(state, player, content, emp);
   if (over > 0) h -= over * HAPPINESS_PER_OVER_CAP;
-  h -= warCount(state, player) * WAR_WEARINESS_PER_WAR;
+  for (const w of Object.values(warWeariness(state, player))) h -= w;
   return Math.round(h);
 };
 

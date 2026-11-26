@@ -1,6 +1,6 @@
 /** Figure offer (GDD §4): the heart of the game. Pick one of up to three, or send them on. */
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { closeModal, content, dispatch, game, lookup, me, myTurn, openModal, ownerName } from '../store';
+import { closeModal, content, dispatch, game, lookup, me, myTurn, openModal, ownerName, q } from '../store';
 import type { ScreenProps } from './index';
 import { cultureName, Empty, FigureCard, Screen } from './shared/components';
 import { inSentence } from './shared/describe';
@@ -11,6 +11,11 @@ import { nextOffer, offerPosition, offerView } from './shared/offer';
 import { Icon } from '../art/Icon';
 import { KIND_ICON } from '../art/portrait-spec';
 import { guide } from '../shell/guide-state';
+import { offerPitch, type PitchLine } from './shared/offer-pitch';
+import type { IconName } from '../art/icons-data';
+
+const PITCH_ICON: Record<PitchLine['kind'], IconName> = { seat: 'seat', field: 'deploy', deed: 'activate', culture: 'culture', pass: 'next' };
+const PITCH_LABEL: Record<PitchLine['kind'], string> = { seat: 'Now', field: 'Now', deed: 'Now', culture: 'Culture', pass: 'If you pass' };
 
 const motionOff = (): boolean =>
   document.documentElement.classList.contains('reduce-motion') || matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -62,6 +67,11 @@ export const OfferScreen = ({ modal }: ScreenProps<'offer'>) => {
   const current = items[i];
   const chosenDef = current ? lookup.figures[current.id] : undefined;
   const canAct = myTurn.value;
+  // What the card in view would do for this player now (wave 13): seat, culture, what passing keeps.
+  const pitch =
+    chosenDef
+      ? offerPitch({ state: g, me: player, offer, def: chosenDef, seats: q.cabinetSeats(g, player, content), weights: q.cultureWeights(g, player, content), content, l: lookup })
+      : [];
 
   const goOn = () => {
     const next = nextOffer(g.offers, player, offer.id);
@@ -182,6 +192,19 @@ export const OfferScreen = ({ modal }: ScreenProps<'offer'>) => {
           ))}
         </div>
       )}
+      {pitch.length > 0 && current && (
+        <ul class="offer-pitch" aria-label={`What ${current.short} would do for you now`} key={current.id}>
+          {pitch.map((line) => (
+            <li class={`offer-pitch-line pitch-${line.kind}${line.strong ? ' is-strong' : ''}`}>
+              <span class="offer-pitch-mark" aria-hidden="true">
+                <Icon name={PITCH_ICON[line.kind]} size="sm" />
+              </span>
+              <span class="offer-pitch-kicker">{PITCH_LABEL[line.kind]}</span>
+              <span class="offer-pitch-text">{line.text}</span>
+            </li>
+          ))}
+        </ul>
+      )}
       <div class={`deck-row${items.length === 1 ? ' single' : ''}`} ref={row} onScroll={onScroll}>
         {items.map((it, k) => {
           const def = lookup.figures[it.id];
@@ -214,7 +237,7 @@ export const OfferScreen = ({ modal }: ScreenProps<'offer'>) => {
           {x.name} already joined {ownerName(x.by)}.
         </p>
       ))}
-      <p class="small muted scr-decline-note">{view.declineNote}</p>
+      {pitch.length === 0 && <p class="small muted scr-decline-note">{view.declineNote}</p>}
       {!canAct && <p class="small muted scr-decline-note">You can answer on your turn.</p>}
     </Screen>
   );

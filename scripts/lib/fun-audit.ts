@@ -9,6 +9,11 @@ import { tileAt, tileIndex } from '../../src/sim/lookup';
 import { gpGain } from '../../src/emergence/points';
 import { measurePlayer } from '../../src/emergence/signals';
 import type { RunAiTurn } from './autoplay';
+import { isWarWarningText } from '../../src/sim/voice';
+
+/** News that asks the player for an answer (wave 13 prompt cadence). */
+const promptNotice = (e: { kind?: string; text: string }): boolean =>
+  e.kind === 'firstContact' || e.kind === 'raiderWarning' || isWarWarningText(e.text);
 
 const HUMAN: PlayerId = 'p1';
 
@@ -117,6 +122,19 @@ export interface AuditReport {
   buildDoneTurns: number[];
   /** Human scouts alive at turn 30 with nothing left to explore by land (idle). */
   idleScoutsT30: number;
+  /**
+   * Wave 13: turns (1–30) on which the game put something new in front of a player who does
+   * not queue: a pending decision at turn start (offer, crisis, idle research or production,
+   * government), a town that just became affordable to upgrade, or news that asks for an
+   * answer (first contact, raiders, a war warning).
+   */
+  promptTurns: number[];
+  /** Wave 13: wars involving the human seat (declared by or on), with length and captures. */
+  humanWars: { by: string; on: string; turn: number; ended: number | null; captures: number; endedBy?: string }[];
+  /** Wave 13: all player-vs-player wars: length (turns) and settlements that changed hands during them. */
+  pvpWars: { by: string; on: string; turn: number; ended: number | null; captures: number; endedBy?: string }[];
+  /** Wave 13: war-warning notices to the human and the turn of the war that followed (if any). */
+  warWarnings: { turn: number; declared: number | null }[];
 }
 
 const ageStart: Record<string, number> = {};
@@ -161,6 +179,7 @@ export const auditGame = (
     maxGapMid: 0, firstContactTurn: null, offerSources: {}, recruitedKinds: {}, repeatedCandidates: 0,
     contestedWon: 0, contestedLost: 0, treasuryNotices: 0, desertions: 0, raiderWarnings: 0, gpGained: {},
     researchDoneTurns: [], buildDoneTurns: [], idleScoutsT30: 0,
+    promptTurns: [], humanWars: [], pvpWars: [], warWarnings: [],
   };
   /** figure id -> age it was shown to the human (to count repeats within an age). */
   const shownThisAge: Record<string, string> = {};
@@ -186,6 +205,9 @@ export const auditGame = (
   const humanPop = (): number => Object.values(state.settlements).filter((s) => s.owner === HUMAN).reduce((a, s) => a + s.population, 0);
   ageStart.current = 1;
   let lastOfferSource: string | null = null;
+  /** A prompting notice arrived since the human's last turn start (wave 13). */
+  let pendingPrompt = false;
+  let upgradable = new Set<string>();
   let settlementsFounded = 0;
   let leader: string | null = null;
   const reasons = new Set<string>();
@@ -397,6 +419,28 @@ export const auditGame = (
         else r.capturesCs++;
       }
       if (e.type === 'playerEliminated') r.eliminations.push({ player: e.player, age: state.age });
+      if (e.type === 'warDeclared' && isPlayer(e.on) && isPlayer(e.by)) {
+        const w: AuditReport['pvpWars'][number] = { by: e.by, on: e.on, turn: state.turn, ended: null, captures: 0 };
+        r.pvpWars.push(w);
+        if (e.by === HUMAN || e.on === HUMAN) {
+          r.humanWars.push(w);
+          const warned = r.warWarnings.find((x) => x.declared === null);
+          if (warned && e.on === HUMAN) warned.declared = state.turn;
+        }
+      }
+      if (e.type === 'peaceMade') {
+        const w = r.pvpWars.find((x) => x.ended === null && ((x.by === e.a && x.on === e.b) || (x.by === e.b && x.on === e.a)));
+        if (w) {
+          w.ended = state.turn;
+          w.endedBy = e.a;
+        }
+      }
+      if (e.type === 'settlementCaptured' && isPlayer(e.from) && isPlayer(e.to)) {
+        const w = r.pvpWars.find((x) => x.ended === null && ((x.by === e.from && x.on === e.to) || (x.by === e.to && x.on === e.from)));
+        if (w) w.captures++;
+      }
+      if (e.type === 'notice' && e.player === HUMAN && promptNotice(e)) pendingPrompt = true;
+      if (e.type === 'notice' && e.player === HUMAN && isWarWarningText(e.text)) r.warWarnings.push({ turn: state.turn, declared: null });
       if (e.type === 'warDeclared' && isPlayer(e.on)) {
         r.wars++;
         if (duringHumanTurn && e.by === HUMAN) mark(state.turn, 'war');
@@ -420,6 +464,18 @@ export const auditGame = (
     if (state.age === 'ancient') {
       const g = gpGain(state, HUMAN, content, measurePlayer(state, HUMAN, content));
       for (const [k, v] of Object.entries(g)) r.gpGained[k] = (r.gpGained[k] ?? 0) + v;
+    }
+    // Wave 13 prompt cadence (what a player who does not queue is asked or told this turn).
+    if (t <= 30) {
+      const nowUpgradable = new Set(
+        Object.values(state.settlements)
+          .filter((s) => s.owner === HUMAN && s.kind === 'town' && queries.upgradeCost(state, s.id, content) <= p.stock.gold)
+          .map((s) => s.id),
+      );
+      const newlyUpgradable = [...nowUpgradable].some((id) => !upgradable.has(id));
+      upgradable = nowUpgradable;
+      if (pendingPrompt || newlyUpgradable || queries.pendingDecisions(state, HUMAN, content).length > 0) r.promptTurns.push(t);
+      pendingPrompt = false;
     }
     if (state.offers.some((o) => o.player === HUMAN)) mark(t, 'offer');
     if (state.crisis?.awaiting.includes(HUMAN)) mark(t, 'crisis');
@@ -712,6 +768,30 @@ export const summarize = (rs: AuditReport[], content: ContentBundle): string => 
   for (const r of rs) for (const [k, v] of Object.entries(r.gpGained ?? {})) gpg[k] = (gpg[k] ?? 0) + v;
   const gpT = Object.values(gpg).reduce((a, b) => a + b, 0);
   L.push(`P3 human ancient gp share by pool: ${Object.entries(gpg).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${pct(v, gpT)}`).join(', ')}`);
+  // --- Wave 13 metrics ------------------------------------------------------------------
+  const promptGap = (turns: number[]): { gap: number; share: number; empty: number[] } => {
+    const set = new Set(turns);
+    let g = 0;
+    let max = 0;
+    const empty: number[] = [];
+    for (let t = 1; t <= 30; t++) {
+      if (set.has(t)) g = 0;
+      else {
+        g++;
+        empty.push(t);
+      }
+      max = Math.max(max, g);
+    }
+    return { gap: max, share: set.size / 30, empty };
+  };
+  const pg = rs.map((r) => promptGap(r.promptTurns ?? []));
+  L.push(`W13 prompts t1–30: share of turns with a prompt ${avg(pg.map((x) => x.share * 100))}%, longest empty run avg ${avg(pg.map((x) => x.gap))} (worst ${Math.max(...pg.map((x) => x.gap))}); empty turns e.g. ${pg[0]?.empty.join(',') ?? '-'}`);
+  const pw = rs.flatMap((r) => r.pvpWars ?? []);
+  const lens = pw.map((w) => (w.ended ?? 0) - w.turn).filter((x) => x > 0);
+  L.push(`W13 pvp wars/game ${(pw.length / n).toFixed(2)}, ended in peace ${pct(pw.filter((w) => w.ended !== null).length, pw.length)}, length avg ${avg(lens)} (median ${med(lens)}), captures during wars/game ${(pw.reduce((a, w) => a + w.captures, 0) / n).toFixed(2)}; human wars/game ${(rs.reduce((a, r) => a + (r.humanWars ?? []).length, 0) / n).toFixed(2)} (on the human ${(rs.reduce((a, r) => a + (r.humanWars ?? []).filter((w) => w.on === HUMAN).length, 0) / n).toFixed(2)})`);
+  L.push(`W13 peace sued by the attacker ${pct(pw.filter((w) => w.endedBy === w.by).length, pw.filter((w) => w.ended !== null).length)}; wars with a capture ${pct(pw.filter((w) => w.captures > 0).length, pw.length)}`);
+  const ww = rs.flatMap((r) => r.warWarnings ?? []);
+  L.push(`W13 war warnings to the human/game ${(ww.length / n).toFixed(2)}, followed by war ${pct(ww.filter((w) => w.declared !== null).length, ww.length)}, lead time avg ${avg(ww.filter((w) => w.declared !== null).map((w) => (w.declared ?? 0) - w.turn))}`);
   void content;
   return L.join('\n');
 };

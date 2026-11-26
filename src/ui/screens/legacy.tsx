@@ -13,6 +13,8 @@ import type { ScreenProps } from './index';
 import { Bar, Empty, Screen, Section } from './shared/components';
 import { ageLabel, capitalize } from './shared/describe';
 import { Icon } from '../art/Icon';
+import { biggestEdge, nearestGains, rivalName, scoreBreakdown, standingLine, standingOf } from '../shell/standing';
+import { hasMet } from './shared/envoy';
 
 /** Stage thresholds of this age's crisis, from content. */
 const lookupCrisisStages = (age: string): number[] | null => content.crises.find((c) => c.age === age)?.stages.map((s) => s.at) ?? null;
@@ -29,14 +31,81 @@ export const LegacyScreen = (_: ScreenProps<'legacy'>) => {
   const player = me.value;
   if (!g || !player) return <Screen title="Legacy" label="Legacy"><Empty>No game in progress.</Empty></Screen>;
   const rows = q.milestones(g, player, content);
+  const met = (id: string): boolean => id === player || hasMet(g, player, id);
   const ranking = g.playerOrder
     .map((id) => ({ id, score: q.score(g, id, content), alive: g.players[id]?.alive ?? false }))
     .sort((a, b) => b.score - a.score);
   const top = ranking[0]?.score ?? 0;
   const meter = Math.round(g.ageProgress);
+  // Where you stand and why (wave 13): the leader's points by source, and your nearest gains.
+  const standing = standingOf(g, player, (id) => q.score(g, id, content), (id) => hasMet(g, player, id));
+  const mine = scoreBreakdown(g, player, content);
+  const leaderId = standing?.leader?.id ?? null;
+  // Leading: compare with the runner-up instead, so the lead has a shape too.
+  const rivalRow = standing ? (standing.leader ?? standing.rows.find((r) => !r.me) ?? null) : null;
+  const rivalId = rivalRow?.id ?? null;
+  const theirs = rivalId ? scoreBreakdown(g, rivalId, content) : [];
+  const edge = leaderId ? biggestEdge(mine, theirs) : null;
+  const leaderName = leaderId ? rivalName(met(leaderId), ownerName(leaderId)) : '';
+  const seatable = Object.values(g.figures).filter((f) => f.owner === player && f.location.state === 'based' && q.figureActions(g, f.id, content).seat.length > 0).length;
+  const gains = nearestGains(rows, seatable, 3);
+  const keys = [...new Set([...mine, ...theirs].map((x) => x.key))];
+  const pts = (list: typeof mine, key: string): number => list.find((x) => x.key === key)?.points ?? 0;
 
   return (
     <Screen title="Legacy" label="Legacy">
+      {standing && (
+        <Section title="Where you stand" note={standingLine(standing, ownerName)}>
+          {rivalId && (
+            <table class="lg-compare">
+              <caption class="small muted">Compared with {rivalName(met(rivalId), ownerName(rivalId))}</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Points from</th>
+                  <th scope="col">You</th>
+                  <th scope="col">{leaderId ? (standing.behind === 0 ? 'Level' : 'Leader') : 'Next best'}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {keys.map((k) => {
+                  const label = [...mine, ...theirs].find((x) => x.key === k)?.label ?? k;
+                  const a = pts(mine, k);
+                  const b = pts(theirs, k);
+                  return (
+                    <tr class={b > a ? 'is-behind' : a > b ? 'is-ahead' : ''}>
+                      <th scope="row">{label}</th>
+                      <td class="tnum">{a}</td>
+                      <td class="tnum">{b}</td>
+                    </tr>
+                  );
+                })}
+                <tr class="lg-total">
+                  <th scope="row">Score</th>
+                  <td class="tnum">{standing.score}</td>
+                  <td class="tnum">{rivalRow?.score ?? 0}</td>
+                </tr>
+              </tbody>
+            </table>
+          )}
+          {edge && (
+            <p class="small">
+              Most of {leaderName}’s lead is <b>{edge.label.toLowerCase()}</b> (+{edge.diff}).
+            </p>
+          )}
+          {gains.length > 0 && (
+            <>
+              <p class="scr-tag lg-gains-head">Your nearest gains</p>
+              <ul class="scr-mods lg-gains">
+                {gains.map((x) => (
+                  <li>
+                    {x.text} <span class="muted">· +{x.points}</span>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </Section>
+      )}
       <Section title={`${ageLabel(g.age)} age milestones`} note="Each track has three milestones. Every one reached earns legacy points and refinement points at the age's end.">
         {rows.length === 0 && <Empty>No milestones this age.</Empty>}
         <ul class="scr-list">
@@ -70,11 +139,11 @@ export const LegacyScreen = (_: ScreenProps<'legacy'>) => {
           {ranking.map((r) => (
             <li class="row">
               <span class="grow" style={{ fontWeight: r.id === player ? 700 : 400 }}>
-                {r.id === player ? `${ownerName(r.id)} (you)` : ownerName(r.id)}
+                {r.id === player ? `${ownerName(r.id)} (you)` : met(r.id) ? ownerName(r.id) : 'A people you have not met'}
                 {!r.alive && ' · fallen'}
               </span>
               <div style={{ width: '40%' }}>
-                <Bar value={r.score} max={Math.max(top, 1)} label={`${ownerName(r.id)} score`} color={r.id === player ? 'var(--woad)' : '#9b8767'} />
+                <Bar value={r.score} max={Math.max(top, 1)} label={`${met(r.id) ? ownerName(r.id) : 'Unmet people'} score`} color={r.id === player ? 'var(--woad)' : '#9b8767'} />
               </div>
               <b style={{ width: '40px', textAlign: 'right' }}>{r.score}</b>
             </li>

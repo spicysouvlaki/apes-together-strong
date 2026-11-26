@@ -8,6 +8,7 @@ import { weightedIndex } from '../sim/rng';
 import { statValue } from '../sim/stats';
 import * as K from './constants';
 import { AGE_OPENING_REASON, PARTNER_REASONS, REASON_FAMILY, TALES_REASONS, WANDERER_REASONS, pickPhrase, signalReason } from './reasons';
+import { cultureWeights } from './queries';
 import { citedSignals, signalContributions, type Contributions } from './signals';
 import { culturesWithFiguresIn, figureDef, getPlayer, kindsForGp, suzerainByCulture, tradeRoutesByCulture } from './util';
 
@@ -55,12 +56,19 @@ export const offerReason = (
   contributions: Contributions,
   content: ContentBundle,
   figure = '',
+  used?: Map<string, string>,
 ): string => {
   const a = getPlayer(state, player).affinity[culture] ?? 0;
   // A signal the player really has is always the best reason, even while the culture's
   // affinity is still low (wave 11: two of three reasons in a first offer were the generic
   // wanderer line though a real signal fed each culture). Generic lines are the last resort.
-  const [first, second] = citedSignals(state, player, contributions, culture, content);
+  // Wave 13 ("Drawn by your wide plains" / "Curious to see your wide plains…" in one offer):
+  // with `used` (signal id -> the reason given for it in this offer), the signals already cited
+  // by other candidates are passed over for the culture's next citable one; when it has no
+  // other, the earlier reason is repeated word for word rather than rephrased.
+  const cited = citedSignals(state, player, contributions, culture, content, used ? 4 : 2);
+  const fresh = used ? cited.filter((x) => !used.has(x.signal.id)) : cited;
+  const [first, second] = fresh.length > 0 ? fresh : cited;
   if (first) {
     const secondHint =
       second &&
@@ -69,7 +77,12 @@ export const offerReason = (
       second.value >= K.REASON_SECOND_SIGNAL_SHARE * first.value
         ? second.hint
         : null;
-    return figure ? signalReason(state, figure, first.signal.measure, first.hint, secondHint) : `drawn by ${first.hint}`;
+    const earlier = used?.get(first.signal.id);
+    if (earlier !== undefined) return earlier;
+    const text = figure ? signalReason(state, figure, first.signal.measure, first.hint, secondHint) : `drawn by ${first.hint}`;
+    used?.set(first.signal.id, text);
+    if (secondHint && second && used && !used.has(second.signal.id)) used.set(second.signal.id, text);
+    return text;
   }
   if (partnerCultures(state, player, content)[culture]) return figure ? pickPhrase(state, figure, PARTNER_REASONS) : PARTNER_REASONS[0];
   if (a < K.REASON_MIN_AFFINITY) return figure ? pickPhrase(state, figure, WANDERER_REASONS) : WANDERER_REASONS[0];
@@ -162,10 +175,51 @@ export const drawCandidates = (state: GameState, player: PlayerId, pool: readonl
     if (fromTop.length > 0 && drawn.length > 0) {
       const pickIdx = weightedIndex(state, fromTop.map(weightOf));
       const pick = fromTop[pickIdx];
-      if (pick) drawn[drawn.length - 1] = pick;
+      if (pick) {
+        const [out] = drawn.splice(drawn.length - 1, 1, pick);
+        if (out) remaining.push(out);
+        remaining.splice(remaining.indexOf(pick), 1);
+      }
+    }
+  }
+  // Wave 13 (fewer offers, each one a real choice): when the court already leans to a culture
+  // that a hybrid pairs with another, one candidate of that other culture is offered too, so
+  // most offers weigh deepening the main culture against reaching for a hybrid.
+  const wanted = hybridPartners(state, player, content);
+  if (drawn.length >= K.OFFER_CANDIDATES && !drawn.some((f) => wanted[f.culture])) {
+    const fromPartners = remaining.filter((f) => wanted[f.culture]);
+    // Replace the last candidate that the top-culture guarantee does not need.
+    let slot = -1;
+    for (let i = drawn.length - 1; i >= 0 && slot < 0; i--) {
+      const rest = drawn.filter((_, j) => j !== i);
+      if (top.length === 0 || rest.some((f) => top.includes(f.culture)) || !top.includes(drawn[i]?.culture ?? '')) slot = i;
+    }
+    if (fromPartners.length > 0 && slot >= 0) {
+      const pick = fromPartners[weightedIndex(state, fromPartners.map(weightOf))];
+      if (pick) drawn[slot] = pick;
     }
   }
   return drawn;
+};
+
+/**
+ * Cultures that would bring a hybrid closer (GDD §6 "3 in both cultures"): some hybrid of this
+ * age or the next pairs them with a culture the player already holds at weight
+ * HYBRID_NUDGE_MIN_WEIGHT or more, and the player is still short of the hybrid's weight in them.
+ * Public information only (culture weights are shown to the player).
+ */
+export const hybridPartners = (state: GameState, player: PlayerId, content: ContentBundle): Record<CultureId, true> => {
+  const out: Record<CultureId, true> = {};
+  const weights = cultureWeights(state, player, content);
+  const age = AGES.indexOf(state.age);
+  for (const h of content.hybrids) {
+    if (AGES.indexOf(h.age) > age + 1) continue;
+    const [a, b] = h.cultures;
+    if (!a || !b) continue;
+    if ((weights[a] ?? 0) >= K.HYBRID_NUDGE_MIN_WEIGHT && (weights[b] ?? 0) < h.minWeight) out[b] = true;
+    if ((weights[b] ?? 0) >= K.HYBRID_NUDGE_MIN_WEIGHT && (weights[a] ?? 0) < h.minWeight) out[a] = true;
+  }
+  return out;
 };
 
 export const openOfferCount = (state: GameState, player: PlayerId): number =>
@@ -200,7 +254,11 @@ const reasonsFor = (
   contributions: Contributions,
 ): Record<FigureId, string> => {
   const reasons: Record<FigureId, string> = {};
-  for (const f of figures) reasons[f.id] = offerReason(ctx.state, player, f.culture, contributions, ctx.content, f.id);
+  const used = new Map<string, string>();
+  // Strongest culture first, so it keeps its best reason and the others give way.
+  const p = getPlayer(ctx.state, player);
+  const order = figures.slice().sort((x, y) => (p.affinity[y.culture] ?? 0) - (p.affinity[x.culture] ?? 0) || (x.id < y.id ? -1 : 1));
+  for (const f of order) reasons[f.id] = offerReason(ctx.state, player, f.culture, contributions, ctx.content, f.id, used);
   return reasons;
 };
 

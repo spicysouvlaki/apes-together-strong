@@ -14,7 +14,10 @@ import {
   BUY_GOLD_PER_PRODUCTION,
   FOOD_PER_POP,
   FOUND_CLAIM_RADIUS,
+  IDLE_PRODUCTION_TO_GOLD,
   MIN_SETTLEMENT_DISTANCE,
+  PRODUCTION_CARRY_SHARE,
+  PRODUCTION_CHAIN_MAX,
   PRODUCTION_QUEUE_MAX,
   SETTLEMENT_VISION,
   UNREST_THRESHOLD,
@@ -559,9 +562,42 @@ export const produceInSettlement = (ctx: SimCtx, s: Settlement, y: YieldRecord, 
   s.production.progress = Math.round((s.production.progress + y.production) * 100) / 100;
   const cost = itemCost(state, s, item, content, mods);
   if (s.production.progress >= cost && completeItem(ctx, s, item)) {
-    s.production.progress = Math.round((s.production.progress - cost) * 100) / 100;
+    let left = s.production.progress - cost;
     s.production.item = null;
     advanceQueue(ctx, s);
+    // Wave 13 (banked progress churn): a big bank (a wonder lost to a rival) finished one item
+    // per turn, each followed by an idle prompt. Queued items it can pay for now finish this
+    // same turn...
+    for (let chained = 0; chained < PRODUCTION_CHAIN_MAX && s.production.item !== null; chained++) {
+      const next = s.production.item;
+      const c = itemCost(state, s, next, content, mods);
+      if (left < c || !completeItem(ctx, s, next)) break;
+      left -= c;
+      s.production.item = null;
+      advanceQueue(ctx, s);
+    }
+    // ...and what is still left carries over only up to a cap: PRODUCTION_CARRY_SHARE of the
+    // item just finished, at least this turn's production. The rest is sold like idle work.
+    const cap = Math.max(y.production, cost * PRODUCTION_CARRY_SHARE);
+    if (left > cap) {
+      const gold = Math.round((left - cap) * IDLE_PRODUCTION_TO_GOLD * 100) / 100;
+      const p = state.players[s.owner];
+      if (p) {
+        p.stock.gold = Math.round((p.stock.gold + gold) * 100) / 100;
+        if (gold >= 5) {
+          ctx.events.push({
+            type: 'notice',
+            player: s.owner,
+            kind: 'treasury',
+            settlement: s.id,
+            amount: Math.floor(gold),
+            text: `${s.name} had more work banked than its next project can use; the surplus was sold for ${Math.floor(gold)} gold.`,
+          });
+        }
+      }
+      left = cap;
+    }
+    s.production.progress = Math.round(left * 100) / 100;
   }
 };
 

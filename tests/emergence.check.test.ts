@@ -154,7 +154,9 @@ const checkAll = (label: string, getContent: () => ContentBundle, measure: 'elig
 };
 
 describe('offer pacing (GDD §4, §11)', () => {
-  it('first offer around turn 8; roughly 8–12 offers over a ~50-turn age', () => {
+  // Wave 13: offers come less often (playtest: ~25 per 109 turns felt like an interruption);
+  // the target is ~14–18 per standard 2-age game for a human seat, deeds and legends included.
+  it('first offer around turn 8; roughly 5–9 points offers over a ~50-turn age', () => {
     content = syntheticRoster(realContent);
     const counts: number[] = [];
     for (const profile of CULTURE_PROFILES) {
@@ -166,8 +168,8 @@ describe('offer pacing (GDD §4, §11)', () => {
     }
     const mean = counts.reduce((a, b) => a + b, 0) / counts.length;
     console.info(`[pacing] offers per 50 turns: mean ${mean.toFixed(1)}, range ${Math.min(...counts)}–${Math.max(...counts)}`);
-    expect(mean).toBeGreaterThanOrEqual(8);
-    expect(mean).toBeLessThanOrEqual(12);
+    expect(mean).toBeGreaterThanOrEqual(5);
+    expect(mean).toBeLessThanOrEqual(9);
   });
 });
 

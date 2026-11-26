@@ -44,6 +44,14 @@ export const POP_YIELDS: Yields = { science: 0.5, culture: 0.3 };
 export const TOWN_PRODUCTION_TO_GOLD = 1;
 /** Cities with no production item bank this share of production as gold. */
 export const IDLE_PRODUCTION_TO_GOLD = 0.5;
+/**
+ * Wave 13 (banked progress churn): when an item finishes, up to PRODUCTION_CHAIN_MAX queued
+ * items the leftover can pay for finish the same turn, and the leftover then carried to the
+ * next item is capped at this share of the finished item's cost (at least one turn's
+ * production); the excess is sold at IDLE_PRODUCTION_TO_GOLD.
+ */
+export const PRODUCTION_CARRY_SHARE = 0.5;
+export const PRODUCTION_CHAIN_MAX = 3;
 /** Shared settlement cap per age (GDD §7); +`settlementCap` modifiers. */
 export const SETTLEMENT_CAP: Record<Age, number> = { ancient: 4, classical: 6, exploration: 8, modern: 10 };
 /** Gold cost of upgrading a town to a city = base + perPop·pop (then `cost/upgrade` modifiers). */
@@ -85,6 +93,14 @@ export const HAPPINESS_POP_FREE = 5;
 export const HAPPINESS_PER_OVER_CAP = 5;
 /** War weariness per ongoing war. */
 export const WAR_WEARINESS_PER_WAR = 1;
+/**
+ * Wave 13 ("wars resolve themselves"): weariness grows with the war's length, +1 happiness
+ * lost per this many turns at war, up to WAR_WEARINESS_MAX per war. A long war now costs
+ * both sides something the player can see (the happiness breakdown), and it pushes the AI to
+ * end wars it is not winning.
+ */
+export const WAR_WEARINESS_TURNS_PER_POINT = 8;
+export const WAR_WEARINESS_MAX = 4;
 export const CELEBRATION_THRESHOLD = 10;
 export const CELEBRATION_YIELD_PERCENT = 10;
 /** Yield percent lost per point of negative happiness. */
@@ -192,6 +208,39 @@ export const ANARCHY_TURNS = 2;
 
 export const PEACE_INFLUENCE_COST = 40;
 export const MIN_WAR_TURNS = 10;
+
+// --- War warnings, objectives and peace terms (wave 13, src/sim/war-intent.ts) --------
+
+/**
+ * `TimedEffect.source` prefixes (modifier-free markers on the AI player, plain JSON):
+ * - `warIntent:<target>:<settlementId>:<dueTurn>` — the AI warned `target` it will declare war
+ *   over that settlement on `dueTurn` (untilTurn = dueTurn + WAR_INTENT_GRACE_TURNS);
+ * - `warGoal:<target>:<settlementId>` — the announced objective of a war under way;
+ * - `stoodDown:<target>` — no new threat against `target` until untilTurn;
+ * - `warTally:<enemy>:<battlesWon>:<unitsLost>` — this player's counters when the war began.
+ */
+export const WAR_INTENT_SOURCE = 'warIntent:';
+export const WAR_GOAL_SOURCE = 'warGoal:';
+export const STOOD_DOWN_SOURCE = 'stoodDown:';
+export const WAR_TALLY_SOURCE = 'warTally:';
+/** An intent the AI neither carries out nor withdraws lapses (with a stand-down line) this long after it is due. */
+export const WAR_INTENT_GRACE_TURNS = 4;
+/** After standing down or being paid off, no new threat against that player for this many turns. */
+export const STOOD_DOWN_TURNS = 15;
+/** Influence a threatened player pays as tribute to buy off a threat (`makePeace` before the war). */
+export const WAR_TRIBUTE_INFLUENCE = 30;
+/**
+ * Peace terms: each side's war score = PEACE_SCORE_PER_CAPTURE per settlement it took from the
+ * other + 1 per enemy unit lost since the war began. When peace is made, a side behind by at
+ * least PEACE_TERMS_MIN_MARGIN pays the other PEACE_TRIBUTE_BASE + PEACE_TRIBUTE_PER_POINT gold
+ * per point of margin, at most PEACE_TRIBUTE_MAX and PEACE_TRIBUTE_MAX_SHARE of its treasury.
+ */
+export const PEACE_SCORE_PER_CAPTURE = 4;
+export const PEACE_TERMS_MIN_MARGIN = 2;
+export const PEACE_TRIBUTE_BASE = 20;
+export const PEACE_TRIBUTE_PER_POINT = 8;
+export const PEACE_TRIBUTE_MAX = 120;
+export const PEACE_TRIBUTE_MAX_SHARE = 0.4;
 export const ENVOY_BASE_COST = 20;
 /** Each envoy a player has already sent to that city-state raises the next one's cost. */
 export const ENVOY_COST_STEP = 10;

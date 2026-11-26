@@ -4,7 +4,7 @@
  * AI-only games, never with numbers or ids.
  */
 import { describe, expect, it, vi } from 'vitest';
-import { type GameState } from '@contracts/sim-api';
+import { type GameState, warKey } from '@contracts/sim-api';
 
 vi.mock('../src/emergence', () => ({
   initEmergence: () => ({ affinity: {}, hintsShown: {}, gp: {}, gpThreshold: {}, legendSlotUsed: false, seatedTurns: {} }),
@@ -35,7 +35,7 @@ vi.mock('../src/sim/ages', () => ({
 }));
 
 import { applyCommand } from '../src/sim';
-import { MIN_WAR_TURNS, PEACE_INFLUENCE_COST } from '../src/sim/constants';
+import { MIN_WAR_TURNS, PEACE_INFLUENCE_COST, WAR_WARNING_TURNS } from '../src/sim/constants';
 import { VOICE, postureOfBias, speakerName, voiceText } from '../src/sim/voice';
 import { addSettlement, addUnit, at, fixtureContent, fixtureState } from './helpers/fixture';
 import { loadContent } from '../src/content';
@@ -91,7 +91,13 @@ describe('messages', () => {
   it('war and peace with a human produce one message from the rival, in its voice', () => {
     let state = world(true);
     state.currentPlayer = 'p2';
+    // Wave 13: an AI's first declaration on a human is a warning; the war comes WAR_WARNING_TURNS later.
     let r = applyCommand(state, 'p2', { type: 'declareWar', target: 'p1' }, content);
+    if (!r.ok) throw new Error(r.error);
+    expect(r.state.wars[warKey('p1', 'p2')]).toBeUndefined();
+    state = r.state;
+    state.turn += WAR_WARNING_TURNS.normal;
+    r = applyCommand(state, 'p2', { type: 'declareWar', target: 'p1' }, content);
     if (!r.ok) throw new Error(r.error);
     const notices = r.events.filter((e) => e.type === 'notice');
     expect(notices).toEqual([{ type: 'notice', player: 'p1', text: `The Conqueror of Avarga: “${VOICE.warOnYou.aggressor}”` }]);

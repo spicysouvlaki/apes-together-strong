@@ -16,6 +16,8 @@ export interface ToastSpec {
   at?: Hex;
   /** A threat to answer now (ticker.ts isThreat): a prominent slip instead of a ticker line. */
   threat?: boolean;
+  /** A rival leader's own words (first-contact.ts voicedNotice): a slip with their banner. */
+  voice?: PlayerId;
   /** A culture whisper (GDD §4 "hidden affinity"): "Your people" lists these as the voices that reached you. */
   whisper?: boolean;
   /**

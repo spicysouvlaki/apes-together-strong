@@ -11,6 +11,7 @@ import { RAIDER_PLAYER, type GameState, type PlayerId } from '@contracts/sim-api
 import type { SimCtx } from '../ctx';
 import { pick } from '../rng';
 import { isUndefended } from '../raids';
+import { advanceResearch } from '../research';
 import { spawnUnit } from '../units';
 import {
   CRISIS_START,
@@ -254,6 +255,11 @@ export const chooseCrisisResponse = (ctx: SimCtx, player: PlayerId, optionId: st
   if (blocked) return blocked;
   for (const key of Object.keys(option.stock) as (keyof typeof option.stock)[]) {
     const delta = option.stock[key] ?? 0;
+    // Wave 13: science and culture stocks are never spent; a gain goes into research instead.
+    if (delta > 0 && (key === 'science' || key === 'culture')) {
+      advanceResearch(ctx, player, key === 'science' ? 'tech' : 'civic', delta);
+      continue;
+    }
     p.stock[key] = Math.max(0, (p.stock[key] ?? 0) + delta);
   }
   if (option.modifiers.length > 0) {

@@ -1,11 +1,14 @@
 /** The turn log (modal 'log'): recent events as plain sentences, newest turn first. */
 import { closeModal } from '../store';
+import { useEscape } from './use-escape';
 import { turnLog } from './shell-state';
 import { Icon } from '../art/Icon';
 
 export function TurnLog() {
   const entries = turnLog.value;
   const turns = [...new Set(entries.map((e) => e.turn))].sort((a, b) => b - a);
+  // Escape closes it, like every other sheet and screen (wave 13).
+  useEscape(closeModal);
   return (
     <section class="sheet log-sheet" role="dialog" aria-label="Recent events">
       <div class="row">
