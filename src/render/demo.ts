@@ -702,6 +702,35 @@ const main = async (): Promise<void> => {
       }
       push();
     },
+    /**
+     * Let the sim AI play every seat (the viewer's too) for `k` turns: a real mid-game board
+     * (several cities, borders, roads, rivals) for art review without clicking through the UI.
+     */
+    autoplay: async (k = 10): Promise<number> => {
+      if (!simApi) return 0;
+      const ai = await import('../ai/index');
+      const sim = simApi.sim;
+      const start = state.turn;
+      for (let guard = 0; guard < k * 12 && state.turn < start + k && state.phase !== 'ended'; guard++) {
+        const p = state.currentPlayer;
+        if (state.phase === 'transition') {
+          for (const id of state.playerOrder) {
+            if (state.phase !== 'transition') break;
+            state = ai.runAiTurn(state, id, content, sim).state;
+            const r = sim.applyCommand(state, id, { type: 'finishTransition' }, content);
+            if (r.ok) state = r.state;
+          }
+          continue;
+        }
+        state = ai.runAiTurn(state, p, content, sim).state;
+        if (state.currentPlayer === p && state.phase === 'playing') {
+          const r = sim.applyCommand(state, p, { type: 'endTurn' }, content);
+          if (r.ok) state = r.state;
+        }
+      }
+      push();
+      return state.turn;
+    },
     move: (id: string, q: number, r: number): void => {
       if (apply('p1', { type: 'moveUnit', unit: id, to: { q, r } })) push();
     },
@@ -716,6 +745,14 @@ const main = async (): Promise<void> => {
     },
   };
   (window as unknown as { demo: typeof demoApi }).demo = demoApi;
+  // game=1&turns=N: reproducible mid-game board (survives dev-server reloads).
+  const turnsParam = Number(params.get('turns') ?? 0);
+  if (simApi && turnsParam > 0) {
+    void demoApi.autoplay(turnsParam).then(() => {
+      const cap = Object.values(state.settlements).find((s) => s.owner === 'p1' && s.isCapital);
+      if (cap) renderer.focus(cap.at, { zoom: 'default' });
+    });
+  }
 
   // Motion inspection (works even when the tab is hidden and rAF is throttled): freeze the
   // clock, step it by hand and composite canvas crops at chosen times into a film strip.

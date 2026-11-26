@@ -9,6 +9,7 @@ import {
   Mesh,
   PerspectiveCamera,
   Scene,
+  Vector2,
   Vector3,
   WebGLRenderer,
 } from 'three';
@@ -41,7 +42,9 @@ import { GestureRecognizer, LONG_PRESS_MS, type GestureAction } from './gestures
 import { ELEVATION_STEP, LAND_TOP, MAX_ELEVATION } from './heights';
 import { hexToWorld, mapBounds, type MapBounds } from './layout';
 import { World, type FlashKind, type Selection } from './scene/world';
-import type { RenderHints, Renderer, RendererOptions, RenderSelection, SafeArea } from './index';
+import { tileIndex } from './layout';
+import { CRISIS_HAZE, SETTLE_MS, SWEEP_MS, detectMoments, gradeFor, moodOf, sameMood, settlePulse, type Mood } from './mood';
+import type { RenderHints, Renderer, RendererOptions, RenderSelection, RenderMood, SafeArea } from './index';
 
 const FOV_Y = 40;
 const YAW_RATE = 12; // 1/s, exponential approach to the snapped yaw
@@ -89,6 +92,7 @@ export function createRendererImpl(
   const vigGeo = new BufferGeometry();
   vigGeo.setAttribute('position', new Float32BufferAttribute([-1, -1, 0, 3, -1, 0, -1, 3, 0], 3));
   const vigMat = vignetteMaterial(0.42);
+  const vigU = vigMat.uniforms as unknown as { uFiber: { value: number }; uSettle: { value: number }; uRes: { value: Vector2 } };
   const vignette = new Mesh(vigGeo, vigMat);
   vignette.frustumCulled = false;
   vignette.renderOrder = 1000;
@@ -97,6 +101,9 @@ export function createRendererImpl(
   let ambientTimer: ReturnType<typeof setTimeout> | null = null;
   const animOn = (): boolean => !reduceMotion && quality === 'high';
   world.uniforms.uAnim.value = animOn() ? 1 : 0;
+  // 'low' drops the pass-3 extras: cloud shadows and paper fibre.
+  world.uniforms.uCloud.value = quality === 'high' ? 1 : 0;
+  vigU.uFiber.value = quality === 'high' ? 1 : 0;
   const wake = (): void => {
     if (animOn()) ambientUntil = now() + AMBIENT_MS;
   };
@@ -123,6 +130,34 @@ export function createRendererImpl(
   let mapH = 0;
   let selection: Selection = { unit: null, tile: null, reachable: [], attackable: [], path: [], pathTurns: [] };
   let unitsMoving = false;
+
+  // --- Mood (mood.ts): per-age grade, crisis air, age-transition sweep and page settle ----------
+  let mood: Mood | null = null;
+  let moodOverride: RenderMood | null = null;
+  let sweepStart = -Infinity;
+  let settleStart = -Infinity;
+  const res2 = new Vector2();
+  const setMoodTarget = (m: Mood, t: number, settle: boolean): void => {
+    if (mood && sameMood(mood, m)) return;
+    const U = world.uniforms;
+    const to = gradeFor(m);
+    if (!mood || reduceMotion) {
+      U.uGradeFrom.value.set(to[0], to[1], to[2], to[3]);
+      U.uSweep.value = 1;
+    } else {
+      U.uGradeFrom.value.copy(U.uGradeTo.value);
+      U.uSweep.value = 0;
+      sweepStart = t;
+    }
+    U.uGradeTo.value.set(to[0], to[1], to[2], to[3]);
+    U.uHaze.value = m.crisis ? CRISIS_HAZE : 1;
+    if (settle && mood && !reduceMotion) settleStart = t;
+    mood = m;
+  };
+  const effectiveMood = (state: GameState): Mood => {
+    const base = moodOf(state);
+    return { age: moodOverride?.age ?? base.age, crisis: moodOverride?.crisis ?? base.crisis };
+  };
 
   // --- Loop / stats ---------------------------------------------------------------------------
   let raf = 0;
@@ -162,8 +197,8 @@ export function createRendererImpl(
     distance = clampDistance(distance, maxDistance, MIN_DISTANCE / k);
     const norm = distance * k;
     // Haze toward the horizon scales with zoom; the atlas look fades in toward strategic zoom.
-    world.uniforms.uFogNear.value = distance * 1.05;
-    world.uniforms.uFogFar.value = distance * 2.9;
+    world.uniforms.uFogNear.value = distance * 0.95;
+    world.uniforms.uFogFar.value = distance * 2.6;
     const a = (norm - REGIONAL_MAX * 0.85) / (REGIONAL_MAX * 0.35);
     world.uniforms.uAtlas.value = a <= 0 ? 0 : a >= 1 ? 1 : a * a * (3 - 2 * a);
     const ext = viewHalfExtents(distance, camera.aspect || 1, FOV_Y);
@@ -275,6 +310,19 @@ export function createRendererImpl(
       again = again || unitsMoving;
     }
     if (world.animateFlashes(t)) again = true;
+    // Mood sweep (a diagonal wipe of the new grade) and the page-settle vignette pulse.
+    if (sweepStart > -Infinity) {
+      const k = (t - sweepStart) / SWEEP_MS;
+      world.uniforms.uSweep.value = k >= 1 ? 1 : k;
+      if (k >= 1) sweepStart = -Infinity;
+      else again = true;
+    }
+    if (settleStart > -Infinity) {
+      const k = (t - settleStart) / SETTLE_MS;
+      vigU.uSettle.value = settlePulse(k);
+      if (k >= 1) settleStart = -Infinity;
+      else again = true;
+    }
     const ambient = animOn();
     const active = t < ambientUntil;
     world.setAmbient(ambient);
@@ -505,6 +553,7 @@ export function createRendererImpl(
   const api: Renderer = {
     setState(state, viewer, visible) {
       const first = lastState === null;
+      const prev = lastState;
       if (lastSeed !== null && state.seed !== lastSeed) world.resetMemory();
       lastSeed = state.seed;
       const sizeChanged = state.map.width !== mapW || state.map.height !== mapH;
@@ -531,7 +580,28 @@ export function createRendererImpl(
         api.focus(start, { instant: true });
       }
       if (world.rosePending) fitRose();
+      // Moments the UI need not forward: wonders completed in sight, a figure recruited by the
+      // viewer (standard flourish at their capital), an age change (grade sweep + page settle).
+      const visibleAt = (h: Hex, owner: PlayerId): boolean =>
+        viewer === null || owner === viewer || visible.includes(tileIndex(h, state.map.width, state.map.height));
+      let ageChanged = false;
+      for (const m of detectMoments(prev, state, viewer)) {
+        if (m.kind === 'age') {
+          ageChanged = true;
+          continue;
+        }
+        const s = state.settlements[m.settlement];
+        if (s && visibleAt(s.at, s.owner)) world.flash(s.at, m.kind, t);
+      }
+      setMoodTarget(effectiveMood(state), t, ageChanged);
       applyCamera();
+      requestRender();
+    },
+
+    setMood(m: RenderMood | null) {
+      moodOverride = m;
+      if (lastState) setMoodTarget(effectiveMood(lastState), now(), false);
+      else if (m?.age) setMoodTarget({ age: m.age, crisis: m.crisis ?? false }, now(), false);
       requestRender();
     },
 
@@ -620,6 +690,9 @@ export function createRendererImpl(
       gl.setSize(w, h, false);
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
+      gl.getDrawingBufferSize(res2);
+      world.uniforms.uRes.value.copy(res2);
+      vigU.uRes.value.copy(res2);
       recomputeLimits();
       applyCamera();
       requestRender();
@@ -652,6 +725,8 @@ export function createRendererImpl(
     setQuality(q: RenderQuality) {
       quality = q;
       world.uniforms.uAnim.value = animOn() ? 1 : 0;
+      world.uniforms.uCloud.value = q === 'high' ? 1 : 0;
+      vigU.uFiber.value = q === 'high' ? 1 : 0;
       world.setQuality(q);
       requestRender();
     },

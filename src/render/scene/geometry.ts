@@ -971,3 +971,40 @@ export const shieldGeometry = (): BufferGeometry => {
 export const disposeAll = (gs: readonly BufferGeometry[]): void => {
   for (const g of gs) g.dispose();
 };
+
+// --- Living world ---------------------------------------------------------------------------------
+
+/**
+ * A distant bird as an inked "V": two swept wing triangles and a tiny body, ~0.14 span, nose
+ * along +z (materials ORBIT flaps the tips and flies it in circles). Double-sided by design.
+ */
+export const birdGeometry = (): BufferGeometry => {
+  const pos: number[] = [];
+  for (const s of [-1, 1]) {
+    pushTri(pos, [0, 0, 0.02], [s * 0.075, 0.012, -0.012], [0, 0, -0.018]);
+    pushTri(pos, [0, 0, -0.018], [s * 0.075, 0.012, -0.012], [0, 0, 0.02]);
+  }
+  const body = new OctahedronGeometry(0.012);
+  body.scale(0.8, 0.7, 1.8);
+  return assemble([paint(flatGeometry(pos), lin('#3a2f28')), paint(body, lin('#4a3c31'))]);
+};
+
+/**
+ * Fishing boat (~0.26 long along +x): a tapered wooden hull with a darker wale, a mast and a
+ * cream lateen-ish sail. Rides the swell under materials BOB.
+ */
+export const boatGeometry = (): BufferGeometry => {
+  const hull = new CylinderGeometry(0.05, 0.03, 0.26, 6, 1);
+  hull.rotateZ(Math.PI / 2);
+  hull.scale(1, 0.55, 0.85);
+  hull.translate(0, 0.02, 0);
+  const wale = new BoxGeometry(0.24, 0.012, 0.075);
+  wale.translate(0, 0.045, 0);
+  const mast = new CylinderGeometry(0.006, 0.007, 0.2, 4);
+  mast.translate(0.01, 0.13, 0);
+  const sail = new ConeGeometry(0.07, 0.16, 3);
+  sail.scale(1, 1, 0.12);
+  sail.rotateZ(-0.35);
+  sail.translate(-0.03, 0.13, 0);
+  return assemble([paint(hull, lin('#7a5536')), paint(wale, lin('#4e3524')), paint(mast, lin('#5d4029')), paint(sail, lin('#efe4cc'))]);
+};

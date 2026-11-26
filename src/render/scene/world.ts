@@ -57,7 +57,8 @@ import { patternFor } from '../patterns';
 import { RESOURCE_CLASS_STYLE, gradeTerrainColors, resourceClassOf, type ResourceClass } from '../terrain-style';
 import { ART, SKIN_TONES, SURFACE, artDirectTerrain, packedSkin, scaleRgb, surfaceKind, tileVariation, type SurfaceKind } from '../palette';
 import { hashTile, microDensity, scatterInHex, treeCount, unit01, type RenderQuality } from '../scatter';
-import { PIECE_KINDS, buildCultureIndex, motifWeights, settlementLayout, type CultureIndex, type Piece, type PieceKind } from '../architecture';
+import { PIECE_KINDS, buildCultureIndex, kitStyle, motifWeights, settlementLayout, type CultureIndex, type Piece, type PieceKind } from '../architecture';
+import { districtPieces, districtPlan, districtSmoke, type DistrictKind, type DistrictNeighbor } from '../districts';
 import { fillMapField, waterDistance } from '../textures';
 import {
   RESOURCE_PROPS,
@@ -91,6 +92,8 @@ import {
   shieldGeometry,
   tuftGeometry,
   boxGeometry,
+  birdGeometry,
+  boatGeometry,
   type ResourcePropKind,
 } from './geometry';
 import { FIGURES, FIGURE_TOP, figureFor, figureGeometry, unitBaseGeometry, type FigureKind } from './figurines';
@@ -106,6 +109,7 @@ import {
   riverMaterial,
   softMaterial,
   waterMaterial,
+  wispMaterial,
   type SceneUniforms,
 } from './materials';
 
@@ -142,7 +146,7 @@ interface LabelEntry {
   tile: number;
 }
 
-export type FlashKind = 'combat' | 'found' | 'capture' | 'recruit';
+export type FlashKind = 'combat' | 'found' | 'capture' | 'recruit' | 'wonder' | 'age';
 
 /** GDD §7: "One military unit per tile, 100 HP." */
 const UNIT_MAX_HP = 100;
@@ -159,8 +163,9 @@ const PULSE_MS = 1800;
 const PARTICLES = 64;
 
 const RIVER_WIDTH = 0.26;
-/** Distance between trade-route dots (world units). */
-const TRADE_DOT_STEP = 0.42;
+/** Inked road/track dashes: spacing and dash length (world units). */
+const ROAD_STEP = 0.21;
+const ROAD_DASH = 0.12;
 const RESOURCE_SPOT: [number, number] = [0.36, -0.3];
 
 const rgb = (hex: string): Rgb => parseHexColor(hex);
@@ -176,14 +181,15 @@ const C = {
   reachable: rgb('#fff0c8'),
   attackable: rgb('#e0453a'),
   path: rgb('#fffaf0'),
-  pathBack: rgb('#3a2c20'),
+  pathBack: rgb('#24180f'),
   siteGlow: rgb('#f2c14e'),
   keyline: rgb('#2d241b'),
   ownRim: rgb('#fff8ea'),
   rivalRim: rgb('#2a2522'),
   warRim: rgb('#e0453a'),
   shield: rgb('#d6dde6'),
-  trade: rgb('#fff2c4'),
+  road: rgb('#6a4f36'),
+  sea: rgb('#f3ead2'),
   white: [1, 1, 1] as Rgb,
   dust: rgb('#bfa57c'),
   sparkle: rgb('#ffd85a'),
@@ -193,6 +199,8 @@ const FLASH_COLORS: Record<FlashKind, Rgb> = {
   found: rgb('#f2c14e'),
   capture: rgb('#8e5bd6'),
   recruit: rgb('#ffe9a8'),
+  wonder: rgb('#e9c255'),
+  age: rgb('#f4e2b0'),
 };
 const RESOURCE_CLASSES: readonly ResourceClass[] = ['bonus', 'luxury', 'strategic'];
 const RESOURCE_RGB: Record<ResourceClass, Rgb> = {
@@ -370,6 +378,14 @@ export class World {
   private readonly pathBack: Instances;
   private readonly pathDots: Instances;
   private readonly tradeDots: Instances;
+  /** Living world (quality 'high' only): hearth smoke, birds, fishing boats. */
+  private readonly wisps: Instances;
+  private readonly birds: Instances;
+  private readonly boats: Instances;
+  private districtSpots: { sid: SettlementId; tile: number; kind: DistrictKind; toCity: number; size: number; key: number }[] = [];
+  private knownDistricts: Set<string> | null = null;
+  /** Chimney tops (x, y, z, size, mem) collected while placing settlements. */
+  private smoke: number[] = [];
   private readonly siteStakes: Instances;
   // --- Relief and vegetation
   private readonly mountains: Instances[];
@@ -498,7 +514,11 @@ export class World {
     // destination bullseye (ink outline under a vellum fill: readable on water and pale land).
     this.pathBack = new Instances(g(discGeometry(1, 0.03, 12)), unlit, 256, B, 'path-back', 6);
     this.pathDots = new Instances(g(discGeometry(1, 0.035, 12)), unlit, 256, B, 'path-dots', 7);
-    this.tradeDots = new Instances(g(discGeometry(0.06, 0.03, 8)), unlit, 128, B, 'trade-dots', 6);
+    // Roads and trade tracks: inked dashes (unit disc scaled per instance), like a drawn map.
+    this.tradeDots = I(discGeometry(1, 0.02, 8), soft(-3), 256, B, 'roads', 3);
+    this.wisps = I(new IcosahedronGeometry(0.5, 1), this.mat(wispMaterial(U)), 256, D, 'wisps', 8);
+    this.birds = I(birdGeometry(), this.mat(propMaterial(U, { orbit: true })), 64, D, 'birds');
+    this.boats = I(boatGeometry(), this.mat(propMaterial(U, { bob: true })), 64, D, 'boats');
 
     this.mountains = [I(mountainGeometry(0), propTint, 128, D, 'mountains-a'), I(mountainGeometry(1), propTint, 128, D, 'mountains-b')];
     this.hills = I(hillMoundGeometry(), propTint, 256, D, 'hills');
@@ -539,7 +559,9 @@ export class World {
     this.hpBack = new Instances(g(boxGeometry(0.5, 0.085, 0.02)), unlit, 64, D, 'hp-back');
     this.hpFront = new Instances(g(boxGeometry(0.46, 0.055, 0.03)), unlit, 64, D, 'hp-front');
     this.puffs = I(new IcosahedronGeometry(0.5, 0), puffMat, PARTICLES, this.root, 'puffs', 60);
-    this.labels = new LabelLayer(D, () => {
+    // Labels live on the root: city names stay on the strategic atlas too (de-overlap keeps the
+    // capitals and the viewer's own cities when the map gets crowded).
+    this.labels = new LabelLayer(this.root, () => {
       // Fonts arrived: redraw every label with the real face.
       if (this.state) this.updateSettlements(this.state, this.viewer);
       this.onInvalidate?.();
@@ -633,6 +655,8 @@ export class World {
     const high = this.quality === 'high';
     this.staticShadows.mesh.visible = high && this.staticShadows.count > 0;
     this.unitShadows.mesh.visible = high && this.unitShadows.count > 0;
+    // The living world is an extra: 'low' drops it entirely.
+    for (const l of [this.wisps, this.birds, this.boats]) l.mesh.visible = high && l.count > 0;
   }
 
   setYaw(yaw: number): void {
@@ -754,6 +778,7 @@ export class World {
       this.tileColor[i * 3 + 2] = c[2];
       this.surface[i] = surfaceKind(base, { mountain: isMountain, climate: tile.climate });
     }
+    this.planDistricts(state, viewer);
 
     // Water depth field (from explored land only: no coastline leaks through the fog).
     waterDistance(
@@ -973,13 +998,18 @@ export class World {
     // Plinth: a rectangle that contains every hex, from the water line down.
     // The sheet runs well past the last hex row, so a start near the map edge still sits in the
     // middle of an old chart (rhumb lines and sea glyphs continue) instead of an empty void.
-    const pw = b.maxX - b.minX + 40;
-    const pd = b.maxZ - b.minZ + 40;
+    // Art review: at strategic zoom the sheet's cut edge showed as hard bands; the vellum now
+    // runs far past anything the camera can frame (the parchment shader is world-space, so the
+    // chart simply continues).
+    const pw = b.maxX - b.minX + 260;
+    const pd = b.maxZ - b.minZ + 260;
     const cx = (b.minX + b.maxX) / 2;
     const cz = (b.minZ + b.maxZ) / 2;
     this.plinth.scale.set(pw, 0.22, pd);
     // Below the water line: the sheet's top shows only past the ragged edge rows.
-    this.plinth.position.set(cx, WATER_TOP - 0.03, cz);
+    // A hair under the sheet: at strategic distance the two coplanar tops z-fought into a
+    // warm rectangle around the map.
+    this.plinth.position.set(cx, WATER_TOP - 0.09, cz);
     this.plinth.updateMatrixWorld();
     this.plinth.visible = n > 0;
     this.plinthTop.scale.set(pw, 1, pd);
@@ -1016,7 +1046,8 @@ export class World {
       const h = hashTile(tile.q, tile.r, 3);
       const spin = unit01(h) * Math.PI * 2;
       const tc: Rgb = [this.tileColor[i * 3] ?? 0, this.tileColor[i * 3 + 1] ?? 0, this.tileColor[i * 3 + 2] ?? 0];
-      const settled = this.settledTile[i] === 1;
+      // District clearings (3) thin the woods like a settlement tile does.
+      const settled = this.settledTile[i] === 1 || this.settledTile[i] === 3;
       const unitHere = this.settledTile[i] === 2;
       const front = this.frontTile[i] === 1 && !settled && !unitHere;
       const isMountain = this.terrainMountain.get(tile.terrain) ?? false;
@@ -1128,6 +1159,8 @@ export class World {
         const kind = (this.surface[i] ?? 0) as SurfaceKind;
         const tc: Rgb = [this.tileColor[i * 3] ?? 0, this.tileColor[i * 3 + 1] ?? 0, this.tileColor[i * 3 + 2] ?? 0];
         const settled = this.settledTile[i] === 1;
+        // District tiles (fields, workshops) are built over: no grass tufts poking through.
+        if (this.settledTile[i] === 3) continue;
         const wooded = tile.feature === 'forest' || tile.feature === 'jungle';
         const clear: [number, number, number] | undefined = tile.resource ? [RESOURCE_SPOT[0], RESOURCE_SPOT[1], 0.22] : undefined;
         const opts = { radius: 0.78, minDist: 0.17, clearCenter: settled ? 0.72 : 0, clear };
@@ -1173,11 +1206,17 @@ export class World {
         if (kind === SURFACE.sand && !wooded && !settled) {
           // Desert: a couple of crescent dunes, all lying the same way (one prevailing wind
           // across the map): lit windward slope, bright crest, shaded slip face.
-          const kd = scatterInHex(tile.q, tile.r, 71, Math.max(1, Math.round(2 * density)), pts, { ...opts, radius: 0.42, minDist: 0.55 });
+          // Art review: one big centred crescent per hex stamped the desert into a tile grid.
+          // Now 1–3 dunes of mixed size spread over the whole top (and across tile edges'
+          // worth of radius), some tiles with only small ones, with more yaw spread.
+          const hd = hashTile(tile.q, tile.r, 590);
+          const want = 1 + Math.floor(unit01(hd) * 2.6);
+          const kd = scatterInHex(tile.q, tile.r, 71, Math.max(1, Math.round(want * density)), pts, { ...opts, radius: 0.6, minDist: 0.42 });
+          const big = unit01(hd >>> 9) < 0.6;
           for (let j = 0; j < kd; j++) {
             const hs = hashTile(tile.q, tile.r, 600 + j);
-            const sz = (j === 0 ? 0.85 : 0.6) + unit01(hs) * 0.3;
-            this.dunes.push(x + (pts[j * 2] ?? 0), top - 0.006, z + (pts[j * 2 + 1] ?? 0), sz, sz * (0.9 + unit01(hs >>> 5) * 0.4), sz, 0.3 + unit01(hs >>> 7) * 0.25, scaleRgb(tc, 1.02), mem);
+            const sz = (j === 0 && big ? 0.78 : 0.42) + unit01(hs) * 0.28;
+            this.dunes.push(x + (pts[j * 2] ?? 0), top - 0.006, z + (pts[j * 2 + 1] ?? 0), sz, sz * (0.8 + unit01(hs >>> 5) * 0.5), sz * (0.85 + unit01(hs >>> 11) * 0.3), 0.15 + unit01(hs >>> 7) * 0.55, scaleRgb(tc, 0.99 + unit01(hs >>> 3) * 0.05), mem);
           }
         }
         if (kind === SURFACE.sand || kind === SURFACE.tundra) {
@@ -1328,8 +1367,61 @@ export class World {
   // Settlements
   // -------------------------------------------------------------------------------------------
 
+  /**
+   * Districts around each shown settlement (districts.ts): fields, orchards, workshops, quays and
+   * plinths on the settlement's own neighbor tiles, one district per tile. Land district tiles
+   * are marked built-over (settledTile = 3) so micro-detail skips them.
+   */
+  private planDistricts(state: GameState, viewer: PlayerId | null): void {
+    this.districtSpots = [];
+    const tiles = state.map.tiles;
+    const claimed = new Set<number>();
+    for (const id of Object.keys(state.settlements).sort()) {
+      const s = state.settlements[id];
+      if (!s) continue;
+      const i = tileIndex(s.at, this.width, this.height);
+      if (i < 0) continue;
+      if (viewer !== null && s.owner !== viewer && this.fog[i] !== FOG_VISIBLE) continue;
+      const neighbors: DistrictNeighbor[] = [];
+      for (let d = 0; d < 6; d++) {
+        const j = this.neighbors[i * 6 + d] ?? -1;
+        if (j < 0 || claimed.has(j)) continue;
+        const t = tiles[j];
+        if (!t || this.fog[j] === FOG_UNEXPLORED) continue;
+        const water = this.waterTile[j] === 1;
+        if (t.owner !== s.owner && !(water && t.owner === null)) continue;
+        const free = !water && !t.resource && !(this.terrainMountain.get(t.terrain) ?? false) && this.settledTile[j] !== 1;
+        const wooded = free && (t.feature === 'forest' || t.feature === 'jungle');
+        neighbors.push({ dir: d, water, open: free && !t.feature, wooded });
+      }
+      const plan = districtPlan({
+        id: s.id,
+        population: s.population,
+        kind: s.kind,
+        capital: s.isCapital,
+        cityState: s.owner.startsWith(CITY_STATE_PREFIX),
+        neighbors,
+      });
+      for (const spot of plan) {
+        const j = this.neighbors[i * 6 + spot.dir] ?? -1;
+        if (j < 0) continue;
+        claimed.add(j);
+        if (this.waterTile[j] !== 1) this.settledTile[j] = 3;
+        this.districtSpots.push({
+          sid: s.id,
+          tile: j,
+          kind: spot.kind,
+          toCity: Math.atan2((this.tileZ[i] ?? 0) - (this.tileZ[j] ?? 0), (this.tileX[i] ?? 0) - (this.tileX[j] ?? 0)),
+          size: clamp01((s.population - 2) / 10),
+          key: hashTile(i, spot.dir, 5),
+        });
+      }
+    }
+  }
+
   private updateSettlements(state: GameState, viewer: PlayerId | null, now = 0): void {
     this.cityIconList = [];
+    this.smoke = [];
     this.warRings.begin();
     this.labelEntries = [];
     this.settlementDraws = [];
@@ -1370,10 +1462,104 @@ export class World {
       if (occupied.has(tile)) continue;
       this.placeSettlement(state, g, tile, FOG_EXPLORED, true, []);
     }
+    // Districts (fields, workshops, quays…) ride the settlement pieces' layers and pop in when
+    // a milestone adds one (growth made visible).
+    const ageIdx = Math.max(0, AGES.indexOf(state.age));
+    const keys = new Set<string>();
+    for (const spot of this.districtSpots) {
+      const s = state.settlements[spot.sid];
+      if (!s) continue;
+      const key = `${spot.sid}#${spot.tile}:${spot.kind}`;
+      keys.add(key);
+      if (this.knownDistricts && !this.knownDistricts.has(key) && !this.reduceMotion) this.bornAt.set(key, now);
+      const player = state.players[s.owner];
+      const style = kitStyle(motifWeights(s.namedFor, player?.traditions ?? [], player?.hybrids ?? [], this.cultures), ageIdx);
+      const x = this.tileX[spot.tile] ?? 0;
+      const y = this.shownTop[spot.tile] ?? 0;
+      const z = this.tileZ[spot.tile] ?? 0;
+      const mem = this.fog[spot.tile] === FOG_VISIBLE ? 0 : 1;
+      this.settlementDraws.push({ id: key, x, y, z, mem, pattern: 0, pieces: districtPieces(spot.kind, spot.key, spot.toCity, spot.size, style), flag: -1 });
+      const chimney = districtSmoke(spot.kind, spot.size);
+      if (chimney && mem === 0) this.smoke.push(x + chimney[0], y + chimney[1], z + chimney[2], 0.1, 0);
+    }
+    this.knownDistricts = keys;
     this.warRings.end();
     this.rebuildLabels();
     this.drawCityIcons();
     this.drawSettlementPieces(now);
+    this.drawLiving(state);
+  }
+
+  /**
+   * Living world (GDD §11, art pass 3): hearth-smoke columns, birds wheeling over towns and a
+   * few coasts, fishing boats off coastal settlements. All motion is in the vertex shaders
+   * (uTime), so these cost one instanced draw each and no per-frame CPU. Deterministic by tile
+   * hash; only on tiles in sight; 'low' quality hides them (applyQuality).
+   */
+  private drawLiving(state: GameState): void {
+    this.wisps.begin();
+    this.birds.begin();
+    this.boats.begin();
+    if (this.quality === 'high') {
+      const sm = this.smoke;
+      for (let k = 0; k + 5 <= sm.length; k += 5) {
+        const x = sm[k] ?? 0;
+        const y = sm[k + 1] ?? 0;
+        const z = sm[k + 2] ?? 0;
+        const size = sm[k + 3] ?? 0.07;
+        const ph = unit01(hashTile(Math.round(x * 100), Math.round(z * 100), 23));
+        // Four puffs per column, evenly phased: a continuous drifting plume.
+        for (let p = 0; p < 4; p++) this.wisps.push(x, y, z, size, size, size, 0, C.white, sm[k + 4] ?? 0, (ph + p / 4) % 1, 0.75, 0);
+      }
+      let birds = 0;
+      const flock = (cx: number, cy: number, cz: number, seed: number, count: number): void => {
+        for (let b = 0; b < count && birds < 48; b++, birds++) {
+          const h = hashTile(seed, b, 29);
+          const r = 0.55 + unit01(h) * 0.45;
+          const speed = (0.32 + unit01(h >>> 8) * 0.2) * (unit01(seed) < 0.5 ? 1 : -1);
+          this.birds.push(cx, cy + unit01(h >>> 16) * 0.2, cz, 1, 1, 1, 0, C.white, 0, r, unit01(h >>> 4), speed);
+        }
+      };
+      for (const id of Object.keys(state.settlements).sort()) {
+        const s = state.settlements[id];
+        if (!s || s.population < 3) continue;
+        const i = tileIndex(s.at, this.width, this.height);
+        if (i < 0 || this.fog[i] !== FOG_VISIBLE) continue;
+        const x = this.tileX[i] ?? 0;
+        const y = this.shownTop[i] ?? 0;
+        const z = this.tileZ[i] ?? 0;
+        flock(x, y + 1.0, z, hashTile(i, 0, 31), s.population >= 8 ? 3 : 2);
+        // Fishing boats on the water next to coastal settlements.
+        const boats = s.population >= 6 ? 2 : 1;
+        let placed = 0;
+        for (let d = 0; d < 6 && placed < boats; d++) {
+          const dd = (d + (hashTile(i, 1, 37) % 6)) % 6;
+          const j = this.neighbors[i * 6 + dd] ?? -1;
+          if (j < 0 || this.waterTile[j] !== 1 || this.fog[j] !== FOG_VISIBLE) continue;
+          const h = hashTile(j, placed, 41);
+          const a = unit01(h) * Math.PI * 2;
+          const r = 0.2 + unit01(h >>> 8) * 0.3;
+          this.boats.push((this.tileX[j] ?? 0) + Math.cos(a) * r, this.shownTop[j] ?? 0, (this.tileZ[j] ?? 0) + Math.sin(a) * r, 1, 1, 1, unit01(h >>> 16) * 6.28, C.white, 0, 0, unit01(h >>> 4) * 6.28, 0);
+          placed++;
+        }
+      }
+      // Gulls over a few visible coasts.
+      const n = this.width * this.height;
+      for (let i = 0; i < n && birds < 48; i++) {
+        if (this.waterTile[i] !== 1 || this.fog[i] !== FOG_VISIBLE) continue;
+        let coast = false;
+        for (let d = 0; d < 6 && !coast; d++) {
+          const j = this.neighbors[i * 6 + d] ?? -1;
+          coast = j >= 0 && this.waterTile[j] === 0 && this.fog[j] !== FOG_UNEXPLORED;
+        }
+        if (!coast || unit01(hashTile(i, 3, 43)) > 0.06) continue;
+        flock(this.tileX[i] ?? 0, (this.shownTop[i] ?? 0) + 0.8, this.tileZ[i] ?? 0, hashTile(i, 4, 47), 2);
+      }
+    }
+    this.wisps.end();
+    this.birds.end();
+    this.boats.end();
+    this.applyQuality();
   }
 
   /**
@@ -1433,6 +1619,17 @@ export class World {
       flag: layout.flag,
     });
     if (war) this.warRings.push(x, y + 0.02, z, 1, 1, 1, 0, C.warRim);
+    // Hearth smoke: more chimneys as the town grows (living world; never over ghosts).
+    if (!ghost && fog === FOG_VISIBLE) {
+      const big = s.kind === 'city' || cs;
+      const plumes = Math.min(4, 1 + Math.floor(s.population / 4));
+      for (let k = 0; k < plumes; k++) {
+        const hk = hashTile(i, k, 17);
+        const a = unit01(hk) * Math.PI * 2;
+        const r = (big ? 0.42 : 0.2) + unit01(hk >>> 8) * 0.2;
+        this.smoke.push(x + Math.cos(a) * r, y + (big ? 0.32 : 0.26), z + Math.sin(a) * r, big ? 0.11 : 0.09, 0);
+      }
+    }
     this.cityIconList.push({
       x,
       y,
@@ -1540,8 +1737,45 @@ export class World {
     this.drawUnits(now);
   }
 
+  /**
+   * Roads as inked tracks (art review: the old cream dot chain read as a debug overlay): short
+   * dashes from each settlement out to its land districts, and along the viewer's trade
+   * routes between settlements (a dotted sea lane where the route crosses water).
+   */
   private updateTradeRoutes(state: GameState, viewer: PlayerId | null): void {
     this.tradeDots.begin();
+    const track = (ax: number, az: number, bx: number, bz: number, t0: number, t1: number, bold: number): void => {
+      const dx = bx - ax;
+      const dz = bz - az;
+      const len = Math.hypot(dx, dz);
+      if (len < 1e-3) return;
+      const rot = -Math.atan2(dz, dx);
+      const steps = Math.max(1, Math.floor((len * (t1 - t0)) / ROAD_STEP));
+      for (let k = 0; k <= steps; k++) {
+        const t = t0 + ((t1 - t0) * k) / steps;
+        const x = ax + dx * t;
+        const z = az + dz * t;
+        const h = worldToHex(x, z);
+        const i = tileIndex(h, this.width, this.height);
+        if (i < 0 || this.fog[i] === FOG_UNEXPLORED) continue;
+        const top = this.shownTop[i] ?? 0;
+        const mem = this.fog[i] === FOG_VISIBLE ? 0 : 1;
+        if (this.waterTile[i] === 1) {
+          // Sea lane: small vellum dots.
+          if (k % 2 === 0) this.tradeDots.push(x, top + 0.012, z, 0.035, 1, 0.035, 0, C.sea, mem, SOFT.ink, 0.8, 0);
+          continue;
+        }
+        const wob = (unit01(hashTile(i, k, 53)) - 0.5) * 0.02;
+        this.tradeDots.push(x, top + 0.014, z + wob, ROAD_DASH / 2, 1, 0.024 * bold, rot, C.road, mem, SOFT.ink, 0.85, 0);
+      }
+    };
+    for (const spot of this.districtSpots) {
+      if (this.waterTile[spot.tile] === 1) continue;
+      const s = state.settlements[spot.sid];
+      if (!s) continue;
+      const c = hexToWorld(s.at);
+      track(c.x, c.z, this.tileX[spot.tile] ?? 0, this.tileZ[spot.tile] ?? 0, 0.32, 0.72, 1);
+    }
     for (const route of state.tradeRoutes) {
       if (viewer !== null && route.owner !== viewer) continue;
       const a = state.settlements[route.from];
@@ -1549,18 +1783,7 @@ export class World {
       if (!a || !b) continue;
       const wa = hexToWorld(a.at);
       const wb = hexToWorld(b.at);
-      const dx = wb.x - wa.x;
-      const dz = wb.z - wa.z;
-      const len = Math.hypot(dx, dz);
-      const steps = Math.max(1, Math.floor(len / TRADE_DOT_STEP));
-      for (let k = 1; k < steps; k++) {
-        const t = k / steps;
-        const x = wa.x + dx * t;
-        const z = wa.z + dz * t;
-        const top = this.topAt(worldToHex(x, z));
-        if (top === null) continue;
-        this.tradeDots.push(x, top + 0.03, z, 1, 1, 1, 0, C.trade);
-      }
+      track(wa.x, wa.z, wb.x, wb.z, 0.08, 0.92, 1.25);
     }
     this.tradeDots.end();
   }
@@ -1769,13 +1992,12 @@ export class World {
     viewW: number,
     viewH: number,
     cameraChanged: boolean,
-    hud: { top: number; bottom: number } = { top: 0, bottom: 0 },
+    hud: { top: number; bottom: number; left?: number; right?: number } = { top: 0, bottom: 0 },
   ): void {
-    if (!this.detail.visible) return;
     if (!cameraChanged && !this.labelsDirty) return;
     this.labelsDirty = false;
     // Labels stay out of the HUD bars (a little slack: the bars' lower edge is translucent).
-    this.labels.layout(camera as PerspectiveCamera, viewW, viewH, hud.top * 0.85, viewH - hud.bottom * 0.5, this.obstacles, this.obstacleCount);
+    this.labels.layout(camera as PerspectiveCamera, viewW, viewH, hud.top * 0.85, viewH - hud.bottom * 0.5, this.obstacles, this.obstacleCount, (hud.left ?? 0) + 6, viewW - (hud.right ?? 0) - 6);
   }
 
   // -------------------------------------------------------------------------------------------
@@ -1861,16 +2083,19 @@ export class World {
         const z = wa.z + dz * t;
         // Each half rides its own tile; the middle dash (on the edge) the higher of the two.
         const y = (t < 0.5 ? ta : t > 0.5 ? tb : Math.max(ta, tb)) + 0.02;
-        B.push(x, y - 0.002, z, 0.21, 1, 0.1, rot, C.pathBack);
-        F.push(x, y, z, 0.165, 1, 0.058, rot, C.path);
+        // Playtest: the old 0.1-wide ink keyline vanished on grass and parchment. A heavier ink
+        // body (≈0.04 each side) with a narrower vellum core reads everywhere; dashes (not a
+        // continuous band) keep it from looking like a border.
+        B.push(x, y - 0.002, z, 0.235, 1, 0.15, rot, C.pathBack);
+        F.push(x, y, z, 0.17, 1, 0.068, rot, C.path);
       }
       // Turn boundary: path index s + 1 starts a new turn.
       if (turns.includes(s + 1)) {
         const x = wa.x + dx * 0.5;
         const z = wa.z + dz * 0.5;
         const y = Math.max(ta, tb) + 0.03;
-        B.push(x, y - 0.002, z, 0.07, 1, 0.34, rot, C.pathBack);
-        F.push(x, y, z, 0.035, 1, 0.29, rot, C.path);
+        B.push(x, y - 0.002, z, 0.1, 1, 0.38, rot, C.pathBack);
+        F.push(x, y, z, 0.04, 1, 0.31, rot, C.path);
       }
     }
     for (let k = 0; k < n; k++) {
@@ -1881,12 +2106,12 @@ export class World {
       const w = hexToWorld(h);
       if (k === n - 1) {
         // Destination bullseye: ink ring, vellum ring, ink core.
-        B.push(w.x, top + 0.018, w.z, 0.3, 1, 0.3, 0, C.pathBack);
-        F.push(w.x, top + 0.02, w.z, 0.245, 1, 0.245, 0, C.path);
-        B.push(w.x, top + 0.03, w.z, 0.12, 1, 0.12, 0, C.pathBack);
+        B.push(w.x, top + 0.018, w.z, 0.33, 1, 0.33, 0, C.pathBack);
+        F.push(w.x, top + 0.02, w.z, 0.25, 1, 0.25, 0, C.path);
+        B.push(w.x, top + 0.03, w.z, 0.13, 1, 0.13, 0, C.pathBack);
       } else {
-        B.push(w.x, top + 0.018, w.z, 0.085, 1, 0.085, 0, C.pathBack);
-        F.push(w.x, top + 0.02, w.z, 0.055, 1, 0.055, 0, C.path);
+        B.push(w.x, top + 0.018, w.z, 0.11, 1, 0.11, 0, C.pathBack);
+        F.push(w.x, top + 0.02, w.z, 0.06, 1, 0.06, 0, C.path);
       }
     }
   }
@@ -1930,7 +2155,17 @@ export class World {
         this.emit(w.x, top + 0.5, w.z, 10, c1, now, 0.7, 0.11, true);
         this.emit(w.x, top + 0.5, w.z, 7, c2, now + 60, 0.6, 0.09, true);
       } else if (kind === 'recruit') {
+        // A famous person joins: golden sparkle and the town's standard unfurls with a flourish.
+        if (settlement) this.flourishAt.set(settlement, now);
         this.emit(w.x, top + 0.1, w.z, 18, C.sparkle, now, 0.5, 0.1, true);
+      } else if (kind === 'wonder') {
+        // Wonder completed: a gold-leaf shimmer of motes rising over the landmark, in waves.
+        if (settlement) this.flourishAt.set(settlement, now);
+        this.emit(w.x - 0.3, top + 0.2, w.z + 0.2, 14, C.gold, now, 0.45, 0.12, true);
+        this.emit(w.x - 0.3, top + 0.35, w.z + 0.2, 12, C.sparkle, now + 220, 0.35, 0.1, true);
+        this.emit(w.x - 0.3, top + 0.5, w.z + 0.2, 10, C.gold, now + 480, 0.3, 0.085, true);
+      } else if (kind === 'age') {
+        this.emit(w.x, top + 0.3, w.z, 16, C.sparkle, now, 0.8, 0.07, true);
       }
     }
     this.animateFlashes(now);
@@ -2066,6 +2301,9 @@ export class World {
       this.pathBack,
       this.pathDots,
       this.tradeDots,
+      this.wisps,
+      this.birds,
+      this.boats,
       ...this.mountains,
       this.hills,
       this.conifers,

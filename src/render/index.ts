@@ -60,8 +60,8 @@
  * FOG OF WAR
  *   `visible` = tile indices currently in sight (pass `queries.visibleTiles`); explored comes
  *   from `state.players[viewer].explored`. Unexplored = an illustrated old chart: paper grain
- *   and stains, rhumb lines, a compass rose placed just beyond the viewer's start (inside the
- *   opening frame), sparse inked wave glyphs and the odd sea serpent, and at the edge of what
+ *   and stains, rhumb lines, exactly ONE compass rose per game placed once just beyond the
+ *   viewer's start (inside the opening frame), sparse inked wave glyphs and the odd sea serpent, and at the edge of what
  *   is known a sepia wash with ripple rules; no terrain hint. The vellum sheet runs well past
  *   the map edge. Explored-not-visible = a warm sepia memory that keeps terrain readable. Other players' units and
  *   settlements show only on visible tiles; the viewer's own always show. `viewer = null`
@@ -87,12 +87,20 @@
  *   and a red ⚔ label. Labels are vellum banner cartouches ('Fraunces', both unicode-range
  *   subsets requested explicitly and redrawn once loaded, so ā ð ḥ render in the face) that
  *   hang on a short ink leader ABOVE the settlement; de-overlap only moves labels up, and never
- *   into the HUD bands (safe area). A label that covers a unit (e.g. one standing on the tile
+ *   into the HUD bands (safe area). A cartouche at the screen edge slides inward (inside the
+ *   left/right safe area) while its leader stays on the settlement (label-layout edgeNudge).
+ *   Labels also show on the strategic atlas (capitals and own cities win when crowded). A label that covers a unit (e.g. one standing on the tile
  *   north of the city) fades to 30% and lets taps through; a new settlement's label appears
  *   once its founding pop-in has landed. Trees on the two tiles in front of a visible unit are
  *   thinned and cleared toward it. Desert carries crescent dunes (lit crest, shaded slip face).
  *
- * SETTLEMENTS
+ * SETTLEMENTS AND DISTRICTS
+ *   Growth spills onto the settlement's own neighbor tiles (districts.ts, by population
+ *   milestone): fields (pop 2, 4, 8), a harbor quay on water (3), an orchard (5, 12), workshop
+ *   quarters with smoking kilns (6, 10), a monument plinth for capitals (city pop ≥ 6); cities
+ *   count 2 pop higher. Orchards/workshops may cut a clearing in woods; fields need open land.
+ *   New districts pop in. Inked dashed tracks run from the center to land districts and along
+ *   the viewer's trade routes (vellum dots across water).
  *   Built from per-culture motif kits keyed by the culture `architecture` of `namedFor`, blended
  *   with the owner's adopted traditions' and hybrids' cultures (architecture.ts), so hybrids look
  *   hybrid. Size grows with population; cities/city-states get walls (by age material), cities a
@@ -103,6 +111,20 @@
  *   Rival settlements seen once stay on explored-but-not-visible tiles as faded "ghosts" with a
  *   dashed label, as last seen (ghosts.ts). Memory is keyed by game seed + viewer + map size and
  *   resets on a new game; it lives only in the renderer.
+ *
+ * LIVING WORLD AND MOOD (art pass 3; quality 'low' drops all of these)
+ *   Hearth-smoke columns over visible settlements (more chimneys with population) and workshop
+ *   kilns; birds wheeling over towns (pop ≥ 3) and a few coasts; fishing boats bobbing beside
+ *   coastal settlements. All motion is in vertex shaders (uTime): one instanced draw per layer,
+ *   no per-frame CPU; frozen under reduceMotion. Slow cloud shadows drift over land and water;
+ *   a very subtle paper fibre lies over the whole frame (vignette pass); lit tile edges carry a
+ *   warm rim. Mood grade per age (ancient warm ochre dawn, classical clearer golden noon,
+ *   later ages cooler) and a crisis grade (cooler, flatter, hazier) — mood.ts.
+ *   AUTOMATIC (no UI call needed): on each setState the renderer compares with the previous
+ *   snapshot and fires: a new wonder in sight -> flash 'wonder' (gold motes + banner flourish);
+ *   the viewer recruited a figure -> flash 'recruit' at their capital (standard flourish +
+ *   sparkle); age change -> the new grade wipes diagonally across the board (~2.6 s) with a
+ *   paper "page settle" vignette pulse; crisis start/end -> grade sweep.
  *
  * OPTIONAL EXTRAS (all additive)
  *   createRenderer(canvas, content, { patterns: true, safeArea: { top: 100, bottom: 180 } })
@@ -118,7 +140,11 @@
  *   r.flash(hex, kind)           combat: shock ring + unit hit-shake + dust; found: settlement
  *                                pop-in + dust; capture: banner swap (swells, spins in) + town
  *                                bounce + confetti in the new owner's colors; recruit: golden
- *                                sparkle. Under reduceMotion only the ring shows.
+ *                                sparkle + banner flourish; wonder: waves of gold motes over the
+ *                                landmark + flourish; age: soft gold sparkle. Under reduceMotion
+ *                                only the ring shows.
+ *   r.setMood({ age?, crisis? } | null)  override the mood grade (fields left out follow the
+ *                                snapshot; null = automatic). Changes sweep in.
  *   r.focus(hex, { zoom: 'default' })  also reset to the default framing (e.g. "go to capital")
  *   r.stats().frameMs            CPU ms per rendered frame (EMA)
  *   Trade routes owned by the viewer draw as a dotted line between their settlements.
@@ -126,8 +152,10 @@
  * PERFORMANCE
  *   ~50-60 draw calls at close/regional zoom regardless of map size (everything is instanced;
  *   empty layers cost nothing; labels are one atlas-backed instanced draw; the territory band
- *   is one merged mesh), ~15 at strategic. Measured (375x812 @2x, demo real=1): default framing
- *   56 draws / ~150k tris high, 50 / ~85k low; strategic 14 draws. Renders on demand (camera
+ *   is one merged mesh), ~15 at strategic. Measured turn 41, AI-played (375x812 @2x,
+ *   ?game=1&turns=40): small map default framing 54 draws / 131k tris high, 44 / 75k low;
+ *   regional 53 / 114k; strategic 15 / 28k. Standard map (16 settlements): 51 / 124k high,
+ *   42 / 73k low, strategic 15 / 30k. Renders on demand (camera
  *   motion, new state, animations); ambient animation (water ripples/foam, banner sway, attack
  *   pulse, selected-unit bob) runs at ~30 fps for ~9 s after the last interaction, then drops to
  *   a cheap perpetual idle at ~13 fps so the world never freezes; neither runs under
@@ -136,10 +164,11 @@
  *   Handles webglcontextlost/restored by re-uploading everything from the last snapshot.
  *   Demo: /render-demo.html?real=1 (&bench=1, &quality=low, &age=classical, &reveal=1);
  *   ?game=1 is a real sim game at turn 1 (window.demo.found(), .endTurns(n), .move(id, q, r));
+ *   ?game=1&turns=N lets the sim AI play every seat for N turns (also demo.autoplay(n));
  *   window.film(start, [ms…], [x, y, w, h]) freezes the clock and composites canvas crops at
  *   those times into a film strip (inspects motion even when the tab is hidden).
  */
-import type { ContentBundle } from '@contracts/content-schemas';
+import type { Age, ContentBundle } from '@contracts/content-schemas';
 import type { Hex } from '@contracts/hex';
 import type { GameState, PlayerId, UnitId } from '@contracts/sim-api';
 import type { ZoomBand } from './camera-math';
@@ -213,7 +242,13 @@ export interface RenderHints {
   sites: SiteMarker[];
 }
 
-export type FlashKind = 'combat' | 'found' | 'capture' | 'recruit';
+export type FlashKind = 'combat' | 'found' | 'capture' | 'recruit' | 'wonder' | 'age';
+
+/** Optional mood override (setMood). Omitted fields follow the snapshot (state.age, state.crisis). */
+export interface RenderMood {
+  age?: Age;
+  crisis?: boolean;
+}
 
 export interface Renderer {
   /**
@@ -250,6 +285,11 @@ export interface Renderer {
   /** Switch render quality at runtime (see RendererOptions.quality). */
   setQuality(q: RenderQuality): void;
   getQuality(): RenderQuality;
+  /**
+   * Optional: override the board's mood grade (per-age light, crisis air). Fields left out follow
+   * the snapshot; `null` returns to fully automatic. A change wipes across the board (~2.6 s).
+   */
+  setMood(mood: RenderMood | null): void;
   dispose(): void;
 }
 

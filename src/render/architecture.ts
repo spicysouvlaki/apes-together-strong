@@ -143,6 +143,12 @@ const KIT: Record<Motif, KitColors> = {
   generic: { wall: hex('#e9ddc5'), roof: hex('#a8644b'), trim: hex('#b8a88c'), accent: hex('#7a6a50') },
 };
 
+/** Main-motif colors (age-weathered walls) for district pieces around a settlement. */
+export const kitStyle = (weights: readonly MotifWeight[], age: number): { wall: Rgb; roof: Rgb; accent: Rgb } => {
+  const k = KIT[weights[0]?.motif ?? 'generic'];
+  return { wall: ageMaterial(k.wall, age), roof: k.roof, accent: k.accent };
+};
+
 const GOLD = hex('#e0b23e');
 const WOOD = hex('#7a5536');
 const STONE = hex('#b9b1a3');

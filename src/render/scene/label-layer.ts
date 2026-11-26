@@ -55,29 +55,43 @@ const SEAL_D_TOP = 58;
 
 const vertexShader = /* glsl */ `
 // Shifted labels move by whole cartouche heights (label-layout.ts works in those units).
+// aShift: x = vertical shift, y = alpha, z = sideways nudge in quad widths (edge clamping).
 attribute vec4 aUv;
 attribute float aAspect;
-attribute vec2 aShift;
+attribute vec3 aShift;
 uniform float uSize;
-varying vec2 vUv;
+varying vec2 vLocal;
+varying vec4 vRect;
 varying float vAlpha;
+varying float vNudge;
 void main() {
   vAlpha = aShift.y;
+  vNudge = aShift.z;
   vec4 mv = modelViewMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
   float s = uSize * -mv.z;
-  mv.xy += vec2(position.x * aAspect, position.y + aShift.x * ${PILL_FRAC.toFixed(4)}) * s;
+  mv.xy += vec2((position.x + aShift.z) * aAspect, position.y + aShift.x * ${PILL_FRAC.toFixed(4)}) * s;
   gl_Position = projectionMatrix * mv;
   // Hidden labels collapse to a degenerate point (no fragments).
   if (aShift.y < 0.01) gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
-  vUv = vec2(mix(aUv.x, aUv.z, uv.x), mix(aUv.y, aUv.w, uv.y));
+  vLocal = uv;
+  vRect = aUv;
 }`;
 
 const fragmentShader = /* glsl */ `
 uniform sampler2D uMap;
-varying vec2 vUv;
+varying vec2 vLocal;
+varying vec4 vRect;
 varying float vAlpha;
+varying float vNudge;
 void main() {
-  vec4 c = texture2D(uMap, vUv);
+  vec2 l = vLocal;
+  // A nudged cartouche keeps its leader on the settlement: the leader rows sample the slot
+  // shifted back by the nudge, so the stem stays put while the banner slides inward.
+  if (l.y < ${LEADER_FRAC.toFixed(4)}) {
+    l.x += vNudge;
+    if (l.x < 0.0 || l.x > 1.0) discard;
+  }
+  vec4 c = texture2D(uMap, vec2(mix(vRect.x, vRect.z, l.x), mix(vRect.y, vRect.w, l.y)));
   c.a *= vAlpha;
   if (c.a < 0.03) discard;
   gl_FragColor = c;
@@ -135,7 +149,7 @@ export class LabelLayer {
     this.aUv.setUsage(DynamicDrawUsage);
     this.aAspect = new InstancedBufferAttribute(new Float32Array(LABEL_CAPACITY), 1);
     this.aAspect.setUsage(DynamicDrawUsage);
-    this.aShift = new InstancedBufferAttribute(new Float32Array(LABEL_CAPACITY * 2), 2);
+    this.aShift = new InstancedBufferAttribute(new Float32Array(LABEL_CAPACITY * 3), 3);
     this.aShift.setUsage(DynamicDrawUsage);
     this.geometry.setAttribute('aUv', this.aUv);
     this.geometry.setAttribute('aAspect', this.aAspect);
@@ -213,8 +227,9 @@ export class LabelLayer {
     this.seal[i] = isSeal ? 1 : 0;
     this.tags[i] = tag;
     const sh = this.aShift.array as Float32Array;
-    sh[i * 2] = 0;
-    sh[i * 2 + 1] = 1;
+    sh[i * 3] = 0;
+    sh[i * 3 + 1] = 1;
+    sh[i * 3 + 2] = 0;
   }
 
   end(): void {
@@ -244,6 +259,9 @@ export class LabelLayer {
     /** World points (x, y, z triples) that labels should not cover (units); faded if they do. */
     obstacles: Float32Array | null = null,
     obstacleCount = 0,
+    /** Screen columns (px) cartouches are nudged inside (left/right safe area). */
+    minX = 6,
+    maxX = viewW - 6,
   ): void {
     const L = this.layoutSolver;
     const n = this.n;
@@ -270,7 +288,7 @@ export class LabelLayer {
       // Labels behind the camera or far off screen never block others.
       if (this.v.z > 1 || sx < -viewW || sx > viewW * 2) L.w[i] = 0;
     }
-    L.solve(2, minY, maxY);
+    L.solve(2, minY, maxY, minX, maxX);
     if (obstacles && obstacleCount > 0) {
       if (this.obsX.length < obstacleCount) {
         this.obsX = new Float32Array(obstacleCount * 2);
@@ -291,9 +309,12 @@ export class LabelLayer {
     for (let i = 0; i < n; i++) {
       const s = L.shift[i] ?? 0;
       const vis = L.alpha[i] ?? 1;
-      if (sh[i * 2] !== s || sh[i * 2 + 1] !== vis) changed = true;
-      sh[i * 2] = s;
-      sh[i * 2 + 1] = vis;
+      const w = L.w[i] ?? 0;
+      const nudge = w > 0 ? (L.dx[i] ?? 0) / w : 0;
+      if (sh[i * 3] !== s || sh[i * 3 + 1] !== vis || sh[i * 3 + 2] !== nudge) changed = true;
+      sh[i * 3] = s;
+      sh[i * 3 + 1] = vis;
+      sh[i * 3 + 2] = nudge;
     }
     if (changed) this.aShift.needsUpdate = true;
   }

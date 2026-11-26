@@ -27,6 +27,12 @@ export class LabelLayout {
   readonly solid: Uint8Array;
   /** Outputs: shift in label heights (up), and visibility (1/0). */
   readonly shift: Float32Array;
+  /**
+   * Horizontal nudge (px, + = right) that keeps a cartouche inside minX..maxX (playtest: names
+   * clipped at the screen edge). Capped so the anchor stays under the cartouche: the leader
+   * still points straight down at the settlement.
+   */
+  readonly dx: Float32Array;
   readonly visible: Uint8Array;
   /** Screen top (px) of each placed label's box (valid while visible). */
   readonly top: Float32Array;
@@ -43,6 +49,7 @@ export class LabelLayout {
     this.priority = new Float32Array(capacity);
     this.solid = new Uint8Array(capacity).fill(1);
     this.shift = new Float32Array(capacity);
+    this.dx = new Float32Array(capacity);
     this.visible = new Uint8Array(capacity);
     this.top = new Float32Array(capacity);
     this.alpha = new Float32Array(capacity);
@@ -51,9 +58,10 @@ export class LabelLayout {
 
   /**
    * Lay out labels 0..count-1. `pad` = extra px kept between labels; a label must fit between
-   * screen rows `minY` and `maxY` (HUD-free band, px from the top).
+   * screen rows `minY` and `maxY` (HUD-free band, px from the top), and is nudged sideways to
+   * fit between columns `minX` and `maxX` (see `dx`).
    */
-  solve(pad = 2, minY = -Infinity, maxY = Infinity): void {
+  solve(pad = 2, minY = -Infinity, maxY = Infinity, minX = -Infinity, maxX = Infinity): void {
     const n = Math.min(this.count, this.capacity);
     const { order } = this;
     for (let i = 0; i < n; i++) order[i] = i;
@@ -74,6 +82,7 @@ export class LabelLayout {
     let placed = 0;
     for (let k = 0; k < n; k++) {
       const i = order[k] ?? 0;
+      this.dx[i] = 0;
       if (!this.solid[i]) {
         this.shift[i] = 0;
         this.top[i] = (this.y[i] ?? 0) - (this.h[i] ?? 0);
@@ -84,7 +93,9 @@ export class LabelLayout {
       }
       const w = this.w[i] ?? 0;
       const h = this.h[i] ?? 0;
-      const x0 = (this.x[i] ?? 0) - w / 2 - pad;
+      const dx = edgeNudge(this.x[i] ?? 0, w, minX, maxX);
+      this.dx[i] = dx;
+      const x0 = (this.x[i] ?? 0) + dx - w / 2 - pad;
       const x1 = x0 + w + pad * 2;
       let ok = false;
       for (const s of LABEL_SHIFTS) {
@@ -96,7 +107,7 @@ export class LabelLayout {
           if (!this.visible[j] || !this.solid[j]) continue;
           const wj = this.w[j] ?? 0;
           const hj = this.h[j] ?? 0;
-          const jx0 = (this.x[j] ?? 0) - wj / 2;
+          const jx0 = (this.x[j] ?? 0) + (this.dx[j] ?? 0) - wj / 2;
           const jx1 = jx0 + wj;
           const jt = this.top[j] ?? 0;
           const jb = jt + hj;
@@ -129,7 +140,7 @@ export class LabelLayout {
       if (!this.visible[i] || !this.solid[i]) continue;
       const w = this.w[i] ?? 0;
       if (w <= 0) continue;
-      const x0 = (this.x[i] ?? 0) - w / 2;
+      const x0 = (this.x[i] ?? 0) + (this.dx[i] ?? 0) - w / 2;
       const x1 = x0 + w;
       const t = this.top[i] ?? 0;
       const b = t + (this.h[i] ?? 0);
@@ -155,7 +166,7 @@ export class LabelLayout {
       if (!this.visible[i] || (this.alpha[i] ?? 0) < 1) continue;
       const w = this.w[i] ?? 0;
       if (w <= 0) continue;
-      const x0 = (this.x[i] ?? 0) - w / 2 - slop;
+      const x0 = (this.x[i] ?? 0) + (this.dx[i] ?? 0) - w / 2 - slop;
       const t = (this.top[i] ?? 0) - slop;
       if (x >= x0 && x <= x0 + w + slop * 2 && y >= t && y <= t + (this.h[i] ?? 0) + slop * 2) return i;
     }
@@ -165,3 +176,19 @@ export class LabelLayout {
 
 /** Opacity of a label that covers a unit. */
 export const FADED_ALPHA = 0.3;
+
+/**
+ * Sideways nudge (px) that brings a box of width `w` centred at `x` inside [minX, maxX], capped
+ * at w/2 − STEM_KEEP so the anchor (and the leader hanging from it) stays under the box.
+ */
+export const edgeNudge = (x: number, w: number, minX: number, maxX: number): number => {
+  if (w <= 0) return 0;
+  const cap = Math.max(0, w / 2 - STEM_KEEP);
+  let d = 0;
+  if (x - w / 2 < minX) d = minX - (x - w / 2);
+  else if (x + w / 2 > maxX) d = maxX - (x + w / 2);
+  return d > cap ? cap : d < -cap ? -cap : d;
+};
+
+/** Px of cartouche kept on the far side of the leader when nudged (clears the notched end). */
+export const STEM_KEEP = 14;

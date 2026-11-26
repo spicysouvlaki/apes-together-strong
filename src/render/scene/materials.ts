@@ -64,6 +64,19 @@ export interface SceneUniforms {
   /** Two compass-rose centers on the parchment (x1, z1, x2, z2). */
   uCompass: IUniform<Vector4>;
   uPatterns: IUniform<number>;
+  /**
+   * Mood grade (mood.ts): rgb = channel multiply, w = saturation. The new grade wipes in over
+   * the old one across the screen as uSweep goes 0 -> 1 (age transition "page turn").
+   */
+  uGradeFrom: IUniform<Vector4>;
+  uGradeTo: IUniform<Vector4>;
+  uSweep: IUniform<number>;
+  /** Drawing-buffer size in px (for the screen-space sweep). */
+  uRes: IUniform<Vector2>;
+  /** Drifting cloud shadows on land and water (0 off: quality 'low', reduceMotion keeps still clouds). */
+  uCloud: IUniform<number>;
+  /** Haze strength multiplier (crisis air is dustier). */
+  uHaze: IUniform<number>;
 }
 
 const col = (hex: string, k = 1): Color => new Color(hex).multiplyScalar(k);
@@ -111,6 +124,12 @@ export const createSceneUniforms = (patterns: boolean): SceneUniforms => {
     uMapSize: { value: new Vector2(1, 1) },
     uCompass: { value: new Vector4(0, 0, 0, 0) },
     uPatterns: { value: patterns ? 1 : 0 },
+    uGradeFrom: { value: new Vector4(1, 1, 1, 1) },
+    uGradeTo: { value: new Vector4(1, 1, 1, 1) },
+    uSweep: { value: 1 },
+    uRes: { value: new Vector2(1, 1) },
+    uCloud: { value: 1 },
+    uHaze: { value: 1 },
   };
 };
 
@@ -132,6 +151,12 @@ uniform vec3 uPaper;
 uniform vec3 uPaperShade;
 uniform vec3 uInk;
 uniform float uAtlas;
+uniform vec4 uGradeFrom;
+uniform vec4 uGradeTo;
+uniform float uSweep;
+uniform vec2 uRes;
+uniform float uCloud;
+uniform float uHaze;
 float luma(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
 `;
 
@@ -152,11 +177,24 @@ vec3 memoryTint(vec3 c, float m) {
   return mix(c, g, clamp(m, 0.0, 1.0));
 }
 vec3 finish(vec3 c, float depth) {
+  // Distance haze (a touch of tilt-shift: the far board softens into warm air).
   float f = smoothstep(uFogNear, uFogFar, depth);
-  c = mix(c, uFogColor, f * 0.8);
+  c = mix(c, uFogColor, clamp(f * 0.8 * uHaze, 0.0, 0.92));
+  // Mood grade per age / crisis, wiped in diagonally across the screen on a change.
+  vec2 sp = gl_FragCoord.xy / uRes;
+  float edge = sp.x * 0.75 + (1.0 - sp.y) * 0.25;
+  float k = smoothstep(edge - 0.12, edge + 0.02, uSweep * 1.16 - 0.04);
+  vec4 g = mix(uGradeFrom, uGradeTo, k);
+  c = mix(vec3(luma(c)), c, g.w) * g.rgb;
   // Gentle filmic shoulder (keeps highlights from clipping to white).
   c = c * 1.08 / (1.0 + c * 0.1);
   return c;
+}
+// Slow drifting cloud shadows (one detail fetch; the mottle channel at a very low frequency).
+float cloudShade(sampler2D tex, vec2 xz) {
+  vec2 drift = vec2(0.011, 0.005) * uTime * uAnim;
+  float n = texture2D(tex, xz * 0.031 + drift).r * 0.65 + texture2D(tex, xz * 0.013 - drift * 0.6 + 0.37).r * 0.35;
+  return 1.0 - smoothstep(0.5, 0.68, n) * 0.13 * uCloud * (1.0 - uAtlas);
 }
 `;
 
@@ -242,8 +280,13 @@ const make = (name: string, u: SceneUniforms, vertexShader: string, fragmentShad
  * TINT also multiplies the fixed vertex colors by instanceColor (tree/rock variation).
  * aInst: x = fog memory, y = pattern id (FLAG) or alpha (ALPHA), z = sway phase, w = unused.
  */
-export const propMaterial = (u: SceneUniforms, opts: { tint?: boolean; sway?: boolean; flag?: boolean; alpha?: boolean } = {}): ShaderMaterial => {
+export const propMaterial = (
+  u: SceneUniforms,
+  opts: { tint?: boolean; sway?: boolean; flag?: boolean; alpha?: boolean; bob?: boolean; orbit?: boolean } = {},
+): ShaderMaterial => {
   const defines: Record<string, number> = {};
+  if (opts.bob) defines.BOB = 1;
+  if (opts.orbit) defines.ORBIT = 1;
   if (opts.tint) defines.TINT = 1;
   if (opts.sway) defines.SWAY = 1;
   if (opts.flag) defines.FLAG = 1;
@@ -262,6 +305,22 @@ void main() {
   float t = uTime * uAnim;
   p.z += sin(t * 3.1 + p.x * 4.5 + ph) * 0.22 * p.x * uAnim;
   p.y += sin(t * 2.3 + p.x * 3.0 + ph) * 0.05 * p.x * uAnim;
+#endif
+#ifdef BOB
+  // Moored/fishing boats ride the swell: a slow heave plus pitch and roll (aInst.z = phase).
+  float tb = uTime * uAnim;
+  p.y += sin(tb * 1.7 + aInst.z) * 0.012 + p.z * sin(tb * 1.3 + aInst.z * 1.7) * 0.16 + p.x * sin(tb * 1.1 + aInst.z) * 0.06;
+#endif
+#ifdef ORBIT
+  // Birds: wingtips flap (|x| = distance from the body), and the whole bird circles the
+  // instance origin at radius aInst.y (aInst.z = phase, aInst.w = angular speed, sign = turn).
+  float tt = uTime * uAnim;
+  p.y += abs(p.x) * sin(tt * 10.0 + aInst.z * 37.0) * 0.55;
+  float ang = tt * aInst.w + aInst.z * 6.2832;
+  float hd = -ang - sign(aInst.w) * 1.5708;
+  p.xz = vec2(cos(hd) * p.x + sin(hd) * p.z, -sin(hd) * p.x + cos(hd) * p.z);
+  p += vec3(cos(ang), 0.0, sin(ang) * 0.8) * aInst.y / max(length(im[0].xyz), 1e-4);
+  p.y += sin(ang * 2.0 + aInst.z * 3.0) * 0.06 / max(length(im[0].xyz), 1e-4);
 #endif
   vLocal = position;
   vec4 w = modelMatrix * im * vec4(p, 1.0);
@@ -404,6 +463,10 @@ void main() {
     c *= 0.88 + 0.24 * d2.a * d2.r;
     // Baked occlusion: darker toward the base and in the seams.
     c *= mix(1.0, 0.5, smoothstep(0.05, 0.7, depth));
+    // Warm rim: the turf lip of edges facing the light catches it (diorama edge glow), so a
+    // raised tile reads as a lit ledge rather than a dark crevasse.
+    float facing = clamp(dot(n, normalize(vec3(uSunDir.x, 0.0, uSunDir.z))), 0.0, 1.0);
+    c += vec3(0.26, 0.17, 0.07) * facing * (1.0 - smoothstep(0.0, 0.12, depth));
   } else {
     c = vCol * vBake;
     float m = d.r - 0.5;
@@ -444,6 +507,7 @@ void main() {
     }
     lit = mix(lit, a, uAtlas);
   }
+  lit *= cloudShade(uDetail, vW.xz);
   vec3 c2 = memoryTint(lit, vInst.x);
   c = finish(c2, vDepth);
   ${OUT}
@@ -548,6 +612,7 @@ void main() {
     a = mix(a, uInk, max(coast * 0.8, hatch * 0.25));
     lit = mix(lit, a, uAtlas);
   }
+  lit *= cloudShade(uDetail, vW.xz);
   c = finish(memoryTint(lit, vInst.x * 0.45), vDepth);
   ${OUT}
 }`;
@@ -645,9 +710,9 @@ void main() {
   float grain = 0.75 + 0.25 * d2.r;
   float lines = max(rays(vW.xz, uCompass.xy), rays(vW.xz, uCompass.zw));
   c = mix(c, uInk, lines * 0.14);
-  vec2 ra = rose(vW.xz, uCompass.xy);
-  vec2 rb = rose(vW.xz, uCompass.zw);
-  vec2 rr = max(ra, rb);
+  // Exactly one rose per game (playtest: two roses overlapping read as a glitch); the second
+  // center only seeds rhumb lines.
+  vec2 rr = rose(vW.xz, uCompass.xy);
   c = mix(c, mix(uInk, vec3(0.42, 0.11, 0.08), 0.35), rr.y * 0.42 * grain);
   c = mix(c, uInk, rr.x * 0.55 * grain);
   c = mix(c, uInk, waves(vW.xz) * 0.3 * grain);
@@ -734,7 +799,7 @@ void main() {
 
 // --- Soft overlays: territory, highlights, glows, blob shadows -------------------------------------
 
-export const SOFT = { wash: 0, reach: 1, attack: 2, ring: 3, territory: 4, glow: 5, shadow: 6 } as const;
+export const SOFT = { wash: 0, reach: 1, attack: 2, ring: 3, territory: 4, glow: 5, shadow: 6, ink: 7 } as const;
 
 /**
  * Soft-edged translucent overlays on flat hex/disc geometry (radius 1 at scale 1).
@@ -775,16 +840,72 @@ void main() {
   } else if (mode < 5.5) {
     float rim = 1.0 - smoothstep(0.0, 0.22, abs(rc - 0.82));
     a *= (rim + (1.0 - smoothstep(0.0, 0.8, rc)) * 0.25) * pulse;
-  } else {
+  } else if (mode < 6.5) {
     float s = 1.0 - smoothstep(0.15, 1.0, rc);
     a *= s * s;
     c = uShadow;
+  } else {
+    // Ink: a drawn stroke (roads, tracks) with a soft, slightly ragged rim; bolder on the atlas.
+    a *= (1.0 - smoothstep(0.7, 1.0, rc)) * (1.0 + uAtlas * 0.4);
   }
   if (a < 0.004) discard;
   a *= 1.0 - vInst.x * 0.4;
   gl_FragColor = linearToOutputTexel(vec4(c, clamp(a, 0.0, 1.0)));
 }`;
   return make('diorama-soft', u, FLAT_VERT, frag, { transparent: true, polygonOffset });
+};
+
+// --- Living world: hearth smoke ------------------------------------------------------------------
+
+/**
+ * Smoke wisps: each instance is one puff of a looping column (instance origin = chimney top,
+ * scale = puff size). The puff rises, grows, drifts downwind and fades entirely in the vertex
+ * shader from uTime, so a column costs no CPU per frame. aInst: x = memory, y = phase 0..1,
+ * z = rise height, w = unused. Frozen (still puffs) when uAnim = 0.
+ */
+export const wispMaterial = (u: SceneUniforms): ShaderMaterial => {
+  const vert = /* glsl */ `
+${COMMON}
+attribute vec4 aInst;
+varying float vA;
+varying float vDepth;
+varying vec3 vN;
+varying float vMem;
+void main() {
+#ifdef USE_INSTANCING
+  mat4 im = instanceMatrix;
+#else
+  mat4 im = mat4(1.0);
+#endif
+  float t = fract(uTime * uAnim * 0.09 + aInst.y);
+  float size = length(im[0].xyz);
+  vec3 base = (modelMatrix * vec4(im[3].xyz, 1.0)).xyz;
+  // Prevailing wind (same quarter the dunes face): the column leans as it rises.
+  vec3 drift = vec3(0.32, 0.0, 0.12) * t * t + vec3(sin(t * 7.0 + aInst.y * 23.0), 0.0, cos(t * 5.0 + aInst.y * 11.0)) * 0.025;
+  vec3 w = base + position * size * (0.4 + t * 1.3) + vec3(0.0, t * aInst.z, 0.0) + drift;
+  vA = smoothstep(0.0, 0.14, t) * (1.0 - smoothstep(0.4, 1.0, t)) * 0.62;
+  vN = normalize(position);
+  vMem = aInst.x;
+  vec4 mv = viewMatrix * vec4(w, 1.0);
+  vDepth = -mv.z;
+  gl_Position = projectionMatrix * mv;
+}`;
+  const frag = /* glsl */ `
+${COMMON}
+${FRAG_COMMON}
+varying float vA;
+varying float vDepth;
+varying vec3 vN;
+varying float vMem;
+void main() {
+  vec3 n = normalize(vN);
+  // Warm grey smoke, lit from the key side; reads on grass, sand and parchment alike.
+  vec3 c = mix(vec3(0.5, 0.47, 0.44), vec3(0.93, 0.9, 0.85), clamp(dot(n, uSunDir) * 0.5 + 0.55, 0.0, 1.0));
+  c = memoryTint(c, vMem);
+  c = finish(c, vDepth);
+  gl_FragColor = linearToOutputTexel(vec4(c, vA * (1.0 - vMem * 0.5)));
+}`;
+  return make('diorama-wisp', u, vert, frag, { transparent: true });
 };
 
 // --- Screen-space vignette + atmospheric tint -------------------------------------------------------
@@ -797,6 +918,12 @@ export const vignetteMaterial = (strength: number): ShaderMaterial => {
       uVig: { value: new Color(ART.vignette) },
       uSkyTint: { value: new Color(ART.bgTop) },
       uStrength: { value: strength },
+      /** Drawing-buffer px (fiber scale) and a 0..1 "page settle" pulse (age transition). */
+      uRes: { value: new Vector2(1, 1) },
+      uFiber: { value: 1 },
+      uSettle: { value: 0 },
+      uPaperTone: { value: new Color(ART.paper) },
+      uInkTone: { value: new Color(ART.ink) },
     },
     vertexShader: /* glsl */ `
 varying vec2 vUv;
@@ -808,14 +935,39 @@ void main() {
 uniform vec3 uVig;
 uniform vec3 uSkyTint;
 uniform float uStrength;
+uniform vec2 uRes;
+uniform float uFiber;
+uniform float uSettle;
+uniform vec3 uPaperTone;
+uniform vec3 uInkTone;
 varying vec2 vUv;
+float h21(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float vnoise(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(h21(i), h21(i + vec2(1.0, 0.0)), f.x), mix(h21(i + vec2(0.0, 1.0)), h21(i + vec2(1.0, 1.0)), f.x), f.y);
+}
 void main() {
   vec2 p = vUv - 0.5;
   float r = length(p * vec2(1.0, 0.8));
-  float v = smoothstep(0.32, 0.85, r) * uStrength;
+  float v = smoothstep(0.32, 0.85, r) * uStrength * (1.0 + uSettle * 0.6);
   float top = smoothstep(0.55, 1.0, vUv.y) * 0.22;
   vec3 c = mix(uVig, uSkyTint, top / max(0.001, v + top));
-  gl_FragColor = linearToOutputTexel(vec4(c, clamp(v + top, 0.0, 1.0)));
+  float a = v + top;
+  // Paper fibre over the whole frame (very subtle): long streaky fibres plus fine tooth, so the
+  // diorama and the vellum UI read as one sheet. Scale in CSS-ish px (fixed on screen).
+  vec2 q = vUv * uRes / 2.0;
+  vec2 qr = mat2(0.94, -0.34, 0.34, 0.94) * q;
+  float fib = vnoise(qr * vec2(0.09, 0.9)) - 0.5;
+  fib += (vnoise(q * vec2(0.8, 0.12) + 11.0) - 0.5) * 0.6;
+  float tooth = vnoise(q * 0.7) - 0.5;
+  float n = (fib * 0.75 + tooth * 0.5) * uFiber * (1.0 + uSettle * 1.5);
+  float fa = abs(n) * 0.045;
+  vec3 fc = n > 0.0 ? uPaperTone : uInkTone;
+  float a2 = clamp(a + fa, 0.0, 1.0);
+  c = (c * a + fc * fa) / max(a2, 1e-4);
+  gl_FragColor = linearToOutputTexel(vec4(c, a2));
 }`,
     transparent: true,
     depthTest: false,
