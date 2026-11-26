@@ -9,6 +9,10 @@ import { Icon } from '../art/Icon';
 
 export const glossaryOpen = signal<GlossaryId | null>(null);
 
+/** Whether a tap on a term inside `host` (its nearest choice ancestor) should open the sheet. */
+export const termExplainsOnTap = (host: { getAttribute(name: string): string | null } | null | undefined): boolean =>
+  !host || host.getAttribute('role') !== 'radio' || host.getAttribute('aria-checked') === 'true';
+
 /**
  * A span with button semantics rather than a <button>: terms sit inside other buttons (leader
  * cards in setup), where a nested button is invalid. Keyboard: Enter/Space open it.
@@ -23,6 +27,10 @@ export function Term({ id, children }: { id: GlossaryId; children?: ComponentChi
       e.stopPropagation();
       e.preventDefault();
     }
+    // Wave 12 playtest: on setup, tapping the middle of an unchosen leader card chose it AND
+    // threw the glossary sheet over the screen. A first tap on an unchecked radio only chooses;
+    // tapping the term on the chosen card explains it.
+    if (!termExplainsOnTap(host)) return;
     glossaryOpen.value = id;
   };
   return (

@@ -6,8 +6,9 @@
  * Pure and deterministic: built from the ChronicleView (chronicle.ts), the GameState and names.
  */
 import type { ContentBundle } from '@contracts/content-schemas';
-import type { GameState, PlayerId } from '@contracts/sim-api';
+import { warKey, type GameState, type PlayerId } from '@contracts/sim-api';
 import { annalVoice } from '../../../emergence/figures';
+import { AGE_OPENING_REASON, REASON_TEMPLATES } from '../../../emergence/reasons';
 import { WAR_DECLARED_TEXT } from '../../../sim/diplomacy';
 import type { ChronicleAge, ChronicleView } from './chronicle';
 
@@ -34,7 +35,7 @@ export interface StoryFacts {
   /** Settlements held now. */
   held: number;
   /** Wars, in the order they began. `by` is who declared. */
-  wars: { against: string; by: 'us' | 'them'; turn: number }[];
+  wars: { against: string; by: 'us' | 'them'; turn: number; ongoing?: boolean }[];
   /** Cities taken from others and lost to others ("Gadir to the Conqueror's people"). */
   taken: string[];
   lost: { name: string; to: string | null }[];
@@ -58,6 +59,14 @@ export interface StoryInput {
   facts?: StoryFacts;
 }
 
+/**
+ * An offer reason ("drawn by your harbors") in the story's voice. The story speaks of the people
+ * as "they" (wave 12 playtest: "Their first home was Gadir… drawn by its harbors" switched
+ * pronoun mid-paragraph), so "your" becomes "their" here, not the annal's "its".
+ */
+export const storyVoice = (text: string): string =>
+  text.replace(/\byour people\b/g, 'them').replace(/\bYour\b/g, 'Their').replace(/\byour\b/g, 'their').replace(/\byou\b/g, 'them');
+
 const TAKEN = / was taken\.$/;
 const LOST = / was lost\.$/;
 const FOUNDED = / was founded\.$/;
@@ -71,7 +80,7 @@ export const storyFacts = (state: GameState, player: PlayerId, content: ContentB
   for (const e of p.chronicle) {
     if (e.kind === 'founding') facts.founded.push(nameOf(e.ref, e.text, FOUNDED));
     if (e.kind !== 'war') continue;
-    if (e.text === WAR_DECLARED_TEXT && state.players[e.ref]) facts.wars.push({ against: ownerName(e.ref), by: 'us', turn: e.turn });
+    if (e.text === WAR_DECLARED_TEXT && state.players[e.ref]) facts.wars.push({ against: ownerName(e.ref), by: 'us', turn: e.turn, ongoing: state.wars[warKey(player, e.ref)] !== undefined });
     else if (TAKEN.test(e.text)) facts.taken.push(nameOf(e.ref, e.text, TAKEN));
     else if (LOST.test(e.text)) {
       const owner = state.settlements[e.ref]?.owner;
@@ -82,7 +91,7 @@ export const storyFacts = (state: GameState, player: PlayerId, content: ContentB
   for (const id of state.playerOrder) {
     if (id === player) continue;
     for (const e of state.players[id]?.chronicle ?? []) {
-      if (e.kind === 'war' && e.text === WAR_DECLARED_TEXT && e.ref === player) facts.wars.push({ against: ownerName(id), by: 'them', turn: e.turn });
+      if (e.kind === 'war' && e.text === WAR_DECLARED_TEXT && e.ref === player) facts.wars.push({ against: ownerName(id), by: 'them', turn: e.turn, ongoing: state.wars[warKey(player, id)] !== undefined });
     }
   }
   facts.wars.sort((a, b) => a.turn - b.turn);
@@ -94,17 +103,49 @@ export const storyFacts = (state: GameState, player: PlayerId, content: ContentB
   for (const f of Object.values(state.figures)) {
     if (f.owner !== player) continue;
     const def = content.figures.find((x) => x.id === f.id);
-    facts.reasons[f.id] = def?.deed ? 'deed' : f.reason ? annalVoice(f.reason) : '';
+    facts.reasons[f.id] = def?.deed ? 'deed' : f.reason ? storyVoice(f.reason) : '';
   }
   return facts;
 };
 
 const shortName = (n: string): string => n.replace(/\s*\([^)]*\)\s*$/, '');
 
+/**
+ * A figure's name as it reads inside a sentence. Archetypes are titled "An Atlantic Bronze Age
+ * trader" (wave 12 playtest: "…and An Atlantic Bronze Age trader came to court"); mid-sentence
+ * the article is lower-case. `cap` puts it back when the name opens a sentence.
+ */
+export const midName = (n: string): string => shortName(n).replace(/^(A|An) (?=\S)/, (m) => m.toLowerCase());
+
+/** A leader archetype after "led by": "The Merchant" -> "the Merchant" (wave 12 playtest). */
+export const leaderTitle = (name: string): string => name.replace(/^The /, 'the ');
+
+const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** Every reason phrasing as a pattern whose one group is the hint ("its desert roads"). */
+const REASON_PATTERNS: readonly RegExp[] = [...Object.values(REASON_TEMPLATES).flat(), AGE_OPENING_REASON]
+  .flatMap((t) => [annalVoice(t), storyVoice(t)])
+  // Longest first, so "drawn by tales of {h}" wins over "drawn by {h}".
+  .sort((a, b) => b.length - a.length)
+  .map((t) => new RegExp(`^${escapeRe(t).replace(escapeRe('{h}'), '(.+)')}$`));
+
+/**
+ * What a reason is about, whatever the phrasing: "following tales of its desert roads" and
+ * "curious to see its desert roads with their own eyes" are both "its desert roads" (wave 12
+ * playtest: two groups in one paragraph with the same reason phrased two ways).
+ */
+export const reasonKey = (reason: string): string => {
+  for (const re of REASON_PATTERNS) {
+    const m = re.exec(reason);
+    if (m?.[1]) return m[1];
+  }
+  return reason;
+};
+
 /** Phrasings for a group that came for one reason; picked by the group's place (deterministic). */
 const GROUP_LINES: readonly ((names: string, reason: string, many: boolean) => string)[] = [
   (n, r) => `${cap(r)}, ${n} came to court.`,
-  (n, r) => `${n} followed, ${r}.`,
+  (n, r) => `${cap(n)} followed, ${r}.`,
   (n, r) => `Then came ${n}, ${r}.`,
   (n, r, many) => `${cap(r)}, ${n} ${many ? 'were' : 'was'} next to join them.`,
 ];
@@ -113,35 +154,51 @@ const GROUP_LINES: readonly ((names: string, reason: string, many: boolean) => s
 export const peopleParagraph = (view: ChronicleView, reasons: Readonly<Record<string, string>>): string => {
   const figures = view.ages.flatMap((a) => a.figures).sort((a, b) => a.turn - b.turn);
   if (figures.length === 0) return 'No famous person ever came to their court; they made their way alone.';
-  const groups: { reason: string; names: string[] }[] = [];
+  const groups: { key: string; reason: string; names: string[] }[] = [];
   const deeds: string[] = [];
   const loose: string[] = [];
   for (const f of figures) {
     const r = reasons[f.id] ?? '';
-    if (r === 'deed') deeds.push(shortName(f.name));
-    else if (!r) loose.push(shortName(f.name));
+    const name = midName(f.name);
+    if (r === 'deed') deeds.push(name);
+    else if (!r) loose.push(name);
     else {
-      const g = groups.find((x) => x.reason === r);
-      if (g) g.names.push(shortName(f.name));
-      else groups.push({ reason: r, names: [shortName(f.name)] });
+      // Grouped by what drew them, told in the first phrasing heard.
+      const key = reasonKey(r);
+      const g = groups.find((x) => x.key === key);
+      if (g) g.names.push(name);
+      else groups.push({ key, reason: r, names: [name] });
     }
   }
   // The biggest draws first; ties keep arrival order.
   const ordered = groups.map((g, i) => ({ g, i })).sort((a, b) => b.g.names.length - a.g.names.length || a.i - b.i).map((x) => x.g);
   const told = ordered.slice(0, 3);
-  for (const g of ordered.slice(3)) loose.push(...g.names);
+  // Smaller draws are not "reasons of their own": they had reasons, just too many to tell.
+  const others = ordered.slice(3).flatMap((g) => g.names);
   const lines = told.map((g, i) => (GROUP_LINES[i % GROUP_LINES.length] as (n: string, r: string, m: boolean) => string)(listCapped(g.names), g.reason, g.names.length > 1));
-  if (deeds.length) lines.push(`${listCapped(deeds)} ${deeds.length === 1 ? 'was' : 'were'} drawn by great deeds.`);
-  if (loose.length) lines.push(`${listCapped(loose)} came for reasons of their own.`);
+  if (deeds.length) lines.push(`${cap(listCapped(deeds))} ${deeds.length === 1 ? 'was' : 'were'} drawn by great deeds.`);
+  // Wave 12 playtest: "Others came…: A, B, C and 11 others" buried most of a 21-figure court in a
+  // tail; say how many, then name a few.
+  if (others.length === 1) lines.push(`${cap(others[0] ?? '')} came for a reason of their own.`);
+  else if (others.length > 1)
+    lines.push(
+      others.length <= 4
+        ? `${cap(listAnd(others))} each came for a reason of their own.`
+        : `${others.length} more came, each for a reason of their own, among them ${listAnd(others.slice(0, 3))}.`,
+    );
+  if (loose.length) lines.push(`${cap(listCapped(loose))} came for reasons of their own.`);
   const n = figures.length;
   return `${n === 1 ? 'One famous person' : `${n} famous people`} joined them. ${lines.join(' ')}`;
 };
 
-const foundingSentence = (f: StoryFacts): string => {
+// "At the end" only once the game has ended (wave 12 playtest: a chronicle opened mid-game spoke
+// of "the end"); before that, "now".
+const foundingSentence = (f: StoryFacts, ended = true): string => {
   const [first, ...rest] = f.founded;
   if (!first) return '';
   if (rest.length === 0) return ` Their first home was ${first}.`;
-  return ` Their first home was ${first}; ${listCapped(rest)} followed${f.held ? `, and at the end they held ${f.held} ${f.held === 1 ? 'settlement' : 'settlements'}` : ''}.`;
+  const held = `${f.held} ${f.held === 1 ? 'settlement' : 'settlements'}`;
+  return ` Their first home was ${first}; ${listCapped(rest)} followed${f.held ? (ended ? `, and at the end they held ${held}` : `, and now they hold ${held}`) : ''}.`;
 };
 
 const keptParagraph = (view: ChronicleView): string => {
@@ -156,33 +213,72 @@ const keptParagraph = (view: ChronicleView): string => {
   return out;
 };
 
+/** "on turn 40", "on turns 40 and 70". */
+const onTurns = (turns: readonly number[]): string => (turns.length === 1 ? `on turn ${turns[0]}` : `on turns ${listAnd(turns.map(String))}`);
+
+/**
+ * Wars told once per foe and side (wave 12 playtest: "the Conqueror's people declared war on
+ * them on turn 40; the Conqueror's people declared war on them on turn 70").
+ */
+export const warSentence = (wars: StoryFacts['wars']): string => {
+  const groups: { against: string; by: 'us' | 'them'; turns: number[]; ongoing: boolean | undefined }[] = [];
+  for (const w of wars) {
+    const g = groups.find((x) => x.against === w.against && x.by === w.by);
+    if (g) {
+      g.turns.push(w.turn);
+      g.ongoing = w.ongoing;
+    } else groups.push({ against: w.against, by: w.by, turns: [w.turn], ongoing: w.ongoing });
+  }
+  // How it ended, when known (wave 12 playtest: a war that ended in peace read as if it raged on).
+  const end = (g: (typeof groups)[number]): string => (g.ongoing === undefined ? '' : g.ongoing ? ', a war not yet over' : ', and in time made peace');
+  const told = groups.slice(0, 3).map((g, i) => {
+    const again = g.turns.length > 1;
+    if (g.by === 'us') return `${i === 0 ? 'They' : 'they'} went to war with ${g.against} ${again ? `${g.turns.length === 2 ? 'twice' : `${g.turns.length} times`}, ` : ''}${onTurns(g.turns)}${end(g)}`;
+    const who = i === 0 ? cap(g.against) : g.against;
+    return `${who} declared war on them ${again ? `${g.turns.length === 2 ? 'twice' : `${g.turns.length} times`}, ` : ''}${onTurns(g.turns)}${end(g)}`;
+  });
+  return `${told.join('; ')}${groups.length > 3 ? `, among ${wars.length} wars` : ''}.`;
+};
+
+/** "Onuba and Baria to the Conqueror's people, and Abdera" — one taker named once. */
+export const lostSentence = (lost: StoryFacts['lost']): string => {
+  const groups: { to: string | null; names: string[] }[] = [];
+  for (const l of lost) {
+    const g = groups.find((x) => x.to === l.to);
+    if (g) g.names.push(l.name);
+    else groups.push({ to: l.to, names: [l.name] });
+  }
+  // Cities whose taker is unknown come last, so "to X" never seems to cover them.
+  groups.sort((a, b) => Number(a.to === null) - Number(b.to === null));
+  const parts = groups.map((g) => (g.to ? `${listCapped(g.names)} to ${g.to}` : listCapped(g.names)));
+  return `They lost ${parts.length === 2 ? parts.join(', and ') : parts.join('; ')}.`;
+};
+
 const warParagraph = (view: ChronicleView, f: StoryFacts): string => {
   const out: string[] = [];
   if (f.wars.length === 0) out.push('They never went to war.');
   else {
-    const told = f.wars.slice(0, 3).map((w) => (w.by === 'us' ? `went to war with ${w.against} on turn ${w.turn}` : `${w.against} declared war on them on turn ${w.turn}`));
-    const lead = told[0] ?? '';
-    const first = lead.startsWith('went') ? `They ${lead}` : cap(lead);
-    const more = told.slice(1).map((t) => (t.startsWith('went') ? `they ${t}` : t));
-    out.push(`${[first, ...more].join('; ')}${f.wars.length > 3 ? `, among ${f.wars.length} wars` : ''}.`);
+    out.push(warSentence(f.wars));
     if (f.taken.length) out.push(`They took ${listCapped(f.taken)}.`);
-    if (f.lost.length) out.push(`They lost ${listCapped(f.lost.map((l) => (l.to ? `${l.name} to ${l.to}` : l.name)))}.`);
+    if (f.lost.length) out.push(lostSentence(f.lost));
     if (!f.taken.length && !f.lost.length) out.push('No city changed hands.');
     if (f.conquered) out.push(f.conquered === 1 ? 'One rival people was conquered outright.' : `${f.conquered} rival peoples were conquered outright.`);
   }
   const crises = view.ages.flatMap((a) => a.crises).map((c) => c.text.split(':')[0]?.trim() ?? c.text);
   const uniq = [...new Set(crises)];
-  if (uniq.length) out.push(`They endured ${listCapped(uniq)}.`);
+  if (uniq.length) out.push(`They endured ${listCapped(uniq.map((c) => (/^the /i.test(c) ? c : `the ${c}`)))}.`);
   return out.join(' ');
 };
 
-const tiesParagraph = (f: StoryFacts): string => {
+const tiesParagraph = (f: StoryFacts, ended = true): string => {
   const cs = f.suzerainOf.length ? `${listCapped(f.suzerainOf)} looked to them as protector` : '';
   const tr = f.tradeRoutes ? `${f.tradeRoutes === 1 ? 'one trade route' : `${f.tradeRoutes} trade routes`} carried their goods` : '';
   if (cs && tr) return `${cap(cs)}, and ${tr}.`;
-  if (cs) return `${cap(cs)}; no caravan of theirs was on the roads at the end.`;
+  if (cs) return `${cap(cs)}; no caravan of theirs was on the roads ${ended ? 'at the end' : 'just now'}.`;
   if (tr) return `${cap(tr)}, though no city-state called them protector.`;
-  return 'They kept to themselves: no city-state called them protector, and no caravan carried their goods.';
+  // Neutral: this is the end state only (wave 12 playtest: "they kept to themselves" for a people
+  // who had been suzerain of two city-states most of the game).
+  return `${ended ? 'At the end' : 'For now'}, no city-state called them protector, and no caravan carried their goods.`;
 };
 
 /**
@@ -191,11 +287,11 @@ const tiesParagraph = (f: StoryFacts): string => {
  */
 export const storyParagraphs = (input: StoryInput, facts: StoryFacts, ended: boolean, turn: number): string[] => {
   const { view } = input;
-  const paras = [`${openingLine(input)}${foundingSentence(facts)}`, peopleParagraph(view, facts.reasons)];
+  const paras = [`${openingLine(input)}${foundingSentence(facts, ended)}`, peopleParagraph(view, facts.reasons)];
   const kept = keptParagraph(view);
   if (kept) paras.push(kept);
   paras.push(warParagraph(view, facts));
-  paras.push(tiesParagraph(facts));
+  paras.push(tiesParagraph(facts, ended));
   paras.push(closingLine(view, ended, view.ages[view.ages.length - 1]?.age ?? null, turn));
   return paras;
 };
@@ -206,14 +302,14 @@ export const openingLine = ({ view, cultures, named }: StoryInput): string => {
   const dream = view.dream ? `, who carried the dream “${view.dream.meaning}”` : '';
   const roots = cultures.length > 0 ? ` Their ways grew from ${listAnd(cultures.slice(0, 3))} roots.` : ' No one yet knew what they would become.';
   // Leader archetypes are titled "The Merchant"; mid-sentence it is "led by the Merchant".
-  const leader = view.leader.replace(/^The /, 'the ');
+  const leader = leaderTitle(view.leader);
   return `This is the chronicle of ${who}, led by ${leader}${dream}.${roots}`;
 };
 
 /** One line for a book: who joined, what was kept, what was built, what was fought. */
 export const ageSummary = (a: ChronicleAge): string => {
   const parts: string[] = [];
-  if (a.figures.length) parts.push(`${listCapped(a.figures.map((f) => shortName(f.name)))} ${a.figures.length === 1 ? 'joined' : 'joined the court'}`);
+  if (a.figures.length) parts.push(`${listCapped(a.figures.map((f) => midName(f.name)))} ${a.figures.length === 1 ? 'joined' : 'joined the court'}`);
   const kept = [...a.hybrids, ...a.traditions].map((t) => t.name);
   if (kept.length) parts.push(`${listCapped(kept)} ${kept.length === 1 ? 'was' : 'were'} adopted`);
   if (a.wonders.length) parts.push(`${listCapped(a.wonders.map((w) => w.name))} rose`);

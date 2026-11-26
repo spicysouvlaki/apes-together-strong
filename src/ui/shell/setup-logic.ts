@@ -96,6 +96,13 @@ export const shuffled = <T>(list: readonly T[], rand: Rand): T[] => {
 /** The founding dream is picked from 3 offered at random (GDD §2). */
 export const dreamOffer = (dreamIds: readonly string[], rand: Rand, n = 3): string[] => shuffled(dreamIds, rand).slice(0, n);
 
+/**
+ * Accessible name for a founding-dream radio: the romanized word (screen readers mangle most
+ * native scripts), its meaning and its language. The native spelling stays visible on the card.
+ */
+export const dreamLabel = (d: { native: string; romanized: string; meaning: string; language: string }): string =>
+  `${d.romanized}, “${d.meaning}”, ${d.language}`;
+
 export interface SetupChoices {
   leader: string;
   dream: string;

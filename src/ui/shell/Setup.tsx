@@ -21,6 +21,7 @@ import {
   knownDifficulty,
   parseSeed,
   randomSeed,
+  dreamLabel,
 } from './setup-logic';
 import { loading, patchSettings, settings } from './shell-state';
 import { Icon } from '../art/Icon';
@@ -85,6 +86,10 @@ export function Setup() {
               key={l.id}
               role="radio"
               aria-checked={leader === l.id}
+              // The card nests spans and a glossary term, so name it explicitly: VoiceOver and the
+              // accessibility tree otherwise announce an unnamed radio.
+              aria-label={l.name}
+              aria-describedby={`leader-ability-${l.id}`}
               class={`card choice leader-choice${leader === l.id ? ' selected' : ''}`}
               onClick={() => setLeader(l.id)}
             >
@@ -93,7 +98,7 @@ export function Setup() {
               </span>
               <span class="leader-text">
                 <strong>{l.name}</strong>
-                <span class="small muted">
+                <span class="small muted" id={`leader-ability-${l.id}`}>
                   <GlossText text={l.ability} />
                 </span>
               </span>
@@ -111,6 +116,7 @@ export function Setup() {
                 key={id}
                 role="radio"
                 aria-checked={dream === id}
+                aria-label={dreamLabel(d)}
                 class={`card choice dream${dream === id ? ' selected' : ''}`}
                 onClick={() => setDream(id)}
               >

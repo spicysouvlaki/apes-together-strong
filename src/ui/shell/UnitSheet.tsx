@@ -167,7 +167,9 @@ export function UnitSheet() {
             </>
           ) : (
             <>
-              <strong>Not here.</strong> Settle on open land outside other borders, four or more tiles from any settlement. Tap a numbered site to march there.
+              <strong>Not here.</strong> Settle on open land outside other borders, four or more tiles from any settlement.{' '}
+              {/* Wave 12 playtest: with no site left this still said "Tap a numbered site", and none was shown. */}
+              {sites.length > 0 ? 'Tap a numbered site to march there.' : 'No open land is left within reach; explore further, or disband the settler.'}
             </>
           )}
           {sites.length > 0 && hereRank !== 0 && (

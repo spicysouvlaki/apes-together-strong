@@ -45,10 +45,12 @@
 }
 .hud-yields::-webkit-scrollbar { display: none; }
 .hud-yield { display: flex; flex-direction: column; align-items: center; line-height: 1.05; min-width: 54px; }
-.hud-yield-top { display: inline-flex; align-items: center; gap: 3px; font-family: var(--font-text); font-weight: 700; font-size: 0.98rem; white-space: nowrap; }
+/* Capped (wave 12 playtest): at 150% text five stocks no longer fit 375px and each icon sat on
+   the previous number ("172⊘577"). The HUD is read at a glance; sheets carry the large text. */
+.hud-yield-top { display: inline-flex; align-items: center; gap: 3px; font-family: var(--font-text); font-weight: 700; font-size: min(0.98rem, 16.5px); white-space: nowrap; }
 .hud-yield-top .tnum { color: var(--ink); }
 .hud-yield-top .icon { width: 1.15em; height: 1.15em; }
-.hud-yield-inc { font-size: 0.7rem; color: var(--ink-soft); font-variant-numeric: tabular-nums lining-nums; letter-spacing: 0.02em; }
+.hud-yield-inc { font-size: min(0.7rem, 12px); color: var(--ink-soft); font-variant-numeric: tabular-nums lining-nums; letter-spacing: 0.02em; }
 .hud-icon { width: var(--tap); height: var(--tap); border: 0; background: transparent; border-radius: 4px; display: grid; place-items: center; color: var(--ink); }
 .hud-icon .icon { width: 24px; height: 24px; }
 .hud-icon:active { background: rgba(120, 90, 40, 0.12); }
@@ -504,7 +506,9 @@ input[type='range'] { min-height: var(--tap); accent-color: var(--woad); }
   flex: none; width: 1.5em; height: 1.5em; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
   font-size: 0.74rem; font-weight: 700; color: var(--accent-ink); background: var(--woad);
 }
-.queue-name { font-family: var(--font-display); font-weight: 600; font-size: 0.92rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Wraps rather than truncates (wave 12 playtest: "Silver Tree of Karakorum · 1…" hid the turns). */
+.queue-name { font-family: var(--font-display); font-weight: 600; font-size: 0.92rem; line-height: 1.25; padding: 4px 0; overflow-wrap: anywhere; }
+.queue-name .muted { white-space: nowrap; }
 .queue-btn {
   flex: none; width: var(--tap); height: var(--tap); border: 0; background: transparent; color: var(--ink-soft);
   display: inline-flex; align-items: center; justify-content: center; border-radius: var(--radius); cursor: pointer;
@@ -513,6 +517,7 @@ input[type='range'] { min-height: var(--tap); accent-color: var(--woad); }
 .queue-btn:disabled { opacity: 0.3; }
 .queue-up .icon { transform: rotate(90deg); }
 .queue-add { min-height: var(--tap); padding: 0 6px; font-size: 0.88rem; color: var(--woad); }
+.queue-full { margin: 6px 6px 2px; font-style: italic; }
 /* "Suggestion": a labelled one-tap pick on an idle city (never chosen for the player). */
 .suggest-chip {
   width: 100%; margin-top: 6px; justify-content: flex-start; text-align: left; padding: 6px 12px; gap: 10px;
@@ -526,9 +531,12 @@ input[type='range'] { min-height: var(--tap); accent-color: var(--woad); }
 .suggest-text strong { font-family: var(--font-display); font-weight: 650; }
 .city-named { font-style: italic; margin-top: 2px; }
 .upgrade-why { font-style: italic; }
-.idle-item { display: flex; gap: 6px; align-items: stretch; }
-.idle-item .idle-row { flex: 1; min-width: 0; }
-.idle-suggest { flex: none; max-width: 46%; padding: 0 10px; font-size: 0.82rem; border-style: dashed; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Wave 12 playtest: side by side, "Gadir: nothing to build" wrapped to three lines and the
+   suggestion read "SUGGESTED Settler" with no reason. The suggestion now sits under its city,
+   full width, with the why. */
+.idle-item { display: flex; flex-direction: column; gap: 4px; }
+.idle-item .idle-row { min-width: 0; }
+.idle-suggest { justify-content: flex-start; gap: 8px; padding: 8px 12px; margin-left: 18px; font-size: 0.86rem; border-style: dashed; text-align: left; white-space: normal; }
 .idle-suggest .suggest-kicker { font-size: 0.62rem; }
 /* Trade destinations: one row each, the route's yield and a single Send. */
 .trade-dests { margin-top: 6px; display: flex; flex-direction: column; gap: 6px; }

@@ -28,7 +28,7 @@ import type { ScreenProps } from './index';
 import { ConfirmSheet, CultureChip, Empty, Screen, Section } from './shared/components';
 import { capitalize, describeModifiers } from './shared/describe';
 import { figureCountsByCulture } from './shared/figures';
-import { envoyNeedsConfirm, INFLUENCE_WARNING } from './shared/envoy';
+import { envoyNeedsConfirm, hasMet, INFLUENCE_WARNING } from './shared/envoy';
 
 export const DiplomacyScreen = (_: ScreenProps<'diplomacy'>) => {
   const [confirmWar, setConfirmWar] = useState<PlayerId | null>(null);
@@ -78,6 +78,12 @@ export const DiplomacyScreen = (_: ScreenProps<'diplomacy'>) => {
                   </div>
                   {!r.alive ? (
                     <p class="small muted">This people is no more.</p>
+                  ) : !atWar && !hasMet(g, player, r.id) ? (
+                    // Wave 12 playtest: a people never met was listed with its court and a
+                    // "Declare war" button, before any first contact.
+                    <p class="small muted scr-status">
+                      <Icon name="explorer" size="sm" /> Not yet met. Your scouts have not found their lands.
+                    </p>
                   ) : (
                     <>
                       <p class={`small scr-status ${atWar ? 'scr-bad' : 'scr-good'}`}>

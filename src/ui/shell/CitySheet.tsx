@@ -9,7 +9,7 @@ import type { YieldType } from '@contracts/content-schemas';
 import { closeModal, content, dispatch, game, lastError, lookup, me, myTurn, openModal, q } from '../store';
 import { YIELD_ICON, YIELD_NAME, capitalize, growthText, num, signed, turnsText } from './format';
 import { FOOD_PER_POP, UNREST_THRESHOLD, UPGRADE_COST_BASE, UPGRADE_COST_PER_POP } from '../../sim/constants';
-import { MAX_QUEUE, queueAdd, queueChoices, queueMove, queueRemove, suggestContext, suggestNext } from './build-queue';
+import { MAX_QUEUE, queueAdd, queueChoices, queueFullNote, queueMove, queueRemove, suggestContext, suggestionLabel, suggestNext } from './build-queue';
 import { namingLine, strongestCulture, upgradeCostReason } from './city-lines';
 import { Icon } from '../art/Icon';
 import { FigurePortrait } from '../art/game-art';
@@ -159,6 +159,8 @@ export function CitySheet({ settlement }: { settlement: string }) {
           <button
             class="btn btn-primary mt8"
             disabled={!canAct || gold < upgradeCost}
+            // The price is an icon and a number on screen; say "gold" to a screen reader.
+            aria-label={`Upgrade ${s.name} to a city for ${upgradeCost} gold`}
             onClick={() => dispatch({ type: 'upgradeSettlement', settlement: s.id })}
           >
             <Icon name="upgrade" /> Upgrade to city · <Icon name="gold" size="sm" /> {upgradeCost}
@@ -206,7 +208,7 @@ export function CitySheet({ settlement }: { settlement: string }) {
             <button
               class="btn suggest-chip"
               disabled={!canAct}
-              aria-label={`Suggested: build ${itemName(suggestion.item)}, because ${suggestion.why}`}
+              aria-label={suggestionLabel(itemName(suggestion.item), suggestion.why)}
               onClick={() => {
                 dispatch({ type: 'setProduction', settlement: s.id, item: suggestion.item });
                 setPicking(null);
@@ -381,10 +383,13 @@ function QueueStrip({
           </li>
         ))}
       </ol>
-      {queue.length < MAX_QUEUE && (
+      {queue.length < MAX_QUEUE ? (
         <button class="btn btn-ghost queue-add" disabled={!canAct} aria-expanded={adding} onClick={onAdd}>
           <Icon name={adding ? 'close' : 'plus'} size="sm" /> {adding ? 'Cancel' : queue.length === 0 ? 'Then build…' : 'Add another'}
         </button>
+      ) : (
+        // Wave 12 playtest: with three follow-ons "Add another" just vanished, with no word why.
+        <p class="small muted queue-full">{queueFullNote(MAX_QUEUE)}</p>
       )}
     </div>
   );

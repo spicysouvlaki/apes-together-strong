@@ -4,7 +4,7 @@
  */
 import { signal } from '@preact/signals';
 import { content, dispatch, game, lookup, me, q } from '../store';
-import { suggestContext, suggestNext } from './build-queue';
+import { suggestContext, suggestionLabel, suggestNext } from './build-queue';
 import { idleUnits } from './hexutil';
 import { foundReady, resting } from './standing-orders';
 import { skipUnit } from './shell-state';
@@ -87,11 +87,15 @@ export function IdleSheet({
                 {pick && (
                   <button
                     class="btn idle-suggest"
-                    aria-label={`Suggested for ${s.name}: build ${pickName}, because ${pick.why}`}
+                    aria-label={suggestionLabel(pickName, pick.why, s.name)}
                     onClick={() => dispatch({ type: 'setProduction', settlement: s.id, item: pick.item })}
                   >
                     <span class="suggest-kicker" aria-hidden="true">Suggested</span>
-                    <span aria-hidden="true">{pickName}</span>
+                    <span class="grow suggest-text" aria-hidden="true">
+                      <strong>{pickName}</strong>
+                      <span class="small muted"> · {pick.why}</span>
+                    </span>
+                    <Icon name="production" size="sm" />
                   </button>
                 )}
               </div>

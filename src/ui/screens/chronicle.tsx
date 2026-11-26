@@ -1,7 +1,7 @@
 /** The Chronicle (GDD §8): the story of a nation that never existed, age by age. */
 import { useState } from 'preact/hooks';
 import { closeModal, content, game, lookup, me, modal, ownerName, q, route } from '../store';
-import { ageSummary, storyFacts, storyParagraphs, type StoryInput } from './shared/chronicle-story';
+import { ageSummary, leaderTitle, storyFacts, storyParagraphs, type StoryInput } from './shared/chronicle-story';
 import { weightRows } from './shared/figures';
 import { ShareButtons } from './chronicle-share';
 import type { ScreenProps } from './index';
@@ -84,7 +84,7 @@ export const ChronicleScreen = (_: ScreenProps<'chronicle'>) => {
               </div>
             )}
             <div class="scr-chron-sub">
-              Led by {view.leader}
+              Led by {leaderTitle(view.leader)}
               {view.dream && (
                 <>
                   <br />

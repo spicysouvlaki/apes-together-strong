@@ -6,10 +6,16 @@
  */
 import type { ContentBundle } from '@contracts/content-schemas';
 import { hexDistance } from '@contracts/hex';
+import { SETTLE_SITE_RANGE } from '../../sim/constants';
+import { hexOfIndex } from '../../sim/lookup';
+import { canFoundAt } from '../../sim/settlements';
 import { RAIDER_PLAYER, type GameState, type ProductionOption, type SettlementId } from '@contracts/sim-api';
 
 /** Contract: at most 3 follow-on items (sim-api `setProductionQueue`). */
 export const MAX_QUEUE = 3;
+
+/** Shown in place of "Add another" when the queue is full. */
+export const queueFullNote = (max: number): string => `The queue holds ${max}; the next opens when ${max === 1 ? 'it starts' : 'the first starts'}.`;
 
 /** The queue with `item` appended (unchanged when full). */
 export const queueAdd = (queue: readonly string[], item: string): string[] => (queue.length >= MAX_QUEUE ? [...queue] : [...queue, item]);
@@ -56,6 +62,22 @@ export interface Suggestion {
   why: string;
 }
 
+/**
+ * Is there explored, foundable land within a settler's reach of `from`? (Wave 12 playtest: the
+ * suggestion kept saying "there is room for another settlement" under the cap when no site was
+ * left; the settler it built stood idle with no numbered site to march to.)
+ */
+export const openLandNear = (state: GameState, me: string, from: { q: number; r: number }, content: ContentBundle): boolean => {
+  const explored = state.players[me]?.explored;
+  if (!explored) return false;
+  for (let i = 0; i < state.map.tiles.length; i++) {
+    if (!explored[i]) continue;
+    const hex = hexOfIndex(state.map, i);
+    if (hexDistance(hex, from) <= SETTLE_SITE_RANGE && canFoundAt(state, me, hex, content)) return true;
+  }
+  return false;
+};
+
 /** How near an enemy must be to count as "danger is near" for the suggestion. */
 const THREAT_RANGE = 3;
 
@@ -78,7 +100,8 @@ export const suggestContext = (
   const owned = Object.values(state.settlements).filter((x) => x.owner === me);
   const founderOut =
     units.some((u) => u.owner === me && founders.has(u.type)) || owned.some((x) => x.id !== sid && !!x.production.item && founders.has(x.production.item));
-  return { name: s.name, unguarded, threatened, roomToExpand: owned.length < cap && !founderOut, founders, military };
+  const roomToExpand = owned.length < cap && !founderOut && openLandNear(state, me, s.at, content);
+  return { name: s.name, unguarded, threatened, roomToExpand, founders, military };
 };
 
 const quickest =(list: readonly ProductionOption[]): ProductionOption | undefined =>
@@ -98,6 +121,15 @@ export const suggestNext = (options: readonly ProductionOption[], ctx: SuggestCo
   if (guard && ctx.unguarded) return { item: guard.item, why: `nothing guards ${ctx.name}` };
   const building = quickest(options.filter((o) => o.kind === 'building'));
   if (building) return { item: building.item, why: building.turns ? `the quickest building (${building.turns} ${building.turns === 1 ? 'turn' : 'turns'})` : 'the quickest building' };
-  const any = quickest(options);
-  return any ? { item: any.item, why: 'the quickest thing to make' } : null;
+  // Wave 12 playtest: with every building built it offered "Scout · the quickest thing to make".
+  // A civilian nobody asked for is not advice; only a soldier is worth suggesting then.
+  const unit = quickest(options.filter((o) => o.kind === 'unit' && ctx.military.has(o.item)));
+  return unit ? { item: unit.item, why: 'every building here is built' } : null;
 };
+
+/**
+ * The suggestion as one spoken sentence (wave 12 playtest: "build Feast Hall, because the
+ * quickest building" did not parse). `where` names the city when the sheet lists several.
+ */
+export const suggestionLabel = (name: string, why: string, where?: string): string =>
+  `Suggested${where ? ` for ${where}` : ''}: build ${name}. ${why.charAt(0).toUpperCase()}${why.slice(1)}.`;

@@ -10,6 +10,7 @@ import { firstContacts, POSTURE_LINE, postureOf } from './first-contact';
 import { resumeRecap } from './resume-recap';
 import { recruitReveal } from './recruit-reveal';
 import { AutoFocusButton } from './AutoFocusButton';
+import { leaderTitle } from '../screens/shared/chronicle-story';
 
 const cap = (s: string): string => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
 
@@ -35,7 +36,7 @@ export function FirstContact() {
           <div class="grow">
             <div class="recap-kicker">First contact</div>
             <h2 class="sheet-title">{name}</h2>
-            {leader && <div class="small muted">Led by {leader.name.replace(/^The /, 'the ')}</div>}
+            {leader && <div class="small muted">Led by {leaderTitle(leader.name)}</div>}
           </div>
         </div>
         <blockquote class="contact-quote">“{m.quote}”</blockquote>

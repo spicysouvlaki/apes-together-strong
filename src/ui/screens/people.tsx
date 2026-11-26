@@ -8,6 +8,7 @@ import type { ScreenProps } from './index';
 import { Empty, Screen } from './shared/components';
 import { cultureColor } from './shared/components';
 import { buildPeople } from './shared/people';
+import { leaderTitle } from './shared/chronicle-story';
 import { shortName } from './shared/describe';
 import { CultureCrest, FigurePortrait, PlayerBanner } from '../art/game-art';
 import { Icon } from '../art/Icon';
@@ -52,7 +53,7 @@ export const PeopleScreen = (_: ScreenProps<'people'>) => {
         </div>
         {v.name ? <h2 class="ppl-name">{cap(v.name)}</h2> : <h2 class="ppl-name unnamed">a people yet unnamed</h2>}
         <div class="ppl-led">
-          Led by {v.leader}
+          Led by {leaderTitle(v.leader)}
           {v.dream && (
             <>
               {' · '}
