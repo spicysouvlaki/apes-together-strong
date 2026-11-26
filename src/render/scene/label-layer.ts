@@ -6,6 +6,11 @@
  * De-overlap: on camera changes `layout()` projects the anchors and runs LabelLayout (pure,
  * label-layout.ts); the result is a per-instance vertical shift (in label heights) and a
  * visibility flag, uploaded as one small attribute. No per-frame allocation.
+ *
+ * Settler site seals (round gold seals with a rank numeral, LabelSpec.seal) share the atlas
+ * and the draw call; they sit on their survey stake, never move and never push names around.
+ * A name cartouche that covers a unit is faded (aShift.y = alpha) so the unit stays readable,
+ * and `hitTag` maps a tap on a label back to the tile it names.
  */
 import {
   CanvasTexture,
@@ -44,6 +49,9 @@ const PILL_TOP = 2;
 const PILL_H = 36;
 const PILL_FRAC = PILL_H / SLOT_H;
 const LEADER_FRAC = (SLOT_H - PILL_TOP - PILL_H) / SLOT_H;
+/** Site seal diameter in slot px (rank 1 is drawn larger). */
+const SEAL_D = 46;
+const SEAL_D_TOP = 58;
 
 const vertexShader = /* glsl */ `
 // Shifted labels move by whole cartouche heights (label-layout.ts works in those units).
@@ -54,20 +62,23 @@ uniform float uSize;
 varying vec2 vUv;
 varying float vAlpha;
 void main() {
+  vAlpha = aShift.y;
   vec4 mv = modelViewMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
   float s = uSize * -mv.z;
   mv.xy += vec2(position.x * aAspect, position.y + aShift.x * ${PILL_FRAC.toFixed(4)}) * s;
   gl_Position = projectionMatrix * mv;
   // Hidden labels collapse to a degenerate point (no fragments).
-  if (aShift.y < 0.5) gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+  if (aShift.y < 0.01) gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
   vUv = vec2(mix(aUv.x, aUv.z, uv.x), mix(aUv.y, aUv.w, uv.y));
 }`;
 
 const fragmentShader = /* glsl */ `
 uniform sampler2D uMap;
 varying vec2 vUv;
+varying float vAlpha;
 void main() {
   vec4 c = texture2D(uMap, vUv);
+  c.a *= vAlpha;
   if (c.a < 0.03) discard;
   gl_FragColor = c;
 }`;
@@ -87,6 +98,13 @@ export class LabelLayer {
   private readonly slotAspect = new Float32Array(LABEL_CAPACITY);
   private readonly slotWidth = new Float32Array(LABEL_CAPACITY);
   private readonly anchors = new Float32Array(LABEL_CAPACITY * 3);
+  /** Caller tag per label (the tile index it names), for tap resolution. */
+  private readonly tags = new Int32Array(LABEL_CAPACITY);
+  /** 1 = site seal (no leader, fixed). */
+  private readonly seal = new Uint8Array(LABEL_CAPACITY);
+  /** Obstacle screen points (units) for fading; grown only when the unit count grows. */
+  private obsX = new Float32Array(64);
+  private obsY = new Float32Array(64);
   private readonly layoutSolver = new LabelLayout(LABEL_CAPACITY);
   private readonly v = new Vector3();
   private n = 0;
@@ -160,7 +178,7 @@ export class LabelLayer {
    * Place a label whose bottom-center anchors at world (x, y, z). Higher `priority` wins
    * de-overlap. Extra labels are dropped.
    */
-  push(spec: LabelSpec, x: number, y: number, z: number, priority = 0): void {
+  push(spec: LabelSpec, x: number, y: number, z: number, priority = 0, tag = -1): void {
     if (this.n >= LABEL_CAPACITY) return;
     const got = this.cache.acquire(labelKey(spec));
     if (!got) return;
@@ -190,6 +208,10 @@ export class LabelLayer {
     uv[i * 4 + 3] = 1 - y0 / ATLAS_H;
     (this.aAspect.array as Float32Array)[i] = this.slotAspect[got.slot] ?? 4;
     this.layoutSolver.priority[i] = priority;
+    const isSeal = spec.seal !== undefined;
+    this.layoutSolver.solid[i] = isSeal ? 0 : 1;
+    this.seal[i] = isSeal ? 1 : 0;
+    this.tags[i] = tag;
     const sh = this.aShift.array as Float32Array;
     sh[i * 2] = 0;
     sh[i * 2 + 1] = 1;
@@ -219,6 +241,9 @@ export class LabelLayer {
     /** HUD-free band (px from the top) labels must stay inside. */
     minY = 0,
     maxY = Infinity,
+    /** World points (x, y, z triples) that labels should not cover (units); faded if they do. */
+    obstacles: Float32Array | null = null,
+    obstacleCount = 0,
   ): void {
     const L = this.layoutSolver;
     const n = this.n;
@@ -231,24 +256,56 @@ export class LabelLayer {
       this.v.set(this.anchors[i * 3] ?? 0, this.anchors[i * 3 + 1] ?? 0, this.anchors[i * 3 + 2] ?? 0).project(camera);
       const sx = (this.v.x * 0.5 + 0.5) * viewW;
       L.x[i] = sx;
-      // Collision box = the cartouche only (the leader below it may cross other labels' land).
-      L.y[i] = (-this.v.y * 0.5 + 0.5) * viewH - hPx * LEADER_FRAC;
-      L.h[i] = hPx * PILL_FRAC;
-      L.w[i] = hPx * (asp[i] ?? 4);
+      if (this.seal[i]) {
+        // Seals: the whole (square) slot, standing on the stake top.
+        L.y[i] = (-this.v.y * 0.5 + 0.5) * viewH;
+        L.h[i] = hPx;
+        L.w[i] = hPx * (asp[i] ?? 1);
+      } else {
+        // Collision box = the cartouche only (the leader below it may cross other labels' land).
+        L.y[i] = (-this.v.y * 0.5 + 0.5) * viewH - hPx * LEADER_FRAC;
+        L.h[i] = hPx * PILL_FRAC;
+        L.w[i] = hPx * (asp[i] ?? 4);
+      }
       // Labels behind the camera or far off screen never block others.
       if (this.v.z > 1 || sx < -viewW || sx > viewW * 2) L.w[i] = 0;
     }
     L.solve(2, minY, maxY);
+    if (obstacles && obstacleCount > 0) {
+      if (this.obsX.length < obstacleCount) {
+        this.obsX = new Float32Array(obstacleCount * 2);
+        this.obsY = new Float32Array(obstacleCount * 2);
+      }
+      let k = 0;
+      for (let j = 0; j < obstacleCount; j++) {
+        this.v.set(obstacles[j * 3] ?? 0, obstacles[j * 3 + 1] ?? 0, obstacles[j * 3 + 2] ?? 0).project(camera);
+        if (this.v.z > 1) continue;
+        this.obsX[k] = (this.v.x * 0.5 + 0.5) * viewW;
+        this.obsY[k] = (-this.v.y * 0.5 + 0.5) * viewH;
+        k++;
+      }
+      L.fade(this.obsX, this.obsY, k);
+    }
     const sh = this.aShift.array as Float32Array;
     let changed = false;
     for (let i = 0; i < n; i++) {
       const s = L.shift[i] ?? 0;
-      const vis = L.visible[i] ?? 1;
+      const vis = L.alpha[i] ?? 1;
       if (sh[i * 2] !== s || sh[i * 2 + 1] !== vis) changed = true;
       sh[i * 2] = s;
       sh[i * 2 + 1] = vis;
     }
     if (changed) this.aShift.needsUpdate = true;
+  }
+
+  /**
+   * Tag (tile index) of the label at screen point (x, y) in CSS px, from the last layout(), or
+   * -1. Faded labels are skipped (the tap belongs to the unit they cover).
+   */
+  hitTag(x: number, y: number): number {
+    if (!this.mesh.visible) return -1;
+    const i = this.layoutSolver.hit(x, y, 4);
+    return i >= 0 ? (this.tags[i] ?? -1) : -1;
   }
 
   touch(): void {
@@ -288,6 +345,14 @@ export class LabelLayer {
     ctx.beginPath();
     ctx.rect(x0, y0, SLOT_W, SLOT_H);
     ctx.clip();
+    if (spec.seal !== undefined) {
+      this.drawSeal(ctx, x0, y0, spec.seal);
+      ctx.restore();
+      this.slotWidth[slot] = SLOT_H;
+      this.slotAspect[slot] = 1;
+      this.dirtyTexture = true;
+      return;
+    }
     ctx.globalAlpha = spec.ghost ? 0.7 : 1;
     // Typeset to the UI's display serif (bundled as 'Fraunces'); Georgia until it loads.
     const nameFont = `600 23px Fraunces, "Fraunces Variable", Georgia, serif`;
@@ -440,6 +505,53 @@ export class LabelLayer {
     this.slotWidth[slot] = used;
     this.slotAspect[slot] = used / SLOT_H;
     this.dirtyTexture = true;
+  }
+
+  /**
+   * Settler site seal: a gold wax-and-leaf seal with an ink rim and the rank numeral, standing
+   * on its bottom edge (the stake top). Dark rim + light halo keep it legible on any terrain.
+   */
+  private drawSeal(ctx: CanvasRenderingContext2D, x0: number, y0: number, rank: number): void {
+    const d = rank === 1 ? SEAL_D_TOP : SEAL_D;
+    const r = d / 2;
+    const cx = x0 + SLOT_H / 2;
+    const cy = y0 + SLOT_H - r - 2;
+    // Soft paper halo (separates the seal from busy terrain).
+    ctx.beginPath();
+    ctx.arc(cx, cy, r + 1.5, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255, 248, 228, 0.85)';
+    ctx.fill();
+    // Scalloped wax edge.
+    ctx.beginPath();
+    const lobes = 14;
+    for (let k = 0; k <= lobes * 2; k++) {
+      const a = (k / (lobes * 2)) * Math.PI * 2;
+      const rr = k % 2 === 0 ? r - 0.5 : r - 3;
+      ctx.lineTo(cx + Math.cos(a) * rr, cy + Math.sin(a) * rr);
+    }
+    ctx.closePath();
+    const g = ctx.createRadialGradient(cx - r * 0.35, cy - r * 0.4, r * 0.1, cx, cy, r);
+    g.addColorStop(0, '#fbe39a');
+    g.addColorStop(0.55, '#e2b448');
+    g.addColorStop(1, '#a9781f');
+    ctx.fillStyle = g;
+    ctx.fill();
+    ctx.lineWidth = 2.2;
+    ctx.strokeStyle = '#3b2c1e';
+    ctx.stroke();
+    // Inner ring.
+    ctx.beginPath();
+    ctx.arc(cx, cy, r - 7, 0, Math.PI * 2);
+    ctx.lineWidth = 1.4;
+    ctx.strokeStyle = 'rgba(92, 62, 18, 0.75)';
+    ctx.stroke();
+    // Numeral.
+    ctx.fillStyle = '#2a1f15';
+    ctx.font = `700 ${rank === 1 ? 30 : 25}px Fraunces, "Fraunces Variable", Georgia, serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(String(rank), cx, cy + 1.5);
+    ctx.textAlign = 'left';
   }
 
   private star(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, ri: number): void {

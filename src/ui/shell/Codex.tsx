@@ -13,6 +13,7 @@ import {
   HEAVIEST_CULTURE_DISCOUNT_PERCENT,
   MAX_HYBRIDS_PER_TRANSITION,
   MAX_SIGNATURES_PER_TRANSITION,
+  REFINEMENT_ESCALATION,
   METER_PER_FIGURE,
   METER_PER_TREE_COMPLETED,
   METER_PER_WONDER,
@@ -160,7 +161,8 @@ export function CodexScreen() {
               <li>
                 Hybrid: two cultures that really met, weight {TIER_WEIGHT.institution} in both; at most {MAX_HYBRIDS_PER_TRANSITION} per transition.
               </li>
-              <li>Your heaviest culture's traditions cost {Math.abs(HEAVIEST_CULTURE_DISCOUNT_PERCENT)}% less. Then you name your people.</li>
+              <li>Your heaviest culture's traditions cost {Math.abs(HEAVIEST_CULTURE_DISCOUNT_PERCENT)}% less.</li>
+              <li>Each adoption makes every later one in the same transition cost {REFINEMENT_ESCALATION} more, so spend on what matters most first. Then you name your people.</li>
             </ul>
             <p class="small muted">Culture whispers (gold-edged notes) tell you a culture is taking interest. There are no numbers to see: only signs.</p>
           </Section>

@@ -70,6 +70,7 @@ const DRAWINGS = {
   dice: `<path d="M12 2.8l8 4.5v9.4L12 21.2l-8-4.5V7.3z"/><path d="M4 7.3l8 4.5 8-4.5M12 11.8v9.4"/><circle ${F} cx="12" cy="7.2" r="1.2"/><circle ${F} cx="7.4" cy="12.6" r="1.1"/><circle ${F} cx="8.8" cy="16.4" r="1.1"/><circle ${F} cx="15.4" cy="13.4" r="1.1"/><circle ${F} cx="17.2" cy="16" r="1.1"/>`,
   check: `<path stroke-width="2.2" d="M4.5 12.5l4.8 4.8L19.5 7"/>`,
   plus: `<path stroke-width="2" d="M12 5v14M5 12h14"/>`,
+  help: `<circle cx="12" cy="12" r="8.8"/><path stroke-width="2" d="M9.2 9.4c.3-1.7 1.5-2.6 3-2.6 1.7 0 3 1.1 3 2.6 0 2.2-3.1 2.3-3.1 4.6"/><circle ${F} cx="12.1" cy="17.1" r="1.3"/>`,
   chronicle: `<path d="M8 4.5h11v12.8a2.2 2.2 0 0 1-2.2 2.2H5.4"/><path ${F} d="M3.2 17.3a2.2 2.2 0 0 0 2.2 2.2 2.2 2.2 0 0 0 0-4.4h11.4v-.1"/><path d="M8 4.5a2 2 0 1 0-4 0v3.2h4"/><path stroke-width="1.1" d="M10.5 8.5h6M10.5 11h6M10.5 13.5h4"/>`,
   play: `<path ${F} d="M7 4.5l12.5 7.5L7 19.5z"/>`,
   quit: `<path d="M5.5 3h10v18h-10z"/><circle ${F} cx="12.8" cy="12" r="1.1"/><path d="M15.5 3l3.5 1.6v14.8L15.5 21"/>`,

@@ -338,3 +338,12 @@ export const consumeText = (def: Figure): string =>
 
 export const consumeBurstText = (def: Figure): string =>
   `+${def.consumeValue * CONSUME_BURST_PER_VALUE} ${YIELD_LABEL[MAIN_YIELD[def.kind]]} per turn for ${CONSUME_BURST_TURNS} turns`;
+
+/**
+ * A figure's bio without the "Archetype." lead-in content uses to flag oral-record roles; the UI
+ * shows that as a chip instead of a stray first word (playtest: "Archetype. In the oasis of…").
+ */
+export const bioText = (bio: string): string => bio.replace(/^\s*Archetype\.\s*/, '');
+
+/** "Duke of Zhou (Zhōu Gōng Dàn)" -> "Duke of Zhou": for buttons, where a second line breaks the layout. */
+export const shortName = (name: string): string => name.replace(/\s*\([^)]*\)\s*$/, '') || name;

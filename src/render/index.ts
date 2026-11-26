@@ -22,7 +22,8 @@
  *   // every snapshot from the worker:
  *   r.setState(state, myPlayerId, queries.visibleTiles(state, myPlayerId, content));
  *   r.onTap((hex) => …);  r.onLongPress((hex) => …);  r.onZoomBand((band) => …);
- *   r.setSelection({ unit, tile, reachable, attackable, path });   // partial updates merge
+ *   r.setSelection({ unit, tile, reachable, attackable, path, pathTurns });   // partial updates merge
+ *   r.setHints({ readyUnits, sites: [{ hex, rank: 1 }, …] });       // settler site markers
  *   r.flash(event.at, 'combat');  r.focus(hex);
  *   r.dispose();  // on unmount
  *
@@ -43,7 +44,10 @@
  *   drag pans with inertia; pinch zooms about the fingers; two-finger twist (or right-drag on
  *   desktop) rotates the view in 60° steps; mouse wheel zooms about the cursor.
  *   Taps outside the map produce no callback. Picking is O(1) (ray -> plane -> axial round,
- *   corrected for tile height).
+ *   corrected for tile height). Taps and long-presses on a settlement label (or a site seal)
+ *   resolve to the labelled hex first, not the tile under the label's screen position.
+ *   focus() always wins: it cancels inertia, and drags/flings of a gesture that began before
+ *   the call are ignored until the next touch-down (camera-motion.ts).
  *
  * FIRST FRAME / FRAMING
  *   On the first snapshot (and on a map-size change) the camera centers the viewer's capital,
@@ -83,7 +87,10 @@
  *   and a red ⚔ label. Labels are vellum banner cartouches ('Fraunces', both unicode-range
  *   subsets requested explicitly and redrawn once loaded, so ā ð ḥ render in the face) that
  *   hang on a short ink leader ABOVE the settlement; de-overlap only moves labels up, and never
- *   into the HUD bands (safe area).
+ *   into the HUD bands (safe area). A label that covers a unit (e.g. one standing on the tile
+ *   north of the city) fades to 30% and lets taps through; a new settlement's label appears
+ *   once its founding pop-in has landed. Trees on the two tiles in front of a visible unit are
+ *   thinned and cleared toward it. Desert carries crescent dunes (lit crest, shaded slip face).
  *
  * SETTLEMENTS
  *   Built from per-culture motif kits keyed by the culture `architecture` of `namedFor`, blended
@@ -101,6 +108,7 @@
  *   createRenderer(canvas, content, { patterns: true, safeArea: { top: 100, bottom: 180 } })
  *   r.setPatterns(on)            colorblind patterns on borders, flags and label swatches (GDD §11)
  *   r.setHints({ readyUnits })   small chevron over own units that still have moves
+ *   r.setHints({ sites })        settler site markers (stake, pennant, numbered seal, gold ring)
  *   r.setSafeArea({ top, bottom, left, right })  HUD padding in CSS px; focus() centers targets in
  *                                the remaining area (default top 100, bottom 180)
  *   r.focus(hex, { safeArea })   one-off override
@@ -150,8 +158,23 @@ export interface RenderSelection {
   reachable: Hex[];
   /** Attack targets (red highlight). */
   attackable: Hex[];
-  /** Optional path preview (dots). */
+  /**
+   * Optional route preview: a dashed ribbon over the tiles (from the selected unit when the
+   * path starts next to it), a waypoint dot per tile and a bullseye on the last hex. Any length.
+   */
   path: Hex[];
+  /**
+   * Optional: indices i into `path` where a new turn starts; a tick is drawn across the edge
+   * path[i-1] -> path[i] (i = 0: the edge leaving the unit's tile). Setting `path` without
+   * `pathTurns` clears the ticks.
+   */
+  pathTurns: number[];
+}
+
+/** A recommended founding site for a selected settler (rank 1 = best). */
+export interface SiteMarker {
+  hex: Hex;
+  rank: number;
 }
 
 export interface RendererOptions {
@@ -182,6 +205,12 @@ export interface SafeArea {
 export interface RenderHints {
   /** Own units that still have moves this turn (small chevron marker). */
   readyUnits: UnitId[];
+  /**
+   * "Good place to settle" markers (e.g. a selected settler's top sites): a planted survey
+   * stake with a fluttering vermilion pennant, a numbered gold seal on top (rank 1 larger) and a
+   * soft round gold ground ring. Distinct from move/attack hex highlights. `[]` clears.
+   */
+  sites: SiteMarker[];
 }
 
 export type FlashKind = 'combat' | 'found' | 'capture' | 'recruit';

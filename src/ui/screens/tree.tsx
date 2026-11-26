@@ -1,5 +1,5 @@
 /** Tech and civic trees (GDD §7 "Trees"): current-age nodes on a scrollable grid. */
-import { useState } from 'preact/hooks';
+import { useEffect, useState } from 'preact/hooks';
 import { GlossText } from '../shell/GlossarySheet';
 import type { Tech } from '@contracts/content-schemas';
 import { closeModal, content, dispatch, game, lookup, me, myTurn, openModal, q } from '../store';
@@ -43,6 +43,10 @@ const unlockDetails = (techId: string): { kind: string; name: string; text: stri
 
 export const TreeScreen = ({ modal }: ScreenProps<'tree'>) => {
   const [detail, setDetail] = useState<string | null>(null);
+  // Switching tree starts at its top (the screen element is reused between the two trees).
+  useEffect(() => {
+    document.querySelector('.screen-body')?.scrollTo({ top: 0 });
+  }, [modal.tree]);
   const g = game.value;
   const player = me.value;
   const p = g && player ? g.players[player] : undefined;
@@ -59,6 +63,12 @@ export const TreeScreen = ({ modal }: ScreenProps<'tree'>) => {
   const slot = p.research[tree];
   const byId: Record<string, Tech> = {};
   for (const n of nodes) byId[n.id] = n;
+  // Unfinished nodes of earlier ages stay researchable (sim/research.ts); without this list they
+  // were unreachable once the age turned (playtest: a skipped Trade locked merchants out).
+  const earlierOpen = content.techs.filter((t) => t.tree === tree && t.age !== g.age && options.some((o) => o.id === t.id));
+  for (const n of earlierOpen) byId[n.id] = n;
+  const otherTree = tree === 'tech' ? 'civic' : 'tech';
+  const idle = (t: 'tech' | 'civic'): boolean => p.research[t].current === null && q.researchOptions(g, player, t, content).length > 0;
 
   const stateOf = (id: string): NodeState =>
     p.techs.includes(id) ? 'done' : slot.current === id ? 'researching' : options.some((o) => o.id === id) ? 'available' : 'locked';
@@ -85,6 +95,11 @@ export const TreeScreen = ({ modal }: ScreenProps<'tree'>) => {
             onClick={() => t !== tree && openModal({ kind: 'tree', tree: t })}
           >
             {t === 'tech' ? 'Technology' : 'Civics'}
+            {idle(t) && (
+              <span class="scr-tab-dot" role="img" aria-label="nothing being studied">
+                !
+              </span>
+            )}
           </button>
         ))}
       </div>
@@ -145,6 +160,29 @@ export const TreeScreen = ({ modal }: ScreenProps<'tree'>) => {
         </div>
       )}
 
+      {earlierOpen.length > 0 && (
+        <div class="scr-earlier">
+          <p class="scr-tag">Still open from earlier ages</p>
+          <div class="scr-earlier-list">
+            {earlierOpen.map((n) => {
+              const st = stateOf(n.id);
+              const turns = turnsOf(n.id);
+              return (
+                <button class={`scr-node scr-node-${st} scr-node-flow`} onClick={() => setDetail(n.id)} aria-label={`${n.name}, ${ageLabel(n.age)} age, ${STATE_LABEL[st]}. ${n.description}`}>
+                  <span class="scr-node-name">{n.name}</span>
+                  <span class="scr-node-desc">{n.description}</span>
+                  {st === 'researching' && <Bar value={slot.progress} max={n.cost} label={`${n.name} progress`} />}
+                  <span class="scr-node-meta">
+                    {glyph} {n.cost}
+                    {turns !== null ? ` · ${turns} ${turns === 1 ? 'turn' : 'turns'}` : ''} · {ageLabel(n.age)}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {node && unlocks && (
         <Sheet
           title={node.name}
@@ -157,6 +195,8 @@ export const TreeScreen = ({ modal }: ScreenProps<'tree'>) => {
                 onClick={() => {
                   dispatch({ type: 'setResearch', tree, id: node.id });
                   setDetail(null);
+                  // "Pick one in each tree" (guide): go straight on to the other tree if it is idle.
+                  if (idle(otherTree)) openModal({ kind: 'tree', tree: otherTree });
                 }}
                 aria-label={`${tree === 'tech' ? 'Research' : 'Adopt'} ${node.name}`}
               >

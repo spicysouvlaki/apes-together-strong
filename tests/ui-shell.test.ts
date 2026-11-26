@@ -139,7 +139,11 @@ describe('end turn plan', () => {
   const all = () => true;
   it('blocks on offers/crisis/transition and on government when its screen exists', () => {
     const ds: Decision[] = [{ type: 'research', tree: 'tech' }, { type: 'government' }, { type: 'production', settlement: 's1' }];
-    expect(planEndTurn(ds, all)).toMatchObject({ mode: 'next', next: { type: 'government' } });
+    // Government blocks, but the button walks production then research first (guide order).
+    expect(planEndTurn(ds, all)).toMatchObject({ mode: 'next', next: { type: 'production', settlement: 's1' } });
+    expect(planEndTurn([ds[0]!, ds[1]!], all)).toMatchObject({ mode: 'next', next: { type: 'research' } });
+    expect(planEndTurn([{ type: 'government' }], all)).toMatchObject({ mode: 'next', next: { type: 'government' } });
+    expect(planEndTurn([...ds, { type: 'offer', offer: 'o1' }], all).next?.type).not.toBe('production');
     const noGov = planEndTurn(ds, (k) => k !== 'government');
     expect(noGov.mode).toBe('end');
     expect(noGov.advisory).toHaveLength(3);
@@ -198,7 +202,7 @@ describe('event toasts', () => {
     expect(t({ type: 'settlementGrew', settlement: 'theirs', population: 3 })).toBeNull();
     expect(t({ type: 'notice', player: 'p2', text: 'x' })).toBeNull();
     expect(t({ type: 'settlementGrew', settlement: 'mine', population: 3 })?.text).toBe('Ur grew to 3.');
-    expect(t({ type: 'notice', player: null, text: 'all' })?.text).toBe('all');
+    expect(t({ type: 'notice', player: null, text: 'all' })?.text).toBe('All');
   });
 
   it('flashes combat and founding at the right hex', () => {
@@ -383,5 +387,39 @@ describe('turn news (playtest QoL)', () => {
     expect(turnLog.value).toHaveLength(LOG_MAX);
     expect(turnLog.value[0]).toEqual({ turn: 10, text: 'e10', tone: 'info' });
     expect(turnLog.value[LOG_MAX - 1]?.text).toBe('e59');
+  });
+});
+
+describe('rivals-moving line (playtest wording)', () => {
+  it('agrees in number and capitalises a civ name', async () => {
+    const { thinkingLine } = await import('../src/ui/shell/Hud');
+    expect(thinkingLine("The Builder's people")).toBe("The Builder's people are moving…");
+    expect(thinkingLine('the Hellenic Kléos')).toBe('The Hellenic Kléos is moving…');
+    expect(thinkingLine('')).toBe('Rivals are moving…');
+  });
+});
+
+describe('idle units (playtest: a settler that marched onto its site)', () => {
+  it('counts a unit with no moves left when it can still act', async () => {
+    const { idleUnits } = await import('../src/ui/shell/hexutil');
+    const s = newGame();
+    const settler = Object.values(s.units).find((u) => u.owner === 'p1' && u.type === 'settler')!;
+    const spent: GameState = { ...s, units: { ...s.units, [settler.id]: { ...settler, movesLeft: 0 } } };
+    expect(idleUnits(spent, 'p1', new Set()).some((u) => u.id === settler.id)).toBe(false);
+    expect(idleUnits(spent, 'p1', new Set(), new Set([settler.id])).some((u) => u.id === settler.id)).toBe(true);
+  });
+});
+
+describe('number formatting (playtest: long numbers in narrow columns)', () => {
+  it('drops decimals from 100, groups thousands, shortens HUD stockpiles', async () => {
+    const { num, hudNum } = await import('../src/ui/shell/format');
+    expect(num(2.35)).toBe('2.4');
+    expect(num(3)).toBe('3');
+    expect(num(123.4)).toBe('123');
+    expect(num(12345.6)).toBe('12,346');
+    expect(num(-1500)).toBe('-1,500');
+    expect(hudNum(9999)).toBe('9,999');
+    expect(hudNum(12345)).toBe('12.3k');
+    expect(hudNum(234567)).toBe('235k');
   });
 });

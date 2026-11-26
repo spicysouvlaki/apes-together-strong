@@ -67,7 +67,9 @@ export interface EndTurnPlan {
   idleCities: string[];
 }
 
-export const isBlocking = (d: Decision, isRegistered: (kind: ModalKind) => boolean): boolean => {
+const ADVISORY_ORDER: Record<Decision['type'], number> = { production: 0, research: 1, government: 2, offer: 3, crisis: 4, transition: 5 };
+
+export const isBlocking =(d: Decision, isRegistered: (kind: ModalKind) => boolean): boolean => {
   if (ALWAYS_BLOCKING.has(d.type)) return true;
   // Government blocks only if its screen exists; otherwise the player could never get past it.
   if (d.type === 'government') return isRegistered('government');
@@ -89,6 +91,11 @@ export const planEndTurn = (
   // A pending offer/crisis/transition still wins: the sim will not end the turn without it.
   const hardFirst = blocking.find((d) => d.type !== 'government');
   if (founder && !hardFirst) return { mode: 'next', next: { type: 'found', unit: founder }, advisory, idleCities };
+  // Only a government is missing (the first turns): the turn cannot end yet anyway, so walk the
+  // player through what to build and study first, in the guide's order (playtest: the guide
+  // said "choose what it builds" while the button pointed at Government).
+  const walk = !hardFirst && blocking.length > 0 ? [...advisory].sort((a, b) => ADVISORY_ORDER[a.type] - ADVISORY_ORDER[b.type])[0] : undefined;
+  if (walk) return { mode: 'next', next: walk, advisory, idleCities };
   const first = blocking[0];
   if (first) return { mode: 'next', next: first, advisory, idleCities };
   return { mode: 'end', next: advisory[0] ?? null, advisory, idleCities };

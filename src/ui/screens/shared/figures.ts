@@ -58,7 +58,7 @@ export const whereText = (state: GameState, fs: FigureState, content: ContentBun
       const near = u
         ? Object.values(state.settlements).find((s) => s.at.q === u.at.q && s.at.r === u.at.r)?.name
         : undefined;
-      return near ? `In ${near}` : 'On campaign';
+      return near ? `In the field at ${near}` : 'On campaign';
     }
     case 'based':
       return `In ${state.settlements[loc.settlement]?.name ?? 'a lost city'}`;

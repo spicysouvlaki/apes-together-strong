@@ -109,7 +109,16 @@ export const stepOrder = (state: GameState, me: PlayerId, unit: UnitId, order: S
   if (order.kind === 'goto') {
     goal = order.to;
     path = deps.pathTo(unit, goal);
-    if (!path || path.length === 0) return { kind: 'done', reason: 'impossible' };
+    if (!path || path.length === 0) {
+      // Our own unit stands on the goal (a scout on the settling site): close in beside it and
+      // wait for it to move on, rather than dropping the order (playtest).
+      const ownThere = Object.values(state.units).some((x) => x.owner === me && x.id !== unit && hexEquals(x.at, goal));
+      if (!ownThere) return { kind: 'done', reason: 'impossible' };
+      if (hexDistance(u.at, goal) === 1) return { kind: 'wait' };
+      const near = routeBeside(goal, (h) => deps.pathTo(unit, h));
+      if (!near) return { kind: 'wait' };
+      path = near.path;
+    }
   } else {
     const t = exploreTarget(state, me, unit, deps);
     if (!t) return { kind: 'done', reason: 'explored' };

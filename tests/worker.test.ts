@@ -19,6 +19,29 @@ const player = (id: string, isHuman: boolean): PlayerState =>
     affinity: { greek: 42, egyptian: 7 },
   }) as unknown as PlayerState;
 
+/** Fields a loadable save must have (src/platform/migrate.ts) and the defaults it fills in. */
+const FILLER = {
+  speed: 'quick',
+  mapSize: 'small',
+  finalAge: 'classical',
+  difficulty: 'normal',
+  ageProgress: 0,
+  rng: [1, 2, 3, 4],
+  nextId: 1,
+  map: {},
+  settlements: {},
+  units: {},
+  figures: {},
+  offers: [],
+  deedsDone: [],
+  wonders: {},
+  cityStates: {},
+  tradeRoutes: [],
+  wars: {},
+  crisis: null,
+  result: null,
+};
+
 const makeState = (humans: boolean[]): GameState => {
   const players: Record<string, PlayerState> = {};
   const order = humans.map((h, i) => {
@@ -36,6 +59,7 @@ const makeState = (humans: boolean[]): GameState => {
     playerOrder: order,
     players,
     transition: null,
+    ...FILLER,
   } as unknown as GameState;
 };
 
@@ -94,7 +118,8 @@ const setup = { seed: 1, mapSize: 'small', speed: 'quick', players: [] } as Game
 
 const makeHost = (o: { humans: boolean[]; ai?: RunAiTurn; transitionAtTurn?: number; maxAiSteps?: number }) => {
   const posts: FromWorker[] = [];
-  const saves = new Saves(createMemoryStore(), (() => {
+  const store = createMemoryStore();
+  const saves = new Saves(store, (() => {
     let t = 1000;
     return () => t++;
   })());
@@ -108,7 +133,7 @@ const makeHost = (o: { humans: boolean[]; ai?: RunAiTurn; transitionAtTurn?: num
     return s.state;
   };
   const endTurn = (p: PlayerId = 'p1') => host.receive({ type: 'command', player: p, command: { type: 'endTurn' } });
-  return { host, posts, saves, states, errors, lastState, endTurn };
+  return { host, posts, saves, store, states, errors, lastState, endTurn };
 };
 
 describe('worker host', () => {
@@ -206,14 +231,18 @@ describe('worker host', () => {
     const h = makeHost({ humans: [true, false] });
     await h.host.receive({ type: 'newGame', setup });
     for (let i = 0; i < 7; i++) await h.endTurn();
-    // A command that does not start a new turn must not autosave.
-    await h.host.receive({ type: 'command', player: 'p1', command: { type: 'fortify', unit: 'u1' } });
     const list = await h.saves.list();
     expect(list.map((m) => m.slot)).toEqual(['auto:0', 'auto:1', 'auto:2', 'auto:3', 'auto:4']);
     expect(list.map((m) => m.turn)).toEqual([8, 7, 6, 5, 4]);
     const lastSaves = h.posts.filter((m) => m.type === 'saves').at(-1);
     expect(lastSaves).toEqual({ type: 'saves', saves: list });
     expect((await h.saves.load('auto:2')).turn).toBe(6);
+    // A command that does not start a new turn does not rotate the ring; it updates the
+    // resume save, which is listed as auto:0 while newest.
+    await h.host.receive({ type: 'command', player: 'p1', command: { type: 'fortify', unit: 'u1' } });
+    await h.host.flush();
+    expect((await h.saves.list()).map((m) => m.turn)).toEqual([8, 8, 7, 6, 5]);
+    expect((await h.store.list()).map((e) => e.key)).toContain('resume');
   });
 
   it('save/load round-trips byte-identical JSON', async () => {

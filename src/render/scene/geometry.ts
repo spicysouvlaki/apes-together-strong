@@ -489,6 +489,91 @@ export const driftGeometry = (): BufferGeometry => {
   return assemble([paintBy(g, (_x, y) => scaleRgb([1, 1, 1], 0.92 + y * 0.6))]);
 };
 
+/**
+ * Desert dune (barchan): a crescent ridge with a long gentle windward slope (−z), a sharp
+ * sunlit crest and a short steep shaded slip face (+z); the horns curve downwind. Baked
+ * tones (lit windward, bright crest, dark slip face) so it reads as sand relief, not a leaf.
+ * ~1 long (x), base at y = 0; tinted per instance with the tile color.
+ */
+export const duneGeometry = (): BufferGeometry => {
+  const pos: number[] = [];
+  const col: number[] = [];
+  const SEG = 10;
+  const LEN = 1.05;
+  const H = 0.19;
+  // Cross-section stations: (z, height fraction, shade): long sunlit windward slope, a bright
+  // knife-edge crest, a short steep slip face in shadow, and a darker foot (contact shadow).
+  const prof: [number, number, number][] = [
+    [-0.36, 0, 0.88],
+    [-0.18, 0.4, 1.0],
+    [-0.02, 0.8, 1.1],
+    [0.07, 1, 1.28],
+    [0.13, 0.55, 0.62],
+    [0.2, 0, 0.5],
+  ];
+  const vert = (i: number, k: number): [number, number, number, number] => {
+    const u = (i / SEG) * 2 - 1; // -1..1 along the ridge
+    const taper = Math.pow(Math.max(0, 1 - u * u), 0.7);
+    const st = prof[k] ?? [0, 0, 1];
+    const horn = 0.2 * u * u; // horns bend downwind
+    const narrow = 0.45 + 0.55 * taper;
+    return [u * LEN * 0.5, st[1] * H * taper, st[0] * narrow + horn, st[2]];
+  };
+  const tri = (a: number[], b: number[], c: number[]): void => {
+    pushTri(pos, a, b, c);
+    for (const v of [a, b, c]) {
+      const k = v[3] ?? 1;
+      col.push(k, k, k);
+    }
+  };
+  for (let i = 0; i < SEG; i++) {
+    for (let k = 0; k < prof.length - 1; k++) {
+      const a = vert(i, k);
+      const b = vert(i + 1, k);
+      const c = vert(i + 1, k + 1);
+      const d = vert(i, k + 1);
+      tri(a, c, b);
+      tri(a, d, c);
+    }
+  }
+  return flatGeometry(pos, col);
+};
+
+/**
+ * Settler site marker (GDD §7 "Settlements": the best places to found nearby): a planted
+ * survey stake with a vermilion pennant (cloth along +x so the SWAY shader flutters only the
+ * cloth) and a small mound of turned earth at its foot. The numbered gold seal is a label-atlas
+ * billboard that sits on the stake top (SITE_STAKE_TOP); the soft gold ground ring is a halo.
+ */
+export const SITE_STAKE_TOP = 0.6;
+export const surveyStakeGeometry = (): BufferGeometry => {
+  const parts: BufferGeometry[] = [];
+  const pole = new CylinderGeometry(0.014, 0.02, SITE_STAKE_TOP, 5);
+  pole.translate(0, SITE_STAKE_TOP / 2, 0);
+  parts.push(paintBy(pole, (_x, y) => scaleRgb(lin('#7a5532'), 0.75 + (y / SITE_STAKE_TOP) * 0.4)));
+  const mound = new SphereGeometry(0.075, 6, 2, 0, Math.PI * 2, 0, Math.PI / 2);
+  mound.scale(1, 0.45, 1);
+  parts.push(paint(mound, lin('#6b4a2e')));
+  // Pennant: a swallow-tailed cloth below the seal, hoist band cream, fly vermilion.
+  const cloth: number[] = [];
+  const top = SITE_STAKE_TOP - 0.06;
+  const bot = top - 0.17;
+  const mid = (top + bot) / 2;
+  const L = 0.26;
+  const h = 0.045; // hoist band width
+  const band: number[] = [];
+  pushTri(band, [0, top, 0], [0, bot, 0], [h, top, 0]);
+  pushTri(band, [0, bot, 0], [h, bot, 0], [h, top, 0]);
+  parts.push(paint(flatGeometry(band), lin('#f4e6c4')));
+  // Fly with a swallow-tail notch: (h,top) (L,top') (L-0.07,mid) (L,bot') (h,bot).
+  const n = [L - 0.07, mid, 0];
+  pushTri(cloth, [h, top, 0], [h, bot, 0], n);
+  pushTri(cloth, [h, top, 0], n, [L, top - 0.015, 0]);
+  pushTri(cloth, [h, bot, 0], [L, bot + 0.015, 0], n);
+  parts.push(paint(flatGeometry(cloth), lin('#c8442c')));
+  return assemble(parts);
+};
+
 /** Wildflower sprinkle: tiny colored blobs (fixed vertex colors). */
 export const flowerGeometry = (): BufferGeometry => {
   const parts: BufferGeometry[] = [];

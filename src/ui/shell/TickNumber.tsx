@@ -4,6 +4,7 @@
  * jumps straight to the value under reduce motion.
  */
 import { useEffect, useRef } from 'preact/hooks';
+import { hudNum } from './format';
 
 const reduced = (): boolean =>
   typeof document === 'undefined' ||
@@ -22,7 +23,7 @@ export function TickNumber({ value }: { value: number }) {
     shown.current = value;
     if (reduced()) return undefined;
     const write = (n: number): void => {
-      text.data = String(n);
+      text.data = hudNum(n);
     };
     node.classList.remove('tick-pop', 'tick-drop');
     void node.offsetWidth; // restart the pop animation
@@ -43,7 +44,7 @@ export function TickNumber({ value }: { value: number }) {
   }, [value]);
   return (
     <span ref={el} class="tnum">
-      {value}
+      {hudNum(value)}
     </span>
   );
 }

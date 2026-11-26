@@ -57,7 +57,13 @@ const combatToast = (ev: Extract<SimEvent, { type: 'combat' }>, me: PlayerId, n:
   return null;
 };
 
+/** A toast is a sentence: civ names are stored lower-case ("the Norse Thing declared war"). */
 export const eventToToast = (ev: SimEvent, me: PlayerId, n: EventNames): ToastSpec | null => {
+  const t = eventToToastRaw(ev, me, n);
+  return t && t.text ? { ...t, text: t.text.charAt(0).toUpperCase() + t.text.slice(1) } : t;
+};
+
+const eventToToastRaw = (ev: SimEvent, me: PlayerId, n: EventNames): ToastSpec | null => {
   switch (ev.type) {
     case 'combat':
       return combatToast(ev, me, n);

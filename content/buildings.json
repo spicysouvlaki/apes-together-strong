@@ -1,5 +1,5 @@
 [
-  { "id": "monument", "name": "Monument", "age": "ancient", "cost": 30,
+  { "id": "monument", "name": "Monument", "age": "ancient", "cost": 20,
     "yields": { "culture": 2 }, "gp": { "building": 1 },
     "description": "+2 culture; +1 building great-people point per turn." },
   { "id": "granary", "name": "Granary", "age": "ancient", "cost": 40, "requiresTech": "pottery",

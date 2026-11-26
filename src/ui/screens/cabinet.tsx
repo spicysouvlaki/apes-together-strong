@@ -10,23 +10,30 @@ import { seatLabel } from './figure';
 import { Icon } from '../art/Icon';
 import { FigurePortrait } from '../art/game-art';
 
-/** Decorative council: the seats around a round table, filled with portraits (GDD §3 "Seat"). */
+/**
+ * Decorative council: the seats on an arc behind a round table, each with its title, like a
+ * council seen from the door (GDD §3 "Seat"). Playtest: two loose discs beside an oval read as
+ * unfinished, so each seat now carries its name and sits on an inked dais.
+ */
 const Council = ({ seats }: { seats: { key: string; figure: string | null }[] }) => {
   const n = seats.length;
   if (n === 0) return null;
+  const spread = Math.min(0.84, 0.3 + 0.18 * (n - 1));
   return (
     <div class="scr-council" aria-hidden="true">
+      <div class="scr-council-dais" />
       <div class="scr-council-table">
         <Icon name="cabinet" />
       </div>
       {seats.map((s, i) => {
-        // Seats along the far side of the table, like a council seen from the door.
-        const a = n === 1 ? Math.PI * 1.5 : Math.PI * (1.12 + (0.76 * i) / (n - 1));
-        const x = 50 + Math.cos(a) * 34;
-        const y = 70 + Math.sin(a) * 48;
+        const t = n === 1 ? 0.5 : i / (n - 1);
+        const a = Math.PI * (1.5 + spread * (t - 0.5));
+        const x = 50 + Math.cos(a) * 38;
+        const y = 64 + Math.sin(a) * 42;
         return (
-          <div class="scr-council-seat" style={{ left: `${x}%`, top: `${y}%` }}>
+          <div class={`scr-council-seat${s.figure ? '' : ' is-empty'}`} style={{ left: `${x}%`, top: `${y}%` }}>
             {s.figure ? <FigurePortrait figure={s.figure} size="sm" badge={false} /> : <span class="scr-council-empty"><Icon name="seat" size="sm" /></span>}
+            <span class="scr-council-label">{seatLabel(s.key)}</span>
           </div>
         );
       })}

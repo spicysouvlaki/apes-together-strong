@@ -165,7 +165,7 @@ export function Setup() {
           </div>
         </div>
 
-        <Step n="IV" title="Your people" />
+        <Step n="IV" title="Your people" note="How your people look on the map." />
         <div class="swatches" role="radiogroup" aria-label="Skin tone">
           {SKIN_TONES.map((hex, i) => (
             <button

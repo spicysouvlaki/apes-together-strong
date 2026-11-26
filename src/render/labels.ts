@@ -22,7 +22,12 @@ export interface LabelSpec {
   cityState?: boolean;
   /** Wall HP fraction (0..1, quantized to tenths); omitted or 1 = undamaged, no bar. */
   wall?: number;
+  /** A settler site seal: a round gold seal with this rank's numeral instead of a cartouche. */
+  seal?: number;
 }
+
+/** Site seal spec (rank 1 = best site, drawn a little larger). */
+export const sealSpec = (rank: number): LabelSpec => ({ text: String(rank), capital: false, color: '#c9a03a', seal: rank });
 
 export interface LabelExtras {
   pattern?: number;
@@ -55,7 +60,9 @@ export const labelSpec = (
 
 /** Cache key: everything that changes the pixels, nothing else. */
 export const labelKey = (spec: LabelSpec): string =>
-  `${spec.capital ? '*' : '-'}${spec.color}|${spec.pattern ?? 0}${spec.ghost ? 'g' : ''}${spec.war ? 'w' : ''}${spec.cityState ? 'c' : ''}${spec.wall !== undefined && spec.wall < 1 ? `h${spec.wall}` : ''}|${spec.text}`;
+  spec.seal !== undefined
+    ? `seal|${spec.seal}`
+    : `${spec.capital ? '*' : '-'}${spec.color}|${spec.pattern ?? 0}${spec.ghost ? 'g' : ''}${spec.war ? 'w' : ''}${spec.cityState ? 'c' : ''}${spec.wall !== undefined && spec.wall < 1 ? `h${spec.wall}` : ''}|${spec.text}`;
 
 /**
  * Fixed-capacity LRU of atlas slots keyed by label key. `acquire` returns the slot and whether

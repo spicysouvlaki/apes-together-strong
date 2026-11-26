@@ -3,9 +3,9 @@
  * one tap jumps to each, or end the turn anyway (playtest: "what is still idle?").
  */
 import { signal } from '@preact/signals';
-import { game, lookup, me } from '../store';
+import { content, game, lookup, me, q } from '../store';
 import { idleUnits } from './hexutil';
-import { resting } from './standing-orders';
+import { foundReady, resting } from './standing-orders';
 import { skipUnit } from './shell-state';
 import { selectUnit } from './MapView';
 import type { Prompt } from './decisions';
@@ -18,8 +18,10 @@ export function IdleSheet({ onEndTurn, openDecision }: { onEndTurn: () => void; 
   const g = game.value;
   const my = me.value;
   if (!g || !my) return null;
-  const units = idleUnits(g, my, resting.value);
+  const units = idleUnits(g, my, resting.value, foundReady.value);
   const cities = Object.values(g.settlements).filter((s) => s.owner === my && s.kind === 'city' && !s.production.item);
+  // Idle trees too (playtest: after the age turned, both trees sat idle and the sheet said nothing).
+  const trees = q.pendingDecisions(g, my, content).flatMap((d) => (d.type === 'research' ? [d.tree] : []));
   const close = (): void => {
     idleSheetOpen.value = false;
   };
@@ -41,6 +43,20 @@ export function IdleSheet({ onEndTurn, openDecision }: { onEndTurn: () => void; 
             >
               <Icon name="production" />
               <span class="grow">{s.name}: nothing to build</span>
+              <Icon name="chevron" size="sm" />
+            </button>
+          ))}
+          {trees.map((tree) => (
+            <button
+              key={tree}
+              class="btn idle-row"
+              onClick={() => {
+                close();
+                openDecision({ type: 'research', tree });
+              }}
+            >
+              <Icon name={tree === 'tech' ? 'science' : 'culture'} />
+              <span class="grow">{tree === 'tech' ? 'Technology' : 'Civics'}: nothing being studied</span>
               <Icon name="chevron" size="sm" />
             </button>
           ))}

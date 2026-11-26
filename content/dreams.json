@@ -6,5 +6,5 @@
   { "id": "kleos", "native": "κλέος", "romanized": "Kléos", "language": "Ancient Greek", "meaning": "Undying glory", "modifiers": [{ "scope": "empire", "effect": { "kind": "gpPoints", "gp": "military", "percent": 20 } }] },
   { "id": "ubuntu", "native": "Ubuntu", "romanized": "Ubuntu", "language": "Nguni Bantu", "meaning": "A person is a person through others", "modifiers": [{ "scope": "settlement", "effect": { "kind": "yield", "yield": "food", "percent": 10 } }] },
   { "id": "dharma", "native": "धर्म", "romanized": "Dharma", "language": "Sanskrit", "meaning": "Duty and right order", "modifiers": [{ "scope": "settlement", "effect": { "kind": "yield", "yield": "faith", "add": 1 } }] },
-  { "id": "destinatio_manifesta", "native": "Destinatio Manifesta", "romanized": "Destinatio Manifesta", "language": "Latin", "meaning": "A destiny made plain", "modifiers": [{ "scope": "empire", "effect": { "kind": "settlementCap", "add": 1 } }] }
+  { "id": "destinatio_manifesta", "native": "Destinatio Manifesta", "romanized": "Destinatio Manifesta", "language": "Modern Latin calque of the 1845 US slogan ‘Manifest Destiny’", "meaning": "A destiny made plain", "modifiers": [{ "scope": "empire", "effect": { "kind": "settlementCap", "add": 1 } }] }
 ]

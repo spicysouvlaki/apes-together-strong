@@ -56,18 +56,26 @@ export const homeHex = (state: GameState, me: PlayerId): Hex | null => {
  * Units that still want orders this turn: own, with moves left, not fortified and not skipped.
  * Returns the one after `current` in stable order (wrapping), or the first.
  */
-export const idleUnits = (state: GameState, me: PlayerId, skipped: ReadonlySet<string>): Unit[] =>
+/**
+ * Own units still waiting for orders. `ready` adds units that have spent their moves but can
+ * still act (a settler that marched onto its site can found at once; playtest: it arrived with
+ * no moves left and dropped out of "Next unit", so the player never knew).
+ */
+export const idleUnits = (state: GameState, me: PlayerId, skipped: ReadonlySet<string>, ready: ReadonlySet<string> = NONE): Unit[] =>
   Object.values(state.units)
-    .filter((u) => u.owner === me && u.movesLeft > 0 && !u.fortified && !skipped.has(u.id))
+    .filter((u) => u.owner === me && (u.movesLeft > 0 || ready.has(u.id)) && !u.fortified && !skipped.has(u.id))
     .sort((a, b) => compareIds(a.id, b.id));
+
+const NONE: ReadonlySet<string> = new Set();
 
 export const nextIdleUnit = (
   state: GameState,
   me: PlayerId,
   skipped: ReadonlySet<string>,
   current: string | null,
+  ready: ReadonlySet<string> = NONE,
 ): Unit | null => {
-  const list = idleUnits(state, me, skipped);
+  const list = idleUnits(state, me, skipped, ready);
   if (list.length === 0) return null;
   if (!current) return list[0] ?? null;
   const all = Object.values(state.units)

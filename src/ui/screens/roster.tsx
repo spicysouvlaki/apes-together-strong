@@ -5,6 +5,7 @@ import type { ScreenProps } from './index';
 import { Empty, Portrait, Screen, Section, WeightBars, CultureChip } from './shared/components';
 import { ancestorYield, KIND_LABEL } from './shared/describe';
 import { groupRoster, weightRows } from './shared/figures';
+import { Icon } from '../art/Icon';
 
 export const RosterScreen = (_: ScreenProps<'roster'>) => {
   const g = game.value;
@@ -50,8 +51,14 @@ export const RosterScreen = (_: ScreenProps<'roster'>) => {
                     <div class="small muted">
                       {KIND_LABEL[e.def.kind]} · {grp.id === 'hall' ? ancestorYield(e.def.kind) : e.where}
                     </div>
+                    {e.fs.location.state === 'based' && q.figureActions(g, e.fs.id, content).seat.length > 0 && (
+                      <div class="small scr-fig-cue">
+                        <Icon name="seat" size="sm" /> A cabinet seat is free: tap to seat
+                      </div>
+                    )}
                   </div>
                   <CultureChip culture={e.def.culture} />
+                  <Icon name="chevron" size="sm" />
                 </button>
               </li>
             ))}

@@ -26,6 +26,8 @@ export interface PlannedRoute {
   tapped: Hex;
   path: Hex[];
   turns: number;
+  /** One of the player's own units stands on the tapped tile: the march waits for it to move. */
+  blockedBy?: string;
 }
 export const plannedRoute = signal<PlannedRoute | null>(null);
 
@@ -34,6 +36,19 @@ export const resting = computed<ReadonlySet<string>>(() => {
   const ids = Object.keys(orders.value);
   if (ids.length === 0) return skipped.value;
   return new Set([...skipped.value, ...ids]);
+});
+
+/** Founders with no moves left standing where they can found now (still need the player). */
+export const foundReady = computed<ReadonlySet<string>>(() => {
+  const g = game.value;
+  const my = me.value;
+  if (!g || !my) return new Set();
+  const out = new Set<string>();
+  for (const u of Object.values(g.units)) {
+    if (u.owner !== my || u.movesLeft > 0 || orders.value[u.id] || !lookup.units[u.type]?.canFound) continue;
+    if (q.canFound(g, u.id, content)) out.add(u.id);
+  }
+  return out;
 });
 
 export const setOrder = (unit: UnitId, order: StandingOrder | null): void => {
@@ -60,19 +75,27 @@ export const planRoute = (unit: UnitId, to: Hex): PlannedRoute | null => {
   if (!g || !u || !def) return null;
   let dest = to;
   let path = q.pathTo(g, unit, to, content);
+  let blockedBy: string | undefined;
   if (!path || path.length === 0) {
+    // Our own unit on the tile (a scout resting on the best settling site): keep the tile itself
+    // as the goal so the march finishes once it moves on, instead of stopping beside the site
+    // where a settler cannot found (playtest: the settler stopped 3 tiles from the capital).
+    const own = Object.values(g.units).find((x) => x.owner === u.owner && x.id !== u.id && x.at.q === to.q && x.at.r === to.r);
+    if (own) blockedBy = (own.figure ? lookup.figures[own.figure]?.name : undefined) ?? lookup.units[own.type]?.name ?? 'unit';
     // A foreign city or unit cannot be entered: march beside it instead (merchants, envoys of
     // war). The nearest reachable neighbour by route length wins.
     const near = routeBeside(to, (h) => q.pathTo(g, unit, h, content));
     if (!near) return null;
-    dest = near.to;
+    dest = blockedBy ? to : near.to;
     path = near.path;
   }
   const cost = (h: Hex): number => {
     const t = tileAt(g.map, h);
     return t ? stepCost(t, def, content) : 1;
   };
-  return { unit, to: dest, tapped: to, path, turns: routeTurns(path, u.movesLeft, def.moves, cost) };
+  const plan: PlannedRoute = { unit, to: dest, tapped: to, path, turns: routeTurns(path, u.movesLeft, def.moves, cost) };
+  if (blockedBy) plan.blockedBy = blockedBy;
+  return plan;
 };
 
 // --- Runner -----------------------------------------------------------------

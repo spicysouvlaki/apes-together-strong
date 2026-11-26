@@ -7,7 +7,8 @@ import { useState } from 'preact/hooks';
 import type { ProductionOption } from '@contracts/sim-api';
 import type { YieldType } from '@contracts/content-schemas';
 import { closeModal, content, dispatch, game, lookup, me, myTurn, openModal, q } from '../store';
-import { YIELD_ICON, YIELD_NAME, capitalize, num, signed, turnsText } from './format';
+import { YIELD_ICON, YIELD_NAME, capitalize, growthText, num, signed, turnsText } from './format';
+import { FOOD_PER_POP, UNREST_THRESHOLD } from '../../sim/constants';
 import { Icon } from '../art/Icon';
 import { FigurePortrait } from '../art/game-art';
 import { GlossText } from './GlossarySheet';
@@ -58,6 +59,9 @@ export function CitySheet({ settlement }: { settlement: string }) {
   const gold = g.players[my]?.stock.gold ?? 0;
   const yields = q.settlementYields(g, s.id, content);
   const growth = q.growthCost(s.population);
+  // Mirrors sim/settlements.ts growSettlement: citizens eat, unrest stops growth.
+  const rawSurplus = yields.food - FOOD_PER_POP * s.population;
+  const surplus = (g.players[s.owner]?.happiness ?? 0) < UNREST_THRESHOLD ? Math.min(0, rawSurplus) : rawSurplus;
   const options = mine && s.kind === 'city' ? q.productionOptions(g, s.id, content) : [];
   const current = s.production.item;
   const currentOpt = current ? options.find((o) => o.item === current) : undefined;
@@ -90,6 +94,7 @@ export function CitySheet({ settlement }: { settlement: string }) {
       <div class="progress-line" aria-label={`Food ${num(s.foodStored)} of ${num(growth)} to grow`}>
         <span class="small">
           <Icon name="food" size="sm" /> Growth <span class="tnum">{num(s.foodStored)}/{num(growth)}</span>
+          {mine && <span class={`muted growth-eta${surplus < 0 ? ' bad-text' : ''}`}> · {growthText(s.foodStored, growth, surplus)}</span>}
         </span>
         <span class="bar" aria-hidden="true">
           <span style={{ width: `${Math.min(100, (s.foodStored / Math.max(1, growth)) * 100)}%` }} />

@@ -9,6 +9,14 @@ import { PlayerBanner } from '../art/game-art';
 
 const INF = <Icon name="influence" size="sm" />;
 
+/** A price on a button: one tight pill, so the label never reads "Send envoy ( 20)". */
+const Cost = ({ n }: { n: number }) => (
+  <span class="cost-tag" aria-hidden="true">
+    {INF}
+    {n}
+  </span>
+);
+
 /**
  * Envoys still needed to lead: at least the minimum, and one more than whoever leads now (a tie
  * keeps the incumbent; sim/diplomacy.ts). Display arithmetic only, the sim decides.
@@ -56,7 +64,7 @@ export const DiplomacyScreen = (_: ScreenProps<'diplomacy'>) => {
                       <PlayerBanner player={r} width={30} />
                     </div>
                     <div class="grow">
-                      <div class="scr-fig-name">{ownerName(r.id)}</div>
+                      <div class="scr-fig-name">{ownerName(r.id).charAt(0).toUpperCase() + ownerName(r.id).slice(1)}</div>
                       <div class="small muted">
                         {leader} · Legacy score {r.score}
                       </div>
@@ -88,7 +96,7 @@ export const DiplomacyScreen = (_: ScreenProps<'diplomacy'>) => {
                             onClick={() => act(`peace:${r.id}`, { type: 'makePeace', target: r.id })}
                             aria-label={`Make peace with ${ownerName(r.id)} for ${PEACE_INFLUENCE_COST} influence`}
                           >
-                            <Icon name="peace" /> Make peace ({INF} {PEACE_INFLUENCE_COST})
+                            <Icon name="peace" /> Make peace <Cost n={PEACE_INFLUENCE_COST} />
                           </button>
                         ) : (
                           <button class="btn" disabled={!turn} onClick={() => setConfirmWar(r.id)} aria-label={`Declare war on ${ownerName(r.id)}`}>
@@ -157,12 +165,15 @@ export const DiplomacyScreen = (_: ScreenProps<'diplomacy'>) => {
                           onClick={() => act(`envoy:${cs.id}`, { type: 'sendEnvoy', cityState: cs.id })}
                           aria-label={`Send an envoy to ${def.name} for ${cost} influence`}
                         >
-                          <Icon name="envoy" /> Send envoy ({INF} {cost})
+                          <Icon name="envoy" /> Send envoy <Cost n={cost} />
                         </button>
                       </div>
                       {influence < cost && turn && (
                         <p class="small muted">
-                          Needs {cost} influence; you have {influence} ({signed(p.income.influence)} per turn).
+                          Needs {cost} influence; you have {influence}
+                          {p.income.influence > 0
+                            ? `, enough in about ${Math.ceil((cost - influence) / p.income.influence)} ${Math.ceil((cost - influence) / p.income.influence) === 1 ? 'turn' : 'turns'} (${signed(p.income.influence)} per turn).`
+                            : ', and no influence income yet.'}
                         </p>
                       )}
                       {err && acted === `envoy:${cs.id}` && <p class="scr-error" role="alert">{err}</p>}

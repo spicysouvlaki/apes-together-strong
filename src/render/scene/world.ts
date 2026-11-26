@@ -29,7 +29,7 @@ import {
   type PerspectiveCamera,
 } from 'three';
 import { AGES, type ContentBundle } from '@contracts/content-schemas';
-import { HEX_DIRECTIONS, type Hex } from '@contracts/hex';
+import { HEX_DIRECTIONS, hexDistance, type Hex } from '@contracts/hex';
 import { CITY_STATE_PREFIX, RAIDER_PLAYER, warKey, type GameState, type PlayerId, type SettlementId, type UnitId } from '@contracts/sim-api';
 import {
   FOG_EXPLORED,
@@ -47,7 +47,7 @@ import {
 } from '../colors';
 import { BASE_Y, FOG_TOP, WATER_TOP, tileTop } from '../heights';
 import { hexAtIndex, hexToWorld, mapBounds, tileIndex, worldToHex } from '../layout';
-import { labelSpec, wallFraction } from '../labels';
+import { labelSpec, sealSpec, wallFraction, type LabelSpec } from '../labels';
 import type { ZoomBand } from '../camera-math';
 import { DIR_BUCKET, buildBorderMesh, computeBorderEdges, createBorderMeshData, createEdgeList, type BorderColors } from '../borders';
 import { BorderMesh } from './border-mesh';
@@ -67,6 +67,9 @@ import {
   coniferGeometry,
   discGeometry,
   driftGeometry,
+  duneGeometry,
+  SITE_STAKE_TOP,
+  surveyStakeGeometry,
   flatDiscGeometry,
   flowerGeometry,
   hexFlatGeometry,
@@ -112,6 +115,31 @@ export interface Selection {
   reachable: Hex[];
   attackable: Hex[];
   path: Hex[];
+  /** Indices i into `path` where a new turn starts (tick on the edge path[i-1] -> path[i]). */
+  pathTurns: number[];
+}
+
+/** A recommended settling site (rank 1 = best). */
+export interface SiteMark {
+  hex: Hex;
+  rank: number;
+}
+
+/**
+ * Stake offset inside the site tile: left and a little toward the camera, just outside a
+ * centred unit's base ring, so the seal on top floats over its own tile (a stake at the back
+ * would put the seal over the tile behind). Resources sit back-right.
+ */
+const SITE_SPOT: [number, number] = [-0.46, 0.14];
+
+interface LabelEntry {
+  id: SettlementId;
+  spec: LabelSpec;
+  x: number;
+  y: number;
+  z: number;
+  priority: number;
+  tile: number;
 }
 
 export type FlashKind = 'combat' | 'found' | 'capture' | 'recruit';
@@ -149,6 +177,7 @@ const C = {
   attackable: rgb('#e0453a'),
   path: rgb('#fffaf0'),
   pathBack: rgb('#3a2c20'),
+  siteGlow: rgb('#f2c14e'),
   keyline: rgb('#2d241b'),
   ownRim: rgb('#fff8ea'),
   rivalRim: rgb('#2a2522'),
@@ -341,6 +370,7 @@ export class World {
   private readonly pathBack: Instances;
   private readonly pathDots: Instances;
   private readonly tradeDots: Instances;
+  private readonly siteStakes: Instances;
   // --- Relief and vegetation
   private readonly mountains: Instances[];
   private readonly hills: Instances;
@@ -352,6 +382,7 @@ export class World {
   private readonly tufts: Instances;
   private readonly reeds: Instances;
   private readonly drifts: Instances;
+  private readonly dunes: Instances;
   private readonly flowers: Instances;
   private readonly resourceProps: Record<ResourcePropKind, Instances>;
   private readonly resourceMarkers: Record<ResourceClass, Instances>;
@@ -394,7 +425,18 @@ export class World {
   private unitDraws: UnitDraw[] = [];
   private readonly displayed = new Map<UnitId, { x: number; y: number; z: number; heading: number }>();
   private readonly shakeAt = new Map<UnitId, number>();
-  private selection: Selection = { unit: null, tile: null, reachable: [], attackable: [], path: [] };
+  private selection: Selection = { unit: null, tile: null, reachable: [], attackable: [], path: [], pathTurns: [] };
+  private sites: SiteMark[] = [];
+  private labelEntries: LabelEntry[] = [];
+  /** Unit figure points (x, y, z triples) labels must not cover. */
+  private obstacles = new Float32Array(3 * 64);
+  private obstacleCount = 0;
+  /** Tiles in front of (camera side of) a visible unit get thinned vegetation; offsets toward the unit. */
+  private frontTile = new Uint8Array(0);
+  private frontDx = new Float32Array(0);
+  private frontDz = new Float32Array(0);
+  /** Snapped yaw the vegetation thinning was computed for. */
+  private vegYaw = 0;
   private selectedAt = -Infinity;
   private ready = new Set<UnitId>();
   private state: GameState | null = null;
@@ -452,8 +494,10 @@ export class World {
     this.resourceHalos = I(flatDiscGeometry(16), soft(-2), 128, D, 'resource-halos', 2);
     this.hlFill = I(hexFlatGeometry(0.93), soft(-5), 64, B, 'hl-fill', 5);
     this.hlRing = I(hexFlatGeometry(1.0), soft(-6), 32, B, 'hl-ring', 6);
-    this.pathBack = new Instances(g(discGeometry(0.13, 0.03, 12)), unlit, 32, B, 'path-back', 6);
-    this.pathDots = new Instances(g(discGeometry(0.09, 0.035, 12)), unlit, 32, B, 'path-dots', 7);
+    // Route preview: unit discs scaled per instance into dashes, waypoint dots, turn ticks and the
+    // destination bullseye (ink outline under a vellum fill: readable on water and pale land).
+    this.pathBack = new Instances(g(discGeometry(1, 0.03, 12)), unlit, 256, B, 'path-back', 6);
+    this.pathDots = new Instances(g(discGeometry(1, 0.035, 12)), unlit, 256, B, 'path-dots', 7);
     this.tradeDots = new Instances(g(discGeometry(0.06, 0.03, 8)), unlit, 128, B, 'trade-dots', 6);
 
     this.mountains = [I(mountainGeometry(0), propTint, 128, D, 'mountains-a'), I(mountainGeometry(1), propTint, 128, D, 'mountains-b')];
@@ -466,6 +510,9 @@ export class World {
     this.tufts = I(tuftGeometry(), propTint, 4096, D, 'tufts');
     this.reeds = I(reedGeometry(), propTint, 1024, D, 'reeds');
     this.drifts = I(driftGeometry(), propTint, 512, D, 'drifts');
+    this.dunes = I(duneGeometry(), propTint, 512, D, 'dunes');
+    // Fixed vertex colors, cloth flutter (SWAY, off under reduceMotion / low via uAnim).
+    this.siteStakes = I(surveyStakeGeometry(), this.mat(propMaterial(U, { sway: true, flag: true })), 8, D, 'site-stakes');
     this.flowers = I(flowerGeometry(), propTint, 1024, D, 'flowers');
     const props: Partial<Record<ResourcePropKind, Instances>> = {};
     for (const k of RESOURCE_PROPS) props[k] = I(resourcePropGeometry(k), propFixed, 64, D, `resource-${k}`);
@@ -590,6 +637,12 @@ export class World {
 
   setYaw(yaw: number): void {
     this.yaw = yaw;
+    // Once a rotation settles on a new step, the "in front of a unit" tiles changed.
+    const snapped = Math.round(yaw / (Math.PI / 3)) * (Math.PI / 3);
+    if (Math.abs(yaw - snapped) < 0.003 && Math.abs(snapped - this.vegYaw) > 0.01) {
+      this.vegYaw = snapped;
+      this.refreshVegetation();
+    }
   }
 
   setPatterns(on: boolean): void {
@@ -603,6 +656,37 @@ export class World {
   setReady(ids: readonly UnitId[], now: number): void {
     this.ready = new Set(ids);
     this.drawUnits(now);
+  }
+
+  /** Settler site markers (GDD §7): stake + pennant, gold ground ring, numbered seal. */
+  setSites(sites: readonly SiteMark[]): void {
+    this.sites = sites.map((s) => ({ hex: { q: s.hex.q, r: s.hex.r }, rank: s.rank }));
+    this.drawSites();
+    this.drawResources();
+    this.rebuildLabels();
+  }
+
+  private drawSites(): void {
+    this.siteStakes.begin();
+    for (const site of this.sites) {
+      const top = this.topAt(site.hex);
+      if (top === null) continue;
+      const w = hexToWorld(site.hex);
+      const k = site.rank === 1 ? 1.2 : 1;
+      this.siteStakes.push(w.x + SITE_SPOT[0], top - 0.005, w.z + SITE_SPOT[1], k, k, k, 0, C.white, 0, 0, site.rank * 1.9, 0);
+    }
+    this.siteStakes.end();
+  }
+
+  /**
+   * Hex of the settlement label or site seal under screen point (x, y) (CSS px), or null. Taps
+   * are resolved against labels first so a tap on a name picks the named tile, not the
+   * neighbour the cartouche floats over.
+   */
+  labelHexAt(x: number, y: number): Hex | null {
+    if (!this.detail.visible || this.width === 0) return null;
+    const tag = this.labels.hitTag(x, y);
+    return tag >= 0 ? hexAtIndex(tag, this.width) : null;
   }
 
   /** Height of the drawn top of a hex, or null when it's off the map (for picking/focus). */
@@ -644,6 +728,7 @@ export class World {
       if (viewer !== null && u.owner !== viewer && this.fog[i] !== FOG_VISIBLE) continue;
       if (i >= 0 && this.settledTile[i] === 0) this.settledTile[i] = 2;
     }
+    this.markFrontTiles(state, viewer);
 
     // Pass 1: per-tile facts.
     for (let i = 0; i < n; i++) {
@@ -736,10 +821,74 @@ export class World {
     this.prepareUnits(state, viewer, now);
     this.drawUnits(now);
     this.drawSelection();
+    this.drawSites();
     this.applyQuality();
   }
 
+  /**
+   * Tiles on the camera side of a visible unit (the two front neighbours for the current view
+   * direction) get thinned trees, cleared toward the unit, so a forest in front never hides a
+   * figurine. Recomputed per snapshot and after a view rotation settles.
+   */
+  private markFrontTiles(state: GameState, viewer: PlayerId | null): void {
+    const { width, height } = this;
+    this.frontTile.fill(0);
+    // Toward the camera on the ground (camera-math cameraOffset: yaw 0 looks north from the south).
+    const cx = Math.sin(this.vegYaw);
+    const cz = Math.cos(this.vegYaw);
+    for (const u of Object.values(state.units)) {
+      const i = tileIndex(u.at, width, height);
+      if (i < 0) continue;
+      if (viewer !== null && u.owner !== viewer && this.fog[i] !== FOG_VISIBLE) continue;
+      // (Called before this snapshot's per-tile pass, so positions come from the hexes.)
+      const uw = hexToWorld(u.at);
+      const ux = uw.x;
+      const uz = uw.z;
+      for (let d = 0; d < 6; d++) {
+        const j = this.neighbors[i * 6 + d] ?? -1;
+        if (j < 0 || this.frontTile[j]) continue;
+        const h = hexAtIndex(j, width);
+        const w = hexToWorld(h);
+        const dx = w.x - ux;
+        const dz = w.z - uz;
+        if ((dx * cx + dz * cz) / Math.hypot(dx, dz) < 0.45) continue;
+        this.frontTile[j] = 1;
+        // Clear the half of the tile nearest the unit.
+        this.frontDx[j] = -dx * 0.36;
+        this.frontDz[j] = -dz * 0.36;
+      }
+    }
+  }
+
+  /** The view rotation settled on a new 60° step: re-thin vegetation in front of units. */
+  private refreshVegetation(): void {
+    const state = this.state;
+    if (!state) return;
+    this.markFrontTiles(state, this.viewer);
+    this.updateProps(state, Math.max(0, AGES.indexOf(state.age)), this.quality === 'high');
+  }
+
   private roseKey = '';
+  /** True from a new rose placement until the renderer fits it into the opening view. */
+  rosePending = false;
+
+  /** Whether a compass rose centred at world (x, z) lies entirely on unexplored parchment. */
+  roseClearAt(cx: number, cz: number): boolean {
+    for (let k = -1; k < 8; k++) {
+      const a = (k * Math.PI) / 4;
+      const r = k < 0 ? 0 : 1.9;
+      const i = tileIndex(worldToHex(cx + Math.cos(a) * r, cz + Math.sin(a) * r), this.width, this.height);
+      if (i >= 0 && this.fog[i] !== FOG_UNEXPLORED) return false;
+    }
+    return true;
+  }
+
+  /** Move the main compass rose (the renderer fits it into the opening view). */
+  setRose(x: number, z: number): void {
+    const u = this.uniforms.uCompass.value;
+    u.set(x, z, u.z, u.w);
+    this.rosePending = false;
+  }
 
   /**
    * First impression (GDD §11): the main compass rose is drawn on the unexplored parchment just
@@ -756,6 +905,7 @@ export class World {
     }
     if (!anchor) return;
     this.roseKey = key;
+    this.rosePending = true;
     const w = hexToWorld(anchor);
     const candidates: [number, number][] = [
       [3.4, -5.6],
@@ -765,16 +915,9 @@ export class World {
       [0, -7.5],
     ];
     // The whole rose (radius ~1.8) must sit on parchment: unexplored tiles or off the map
-    // (the vellum sheet past the edge draws it too).
-    const clear = (cx: number, cz: number): boolean => {
-      for (let k = -1; k < 8; k++) {
-        const a = (k * Math.PI) / 4;
-        const r = k < 0 ? 0 : 1.9;
-        const i = tileIndex(worldToHex(cx + Math.cos(a) * r, cz + Math.sin(a) * r), this.width, this.height);
-        if (i >= 0 && this.fog[i] !== FOG_UNEXPLORED) return false;
-      }
-      return true;
-    };
+    // (the vellum sheet past the edge draws it too). Fallback only: the renderer then fits it
+    // into the actual opening view (rosePending).
+    const clear = (cx: number, cz: number): boolean => this.roseClearAt(cx, cz);
     let pick: [number, number] = candidates[0] ?? [3.4, -5.6];
     search: for (const scale of [1, 1.3, 1.6]) {
       for (const c of candidates) {
@@ -800,6 +943,9 @@ export class World {
     this.surface = new Uint8Array(n);
     this.tileColor = new Float32Array(n * 3);
     this.settledTile = new Uint8Array(n);
+    this.frontTile = new Uint8Array(n);
+    this.frontDx = new Float32Array(n);
+    this.frontDz = new Float32Array(n);
     this.dist = new Uint8Array(n);
     this.fieldData = new Uint8Array(Math.max(1, n) * 4);
     this.owners = new Array<PlayerId | null>(n).fill(null);
@@ -872,6 +1018,7 @@ export class World {
       const tc: Rgb = [this.tileColor[i * 3] ?? 0, this.tileColor[i * 3 + 1] ?? 0, this.tileColor[i * 3 + 2] ?? 0];
       const settled = this.settledTile[i] === 1;
       const unitHere = this.settledTile[i] === 2;
+      const front = this.frontTile[i] === 1 && !settled && !unitHere;
       const isMountain = this.terrainMountain.get(tile.terrain) ?? false;
       const hasRes = !!tile.resource;
       const clear: [number, number, number] | undefined = hasRes ? [RESOURCE_SPOT[0], RESOURCE_SPOT[1], 0.24] : undefined;
@@ -895,14 +1042,16 @@ export class World {
       } else if (feature === 'forest' || feature === 'jungle') {
         const jungle = feature === 'jungle';
         const base = jungle ? 4 : 5;
-        const count = treeCount(base, this.quality, settled);
-        const k = scatterInHex(tile.q, tile.r, 5, count, pts, { radius: 0.72, minDist: jungle ? 0.34 : 0.28, clearCenter: settled ? 0.62 : unitHere ? 0.58 : 0, clear });
+        const count = front ? Math.min(3, treeCount(base, this.quality, settled)) : treeCount(base, this.quality, settled);
+        // In front of a unit: clear the half toward it (instead of the resource spot).
+        const frontClear: [number, number, number] | undefined = front ? [this.frontDx[i] ?? 0, this.frontDz[i] ?? 0, 0.62] : clear;
+        const k = scatterInHex(tile.q, tile.r, 5, count, pts, { radius: 0.72, minDist: jungle ? 0.34 : 0.28, clearCenter: settled ? 0.62 : unitHere ? 0.58 : 0, clear: frontClear });
         const climate = tile.climate;
         for (let j = 0; j < k; j++) {
           const hj = hashTile(tile.q, tile.r, 60 + j);
           const px = x + (pts[j * 2] ?? 0);
           const pz = z + (pts[j * 2 + 1] ?? 0);
-          const s = (jungle ? 1.05 : 0.95) + unit01(hj) * 0.35;
+          const s = ((jungle ? 1.05 : 0.95) + unit01(hj) * 0.35) * (front ? 0.78 : 1);
           const tint = mix([1, 1, 1], tc, 0.12);
           const v = 0.92 + unit01(hj >>> 8) * 0.16;
           const col = scaleRgb(tint, v);
@@ -959,7 +1108,7 @@ export class World {
   /** Micro-detail (tufts, flowers, reeds, drifts, pebbles); density follows the zoom band. */
   private updateMicro(): void {
     const state = this.state;
-    const L = [this.tufts, this.reeds, this.drifts, this.flowers];
+    const L = [this.tufts, this.reeds, this.drifts, this.dunes, this.flowers];
     for (const l of L) l.begin();
     const density = microDensity(this.band, this.quality);
     if (state && density > 0) {
@@ -1022,13 +1171,13 @@ export class World {
           }
         }
         if (kind === SURFACE.sand && !wooded && !settled) {
-          // Desert: a couple of wind-shaped dunes, all lying the same way (one prevailing wind
-          // across the map), sun-bleached on their crests.
-          const kd = scatterInHex(tile.q, tile.r, 71, Math.max(1, Math.round(2 * density)), pts, { ...opts, minDist: 0.45 });
+          // Desert: a couple of crescent dunes, all lying the same way (one prevailing wind
+          // across the map): lit windward slope, bright crest, shaded slip face.
+          const kd = scatterInHex(tile.q, tile.r, 71, Math.max(1, Math.round(2 * density)), pts, { ...opts, radius: 0.42, minDist: 0.55 });
           for (let j = 0; j < kd; j++) {
             const hs = hashTile(tile.q, tile.r, 600 + j);
-            const sz = 0.75 + unit01(hs) * 0.45;
-            this.drifts.push(x + (pts[j * 2] ?? 0), top - 0.012, z + (pts[j * 2 + 1] ?? 0), sz * 1.25, sz * 1.1, sz, 0.35 + unit01(hs >>> 7) * 0.3, scaleRgb(tc, 1.04), mem);
+            const sz = (j === 0 ? 0.85 : 0.6) + unit01(hs) * 0.3;
+            this.dunes.push(x + (pts[j * 2] ?? 0), top - 0.006, z + (pts[j * 2 + 1] ?? 0), sz, sz * (0.9 + unit01(hs >>> 5) * 0.4), sz, 0.3 + unit01(hs >>> 7) * 0.25, scaleRgb(tc, 1.02), mem);
           }
         }
         if (kind === SURFACE.sand || kind === SURFACE.tundra) {
@@ -1053,6 +1202,15 @@ export class World {
       this.resourceHalos.push(r.x, r.y + 0.006, r.z, 0.27 * k, 1, 0.27 * k, 0, RESOURCE_RGB[r.cls], r.mem, SOFT.glow, 0.9, 0);
       if (r.prop) this.resourceProps[r.prop].push(r.x, r.y, r.z, k * 1.5, k * 1.5, k * 1.5, r.spin, r.accent, r.mem);
       else this.resourceMarkers[r.cls].push(r.x, r.y + 0.02, r.z, k, k, k, r.cls === 'bonus' ? 0 : r.spin, r.accent, r.mem);
+    }
+    // Settler sites share the halo layer: a soft gold ground ring (round, not a hex: never
+    // mistaken for a move or attack highlight).
+    for (const site of this.sites) {
+      const top = this.topAt(site.hex);
+      if (top === null) continue;
+      const w = hexToWorld(site.hex);
+      const rr = site.rank === 1 ? 0.86 : 0.76;
+      this.resourceHalos.push(w.x, top + 0.01, w.z, rr, 1, rr, 0, C.siteGlow, 0, SOFT.glow, 1, 0);
     }
     for (const kk of RESOURCE_PROPS) this.resourceProps[kk].end();
     for (const cls of RESOURCE_CLASSES) this.resourceMarkers[cls].end();
@@ -1173,7 +1331,7 @@ export class World {
   private updateSettlements(state: GameState, viewer: PlayerId | null, now = 0): void {
     this.cityIconList = [];
     this.warRings.begin();
-    this.labels.begin();
+    this.labelEntries = [];
     this.settlementDraws = [];
     const ids = Object.keys(state.settlements).sort();
     const shown: { tile: number; s: (typeof state.settlements)[string] & object }[] = [];
@@ -1213,10 +1371,31 @@ export class World {
       this.placeSettlement(state, g, tile, FOG_EXPLORED, true, []);
     }
     this.warRings.end();
-    this.labels.end();
-    this.labelsDirty = true;
+    this.rebuildLabels();
     this.drawCityIcons();
     this.drawSettlementPieces(now);
+  }
+
+  /**
+   * Push every label: settlement cartouches (skipping settlements still popping in, so a new
+   * name appears once its town has landed) and then site seals (drawn on top, fixed).
+   */
+  private rebuildLabels(): void {
+    this.labels.begin();
+    for (const e of this.labelEntries) {
+      if (this.bornAt.has(e.id)) continue;
+      this.labels.push(e.spec, e.x, e.y, e.z, e.priority, e.tile);
+    }
+    for (const site of this.sites) {
+      const top = this.topAt(site.hex);
+      if (top === null) continue;
+      const w = hexToWorld(site.hex);
+      const k = site.rank === 1 ? 1.2 : 1;
+      const i = tileIndex(site.hex, this.width, this.height);
+      this.labels.push(sealSpec(site.rank), w.x + SITE_SPOT[0], top + SITE_STAKE_TOP * k - 0.01, w.z + SITE_SPOT[1], 10, i);
+    }
+    this.labels.end();
+    this.labelsDirty = true;
   }
 
   private placeSettlement(state: GameState, s: GhostSettlement, i: number, fog: FogClass, ghost: boolean, wonders: readonly string[]): void {
@@ -1272,19 +1451,23 @@ export class World {
       cityState: cs,
       wall: wallFraction(s.hp, s.maxHp),
     });
-    this.labels.push(spec, x, y + (s.kind === 'city' || cs ? 0.9 : 0.7), z, priority);
+    this.labelEntries.push({ id: s.id, spec, x, y: y + (s.kind === 'city' || cs ? 0.9 : 0.7), z, priority, tile: i });
   }
 
   /** Push every settlement piece; pop-in and banner flourishes scale them. Returns true while animating. */
   drawSettlementPieces(now: number): boolean {
     for (const k of PIECE_KINDS) this.pieces[k].begin();
     let animating = false;
+    let landed = false;
     for (const d of this.settlementDraws) {
       let s = 1;
       const born = this.bornAt.get(d.id);
       if (born !== undefined) {
         const t = (now - born) / POP_MS;
-        if (t >= 1) this.bornAt.delete(d.id);
+        if (t >= 1) {
+          this.bornAt.delete(d.id);
+          landed = true;
+        }
         else {
           s = Math.max(0.001, easeOutBack(clamp01(t)));
           animating = true;
@@ -1325,6 +1508,8 @@ export class World {
       }
     }
     for (const k of PIECE_KINDS) this.pieces[k].end();
+    // A pop-in finished: its name label may show now.
+    if (landed) this.rebuildLabels();
     return animating;
   }
 
@@ -1463,6 +1648,21 @@ export class World {
     }
     for (const id of [...this.displayed.keys()]) if (!seen.has(id)) this.displayed.delete(id);
     this.unitDraws = draws;
+    // Unit figure points labels must not cover (re-checked on the next label layout).
+    if (this.obstacles.length < draws.length * 6) this.obstacles = new Float32Array(draws.length * 12);
+    let k = 0;
+    for (const d of draws) {
+      const S = UNIT_SCALE * d.scale;
+      const h = FIGURE_TOP[d.figure] * S;
+      for (const f of [0.45, 0.9]) {
+        this.obstacles[k * 3] = d.tx;
+        this.obstacles[k * 3 + 1] = d.ty + 0.04 + h * f;
+        this.obstacles[k * 3 + 2] = d.tz;
+        k++;
+      }
+    }
+    this.obstacleCount = k;
+    this.labelsDirty = true;
   }
 
   /** Per-frame unit pass. Returns true while anything (moves, pulse, shake) is animating. */
@@ -1575,7 +1775,7 @@ export class World {
     if (!cameraChanged && !this.labelsDirty) return;
     this.labelsDirty = false;
     // Labels stay out of the HUD bars (a little slack: the bars' lower edge is translucent).
-    this.labels.layout(camera as PerspectiveCamera, viewW, viewH, hud.top * 0.85, viewH - hud.bottom * 0.5);
+    this.labels.layout(camera as PerspectiveCamera, viewW, viewH, hud.top * 0.85, viewH - hud.bottom * 0.5, this.obstacles, this.obstacleCount);
   }
 
   // -------------------------------------------------------------------------------------------
@@ -1612,13 +1812,7 @@ export class World {
       this.hlFill.push(w.x, top + 0.016, w.z, 1, 1, 1, 0, C.attackable, 0, SOFT.attack, 0.62, pulse);
       this.hlRing.push(w.x, top + 0.02, w.z, 1, 1, 1, 0, C.attackable, 0, SOFT.ring, 1, pulse);
     }
-    for (const h of sel.path) {
-      const top = this.topAt(h);
-      if (top === null) continue;
-      const w = hexToWorld(h);
-      this.pathBack.push(w.x, top + 0.018, w.z, 1, 1, 1, 0, C.pathBack);
-      this.pathDots.push(w.x, top + 0.02, w.z, 1, 1, 1, 0, C.path);
-    }
+    this.drawPath(sel);
     if (sel.tile) {
       const top = this.topAt(sel.tile);
       if (top !== null) {
@@ -1630,6 +1824,71 @@ export class World {
     this.hlRing.end();
     this.pathBack.end();
     this.pathDots.end();
+  }
+
+  /**
+   * Route preview as a dashed ribbon over the tiles: three dashes per step (each half on its own
+   * tile's height), a waypoint dot on every tile, a tick across the edge where a new turn starts
+   * (pathTurns), and a bullseye on the destination. Starts at the selected unit when the path
+   * begins next to it.
+   */
+  private drawPath(sel: Selection): void {
+    const path = sel.path;
+    if (path.length === 0) return;
+    const B = this.pathBack;
+    const F = this.pathDots;
+    const u = sel.unit !== null ? this.state?.units[sel.unit] : undefined;
+    const first = path[0];
+    const fromUnit = !!u && !!first && hexDistance(u.at, first) === 1;
+    const turns = sel.pathTurns;
+    const n = path.length;
+    for (let s = fromUnit ? -1 : 0; s < n - 1; s++) {
+      const a = s < 0 ? u?.at : path[s];
+      const b = path[s + 1];
+      if (!a || !b) continue;
+      const ta = this.topAt(a);
+      const tb = this.topAt(b);
+      if (ta === null || tb === null) continue;
+      const wa = hexToWorld(a);
+      const wb = hexToWorld(b);
+      const dx = wb.x - wa.x;
+      const dz = wb.z - wa.z;
+      const rot = -Math.atan2(dz, dx);
+      for (const t of [0.25, 0.5, 0.75]) {
+        // The first dash next to the unit would sit on its base ring.
+        if (s < 0 && t < 0.3) continue;
+        const x = wa.x + dx * t;
+        const z = wa.z + dz * t;
+        // Each half rides its own tile; the middle dash (on the edge) the higher of the two.
+        const y = (t < 0.5 ? ta : t > 0.5 ? tb : Math.max(ta, tb)) + 0.02;
+        B.push(x, y - 0.002, z, 0.21, 1, 0.1, rot, C.pathBack);
+        F.push(x, y, z, 0.165, 1, 0.058, rot, C.path);
+      }
+      // Turn boundary: path index s + 1 starts a new turn.
+      if (turns.includes(s + 1)) {
+        const x = wa.x + dx * 0.5;
+        const z = wa.z + dz * 0.5;
+        const y = Math.max(ta, tb) + 0.03;
+        B.push(x, y - 0.002, z, 0.07, 1, 0.34, rot, C.pathBack);
+        F.push(x, y, z, 0.035, 1, 0.29, rot, C.path);
+      }
+    }
+    for (let k = 0; k < n; k++) {
+      const h = path[k];
+      if (!h) continue;
+      const top = this.topAt(h);
+      if (top === null) continue;
+      const w = hexToWorld(h);
+      if (k === n - 1) {
+        // Destination bullseye: ink ring, vellum ring, ink core.
+        B.push(w.x, top + 0.018, w.z, 0.3, 1, 0.3, 0, C.pathBack);
+        F.push(w.x, top + 0.02, w.z, 0.245, 1, 0.245, 0, C.path);
+        B.push(w.x, top + 0.03, w.z, 0.12, 1, 0.12, 0, C.pathBack);
+      } else {
+        B.push(w.x, top + 0.018, w.z, 0.085, 1, 0.085, 0, C.pathBack);
+        F.push(w.x, top + 0.02, w.z, 0.055, 1, 0.055, 0, C.path);
+      }
+    }
   }
 
   flash(hex: Hex, kind: FlashKind, now: number): void {
@@ -1657,6 +1916,8 @@ export class World {
         if (settlement) {
           const b = this.bornAt.get(settlement);
           if (b === undefined || now - b > POP_MS) this.bornAt.set(settlement, now);
+          // Hide the new name until the pop-in lands (drawSettlementPieces brings it back).
+          this.rebuildLabels();
         }
         this.emit(w.x, top, w.z, 16, C.dust, now, 0.9, 0.26);
       } else if (kind === 'capture') {
@@ -1815,6 +2076,8 @@ export class World {
       this.tufts,
       this.reeds,
       this.drifts,
+      this.dunes,
+      this.siteStakes,
       this.flowers,
       ...RESOURCE_PROPS.map((k) => this.resourceProps[k]),
       ...RESOURCE_CLASSES.map((c) => this.resourceMarkers[c]),

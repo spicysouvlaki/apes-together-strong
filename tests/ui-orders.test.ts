@@ -141,6 +141,27 @@ describe('standing orders', () => {
     expect(stepOrder(s, 'p1', 'nobody', { kind: 'explore' }, deps(s))).toEqual({ kind: 'done', reason: 'gone' });
   });
 
+  it('marches toward a goal held by our own unit and waits beside it (playtest: scout on the site)', () => {
+    const s = newGame();
+    const settler = unitOf(s, 'settler');
+    const scout = unitOf(s, 'scout');
+    const p = s.players.p1!;
+    // A known land tile 3 away that the settler can route to while it is empty.
+    const goal = s.map.tiles.find(
+      (t, i) => p.explored[i] && hexDistance(settler.at, t) === 3 && (q.pathTo(s, settler.id, t, content)?.length ?? 0) > 0,
+    )!;
+    expect(goal).toBeTruthy();
+    const held: GameState = { ...s, units: { ...s.units, [scout.id]: { ...scout, at: { q: goal.q, r: goal.r } } } };
+    expect(q.pathTo(held, settler.id, goal, content) ?? []).toHaveLength(0);
+    const step = stepOrder(held, 'p1', settler.id, { kind: 'goto', to: goal }, deps(held));
+    expect(step.kind).toBe('move');
+    if (step.kind === 'move') expect(step.arrives).toBe(false);
+    // Beside the occupied goal: keep the order and wait for the scout to move on.
+    const beside = s.map.tiles.find((t) => hexDistance(t, goal) === 1 && (q.pathTo(s, settler.id, t, content)?.length ?? 0) > 0)!;
+    const next: GameState = { ...held, units: { ...held.units, [settler.id]: { ...settler, at: { q: beside.q, r: beside.r } } } };
+    expect(stepOrder(next, 'p1', settler.id, { kind: 'goto', to: goal }, deps(next))).toEqual({ kind: 'wait' });
+  });
+
   it('prunes orders of units that died or changed hands', () => {
     const s = newGame();
     const scout = unitOf(s, 'scout');

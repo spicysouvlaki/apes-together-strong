@@ -21,9 +21,9 @@ export interface UnitHintInput {
 }
 
 export const unitHint = (u: UnitHintInput): string => {
-  if (u.isFounder && u.canFound) return 'Tap Found settlement to settle here, or tap a dotted site to march there.';
+  if (u.isFounder && u.canFound) return 'Tap Found settlement to settle here, or tap a numbered site to march there.';
   const parts: string[] = [];
-  if (u.isFounder) parts.push('Can’t settle here. Tap a dotted site to march there.');
+  if (u.isFounder) parts.push('Can’t settle here. Tap a numbered site to march there.');
   if (u.isTrader && u.tradeTargets === 0) parts.push('Walk next to a foreign city or city-state you are not at war with to open a trade route.');
   if (u.canAttack) parts.push('Tap a red tile to attack.');
   else if (u.canDeclare) parts.push('A neutral target is in reach: tap it to declare war and attack.');

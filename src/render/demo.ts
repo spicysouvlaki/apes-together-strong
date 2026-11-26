@@ -524,6 +524,9 @@ const main = async (): Promise<void> => {
         .map((x) => x.at);
     }
     renderer.setSelection({ unit: id, tile: u ? u.at : null, reachable: reach, attackable: attack, path: [] });
+    // A selected settler shows its best founding sites (real game only: needs sim queries).
+    const sites = u && u.type === 'settler' && simQueries ? simQueries.queries.settleSites(state, u.id, content).slice(0, 3) : [];
+    renderer.setHints({ sites: sites.map((x, k) => ({ hex: x.hex, rank: k + 1 })) });
   };
 
   renderer.onTap((hex) => {
@@ -538,7 +541,9 @@ const main = async (): Promise<void> => {
         select(sel.id);
       } else {
         pending = hex;
-        renderer.setSelection({ tile: hex, path: hexLine(sel.at, hex) });
+        // Demo turn ticks: two steps per turn.
+        const line = hexLine(sel.at, hex);
+        renderer.setSelection({ tile: hex, path: line, pathTurns: line.map((_, k) => k).filter((k) => k > 0 && k % 2 === 0) });
       }
       return;
     }
@@ -699,6 +704,15 @@ const main = async (): Promise<void> => {
     },
     move: (id: string, q: number, r: number): void => {
       if (apply('p1', { type: 'moveUnit', unit: id, to: { q, r } })) push();
+    },
+    /** Select a unit by id (settlers show their site markers). */
+    select: (id: string | null): void => select(id),
+    /** Preview a route of any length from the selected unit (turn tick every `perTurn` steps). */
+    route: (q: number, r: number, perTurn = 2): void => {
+      const sel = selected ? state.units[selected] : undefined;
+      if (!sel) return;
+      const line = hexLine(sel.at, { q, r });
+      renderer.setSelection({ tile: { q, r }, path: line, pathTurns: line.map((_, k) => k).filter((k) => k > 0 && k % perTurn === 0) });
     },
   };
   (window as unknown as { demo: typeof demoApi }).demo = demoApi;

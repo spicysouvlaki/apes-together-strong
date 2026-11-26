@@ -60,6 +60,12 @@ export const TransitionScreen = (_: ScreenProps<'transition'>) => {
     return undefined;
   }, [g?.phase]);
 
+  // Each chapter starts at its top (playtest: refinement opened scrolled halfway down, past the
+  // points total and the culture weights, because the recap had been scrolled).
+  useEffect(() => {
+    document.querySelector('.scr-transition .screen-body')?.scrollTo({ top: 0 });
+  }, [step]);
+
   if (!g || !player || !p) return <Screen title="Transition" label="Age transition"><Empty>No game in progress.</Empty></Screen>;
   if (!t || !recap) {
     return (
@@ -243,12 +249,14 @@ export const TransitionScreen = (_: ScreenProps<'transition'>) => {
             <li>{Math.floor(p.refinementPoints)} refinement points unspent; half carry over to the next transition.</li>
           </ul>
           {affordable > 0 && (
-            <p class="scr-banner scr-banner-info small">
-              {affordable === 1 ? 'One tradition is' : `${affordable} traditions and hybrids are`} still within your points.{' '}
-              <button class="btn btn-ghost" onClick={() => setStep('refine')}>
+            <div class="scr-banner scr-banner-info small scr-leftover">
+              <span class="grow">
+                {affordable === 1 ? 'One tradition is' : `${affordable} traditions and hybrids are`} still within your points.
+              </span>
+              <button class="btn" onClick={() => setStep('refine')}>
                 Back to refining
               </button>
-            </p>
+            </div>
           )}
           <p class="small muted">Units start weaker until upgraded, old buildings give half yields, the cabinet empties and the trees turn to a new age.</p>
         </>
@@ -258,7 +266,7 @@ export const TransitionScreen = (_: ScreenProps<'transition'>) => {
       {adopting && (
         <ConfirmSheet
           title={`Adopt ${adopting.name}?`}
-          confirmLabel={`Adopt for ${adopting.cost} points`}
+          confirmLabel={`Adopt · ${adopting.cost} pts`}
           onConfirm={() => {
             dispatch(adopting.kind === 'tradition' ? { type: 'adoptTradition', tradition: adopting.id } : { type: 'adoptHybrid', hybrid: adopting.id });
             setAdopting(null);
@@ -392,7 +400,7 @@ const RefineCard = (props: { item: TraditionItem | HybridItem; onAdopt: (a: Adop
               onClick={() => props.onAdopt({ kind: hybrid ? 'hybrid' : 'tradition', id: item.def.id, name: item.def.name, cost: opt.cost })}
               aria-label={`Adopt ${item.def.name} for ${opt.cost} points`}
             >
-              <Icon name="plus" /> Adopt ({opt.cost})
+              <Icon name="plus" /> Adopt
             </button>
           ) : (
             <span class="small muted">{opt.blocked}</span>

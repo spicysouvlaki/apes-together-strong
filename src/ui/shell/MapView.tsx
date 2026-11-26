@@ -25,7 +25,7 @@ import {
 } from '../store';
 import { homeHex, idleUnits, nextIdleUnit } from './hexutil';
 import { highlights, hudBottomPx, lastTap, settings, siteHints } from './shell-state';
-import { planRoute, plannedRoute, resting, setOrder } from './standing-orders';
+import { foundReady, planRoute, plannedRoute, resting, setOrder } from './standing-orders';
 import { pushToast } from '../store';
 import { resolveTap } from './tap-intent';
 import { warTargetsFor } from './war-targets';
@@ -50,6 +50,7 @@ export const selectUnit = (unitId: string | null, opts: { focus?: boolean } = {}
     plannedRoute.value = null;
     siteHints.value = null;
     rendererRef?.setSelection({ unit: null, reachable: [], attackable: [], path: [] });
+    rendererRef?.setHints({ sites: [] });
     return;
   }
   const reachable = q.reachable(g, u.id, content).map((r) => r.hex);
@@ -58,18 +59,16 @@ export const selectUnit = (unitId: string | null, opts: { focus?: boolean } = {}
   if (plannedRoute.value && plannedRoute.value.unit !== u.id) plannedRoute.value = null;
   // A settler shows the best sites nearby (top 3), GDD §7 "Settlements".
   siteHints.value = lookup.units[u.type]?.canFound ? { unit: u.id, sites: q.settleSites(g, u.id, content).slice(0, 3) } : null;
+  // Numbered "good place to settle" markers (rank 1 = best), shown alongside any route preview.
+  rendererRef?.setHints({ sites: (siteHints.value?.sites ?? []).map((s, i) => ({ hex: s.hex, rank: i + 1 })) });
   selection.value = { unit: u.id, settlement: null, tile: u.at };
   highlights.value = { reachable, attackable, warTargets };
   rendererRef?.setSelection({ unit: u.id, tile: u.at, reachable, attackable, path: overlayPath() });
   if (opts.focus) rendererRef?.focus(u.at);
 };
 
-/**
- * The renderer has one dot channel (`path`). It shows the planned route when there is one, else
- * the top founding sites of a selected settler (dots mark "a good place"). Renderer gap: no
- * dedicated "good site" highlight exists, so both share the dots.
- */
-const overlayPath = (): Hex[] => plannedRoute.value?.path ?? siteHints.value?.sites.map((s) => s.hex) ?? [];
+/** The route preview channel (`path`): the planned route, if any. Sites use setHints({ sites }). */
+const overlayPath = (): Hex[] => plannedRoute.value?.path ?? [];
 
 /** Preview a route for the selected unit (or confirm it on a second tap of the same tile). */
 export const previewRoute = (unit: string, to: Hex): void => {
@@ -113,7 +112,7 @@ export const confirmRoute = (): void => {
     dispatch({ type: 'moveUnit', unit: plan.unit, to: step });
   }
   rendererRef?.setSelection({ path: [], tile: null });
-  const next = nextIdleUnit(g, me.value ?? '', resting.value, plan.unit);
+  const next = nextIdleUnit(g, me.value ?? '', resting.value, plan.unit, foundReady.value);
   selectUnit(next && next.id !== plan.unit ? next.id : null, { focus: !!next && next.id !== plan.unit });
 };
 
@@ -259,6 +258,12 @@ export function MapView() {
         const s = untracked(() => game.value?.settlements[city]);
         if (s) r.focus(s.at, { safeArea: { top: HUD_TOP_PX, bottom: Math.round(window.innerHeight * CITY_SHEET_SHARE) } });
       }
+      // Closing the city sheet: bring the city back down from the top strip the sheet left, or
+      // the map sits under the top bar with empty parchment below (playtest, turn 1).
+      if (!city && prevCity && kind === null) {
+        const s = untracked(() => game.value?.settlements[prevCity ?? '']);
+        if (s && selection.peek().unit === null) r.focus(s.at);
+      }
       prevCity = city;
       if ((was === 'city' || was === 'tileInfo') && kind !== 'city' && kind !== 'tileInfo' && selection.peek().unit === null) {
         r.setSelection({ tile: null });
@@ -288,7 +293,7 @@ export function MapView() {
     const stopHints = effect(() => {
       const g = game.value;
       const my = me.value;
-      const ready = g && my && g.currentPlayer === my && g.phase === 'playing' ? idleUnits(g, my, resting.value).map((u) => u.id) : [];
+      const ready = g && my && g.currentPlayer === my && g.phase === 'playing' ? idleUnits(g, my, resting.value, foundReady.value).map((u) => u.id) : [];
       r.setHints({ readyUnits: ready });
     });
 

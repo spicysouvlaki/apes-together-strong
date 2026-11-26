@@ -53,10 +53,24 @@ export const AGE_NAME: Record<Age, string> = {
   modern: 'Modern',
 };
 
-/** One decimal at most, no trailing ".0". */
+const group = (n: number): string => {
+  const s = String(Math.abs(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return n < 0 ? `-${s}` : s;
+};
+
+/** One decimal at most, no trailing ".0"; whole numbers from 100 up, grouped from 1,000 up. */
 export const num = (n: number): string => {
+  if (Math.abs(n) >= 100) return group(Math.round(n));
   const r = Math.round(n * 10) / 10;
   return Number.isInteger(r) ? String(r) : r.toFixed(1);
+};
+
+/** Stockpiles in the top bar's narrow columns: 9,999 then 12.3k. */
+export const hudNum = (n: number): string => {
+  const a = Math.abs(n);
+  if (a < 10000) return group(Math.round(n));
+  const k = Math.round(n / 100) / 10;
+  return `${a >= 100000 ? Math.round(n / 1000) : k}k`;
 };
 
 export const signed = (n: number): string => (n >= 0 ? `+${num(n)}` : num(n));
@@ -70,3 +84,11 @@ export const happinessWord = (h: number): string =>
 export const capitalize = (s: string): string => (s ? s[0]!.toUpperCase() + s.slice(1) : s);
 
 export const turnsText = (t: number | null): string => (t === null ? '—' : t === 1 ? '1 turn' : `${t} turns`);
+
+/** "grows in 3 turns" / "not growing" / "starving" for the city sheet's growth line. */
+export const growthText = (stored: number, cost: number, surplus: number): string => {
+  if (surplus < 0) return 'starving';
+  if (surplus === 0) return 'not growing';
+  const turns = Math.max(1, Math.ceil((cost - stored) / surplus));
+  return `grows in ${turns} ${turns === 1 ? 'turn' : 'turns'}`;
+};

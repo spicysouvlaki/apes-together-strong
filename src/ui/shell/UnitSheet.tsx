@@ -9,7 +9,7 @@ import { cancelRoute, confirmRoute, previewRoute, refreshOverlay, selectUnit } f
 import { idleUnits, nextIdleUnit } from './hexutil';
 import { highlights, siteHints, skipUnit } from './shell-state';
 import { unitHint } from './unit-hints';
-import { exploreNow, orders, planRoute, plannedRoute, resting, setOrder } from './standing-orders';
+import { exploreNow, foundReady, orders, planRoute, plannedRoute, resting, setOrder } from './standing-orders';
 import { canExplore } from './orders';
 import { shortWhere, siteFacts, siteSummary, whereWord } from './site-hints';
 import { guideClass } from './guide-state';
@@ -36,14 +36,14 @@ export function UnitSheet() {
   const military = u.unitClass !== 'civilian';
 
   const advance = (): void => {
-    const next = nextIdleUnit(g, my, resting.value, u.id);
+    const next = nextIdleUnit(g, my, resting.value, u.id, foundReady.value);
     selectUnit(next && next.id !== u.id ? next.id : null, { focus: true });
   };
   const order = orders.value[u.id] ?? null;
   const plan = plannedRoute.value?.unit === u.id ? plannedRoute.value : null;
   const explorer = canExplore(def);
   const sites = siteHints.value?.unit === u.id ? siteHints.value.sites : [];
-  const idleCount = idleUnits(g, my, resting.value).length;
+  const idleCount = idleUnits(g, my, resting.value, foundReady.value).length;
   // Remaining route of a standing march, for "about N turns left".
   const marchTurns = order?.kind === 'goto' ? (planRoute(u.id, order.to)?.turns ?? null) : null;
   const here = def?.canFound ? siteFacts(g, u.at, content) : null;
@@ -115,8 +115,8 @@ export function UnitSheet() {
           )}
           {sites.length > 0 && hereRank !== 0 && (
             <>
-              <div class="site-row" aria-label="Best sites nearby, dotted on the map">
-                <span class="muted site-label">Dotted:</span>
+              <div class="site-row" aria-label="Best sites nearby, numbered on the map">
+                <span class="muted site-label">Sites:</span>
                 {sites.map((site, i) => {
                   const f = siteFacts(g, site.hex, content);
                   const why = f ? siteSummary(f, 2) : '';
@@ -154,7 +154,9 @@ export function UnitSheet() {
         <div class="route-card card row" role="status">
           <div class="grow small">
             <strong>Route: about {turnsText(plan.turns)}</strong>
-            <div class="muted">Go, or tap the tile again.</div>
+            <div class="muted">
+              {plan.blockedBy ? `Ends when your ${plan.blockedBy} moves off the tile.` : 'Go, or tap the tile again.'}
+            </div>
           </div>
           <button class="btn btn-ghost" onClick={cancelRoute}>
             Cancel
@@ -279,7 +281,7 @@ export function UnitSheet() {
               disabled={!canAct}
               aria-label={`Skip all ${idleCount} units waiting for orders this turn`}
               onClick={() => {
-                for (const x of idleUnits(g, my, resting.value)) skipUnit(x.id);
+                for (const x of idleUnits(g, my, resting.value, foundReady.value)) skipUnit(x.id);
                 selectUnit(null);
               }}
             >

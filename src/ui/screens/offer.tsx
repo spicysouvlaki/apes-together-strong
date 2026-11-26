@@ -4,6 +4,7 @@ import { closeModal, content, dispatch, game, lookup, me, myTurn, openModal } fr
 import type { ScreenProps } from './index';
 import { Empty, FigureCard, Screen } from './shared/components';
 import { nextOffer, offerPosition, offerView } from './shared/offer';
+import { shortName } from './shared/describe';
 import { Icon } from '../art/Icon';
 import { KIND_ICON } from '../art/portrait-spec';
 import { guide } from '../shell/guide-state';
@@ -76,7 +77,7 @@ export const OfferScreen = ({ modal }: ScreenProps<'offer'>) => {
           <button class="btn btn-primary btn-wide scr-welcome" disabled={!chosenDef || !canAct || sealed} onClick={welcome} aria-label={chosenDef ? `Welcome ${chosenDef.name}` : 'Choose someone to welcome'}>
             {chosenDef ? (
               <>
-                <Icon name="seat" /> Welcome {chosenDef.name}
+                <Icon name="seat" /> Welcome {shortName(chosenDef.name)}
               </>
             ) : (
               'Tap someone to welcome them'
@@ -105,7 +106,7 @@ export const OfferScreen = ({ modal }: ScreenProps<'offer'>) => {
             <span class="advice-name">The Chronicler</span>
           </div>
           <p class="advice-text">
-            Every one of these people really lived. They came because of how and where you play; the line under each name says what drew them.
+            Each of them lived: a named person, or a role the record keeps without a name. They came because of how and where you play; the line under each name says what drew them.
             Welcome one: later you can seat them in your cabinet, deploy them on the map, spend them on a great deed, or consume them for points.
           </p>
         </aside>

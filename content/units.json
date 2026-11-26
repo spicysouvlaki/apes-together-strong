@@ -16,7 +16,7 @@
   "unitClass": "civilian",
   "strength": 0,
   "moves": 3,
-  "cost": 25,
+  "cost": 20,
   "vision": 3
  },
  {
@@ -26,7 +26,7 @@
   "unitClass": "civilian",
   "strength": 0,
   "moves": 2,
-  "cost": 50,
+  "cost": 40,
   "canTrade": true,
   "requiresTech": "trade"
  },

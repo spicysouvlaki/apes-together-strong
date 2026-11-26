@@ -34,7 +34,6 @@ import { endTurnSent, enemyConfirmedTurn, idleSheetTurn, lastTap, loading, pushL
 import { continueStandingOrders, initStandingOrders, runStandingOrders } from './shell/standing-orders';
 import { initGuide } from './shell/guide-state';
 import { idleSheetOpen } from './shell/IdleSheet';
-import { RESUME_SLOT } from './shell/saves-logic';
 import { audio } from '../audio';
 import { commandSound, initUiAudio } from './ui-audio';
 
@@ -81,7 +80,6 @@ const isMyTurnStart = (prev: GameState | null, next: GameState, my: PlayerId | n
 const onState = (state: GameState, events: SimEvent[]): void => {
   const prev = game.value;
   if (!prev || prev.seed !== state.seed) turnLog.value = [];
-  snapshotCount++;
   game.value = state;
   lastEvents.value = events;
   audio.playEvents(events, me.value);
@@ -183,28 +181,9 @@ const applySettingsEffect = (): (() => void) =>
     root.classList.toggle('cb-patterns', s.colorblindPatterns);
   });
 
-/**
- * iOS may kill a backgrounded tab, and autosaves only happen at turn start. When the page is
- * hidden mid-turn, save to the reserved resume slot (an explicit `save`, no protocol change) so
- * Continue picks up the moves made this turn.
- */
-let snapshotCount = 0;
-let lastHiddenSave = -1;
-const watchHiddenSave = (): void => {
-  const saveIfPlaying = (): void => {
-    const g = game.value;
-    if (!client || route.value !== 'game' || !g || g.phase === 'ended') return;
-    if (thinking.value !== null) return; // the worker is busy; the turn-start autosave covers it
-    // Skip if no new snapshot arrived since the last hidden save.
-    if (snapshotCount === lastHiddenSave) return;
-    lastHiddenSave = snapshotCount;
-    client.save(RESUME_SLOT);
-  };
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden') saveIfPlaying();
-  });
-  window.addEventListener('pagehide', saveIfPlaying);
-};
+// No save-on-hide here: the worker writes a rolling resume save after every accepted command
+// (src/worker/host.ts), so 'auto:0' already holds the moves made this turn when iOS kills the
+// tab, and a hide-time save would only race the page teardown.
 
 let client: SimClient | null = null;
 
@@ -240,7 +219,6 @@ export const initApp = (): void => {
   });
   void requestPersistentStorage();
   nudgeAddToHomeScreen();
-  watchHiddenSave();
   // Reset per-turn UI state when leaving a game.
   effect(() => {
     if (route.value !== 'game') {

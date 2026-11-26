@@ -33,7 +33,7 @@ import { lookup } from '../store';
 import { firstFounder, idleUnits, nextIdleUnit } from './hexutil';
 import { selectUnit } from './MapView';
 import { endTurnSent, enemyConfirmedTurn, foundNudgeTurn, hudBottomPx, idleSheetTurn, legendOpen } from './shell-state';
-import { orders, resting } from './standing-orders';
+import { foundReady, orders, resting } from './standing-orders';
 import { guideClass } from './guide-state';
 import { AdviceCard } from './AdviceCard';
 import { IdleSheet, idleSheetOpen } from './IdleSheet';
@@ -168,7 +168,7 @@ const endTurn = (): void => {
     }
   }
   // Once per turn: list what is still idle, with a jump to each (units and cities).
-  const idleUnitCount = idleUnits(g, my, resting.value).length;
+  const idleUnitCount = idleUnits(g, my, resting.value, foundReady.value).length;
   if ((idleUnitCount > 0 || pl.idleCities.length > 0) && idleSheetTurn.value !== g.turn) {
     idleSheetTurn.value = g.turn;
     idleSheetOpen.value = true;
@@ -253,10 +253,10 @@ function NextUnit() {
   const g = game.value;
   const my = me.value;
   if (!g || !my || !myTurn.value) return null;
-  const count = idleUnits(g, my, resting.value).length;
+  const count = idleUnits(g, my, resting.value, foundReady.value).length;
   const sel = selection.value.unit;
   const goNext = (): void => {
-    const u = nextIdleUnit(g, my, resting.value, sel);
+    const u = nextIdleUnit(g, my, resting.value, sel, foundReady.value);
     if (u) selectUnit(u.id, { focus: true });
   };
   if (count === 0) return null;
@@ -335,10 +335,10 @@ function Defeat() {
         </p>
         <div class="title-buttons defeat-buttons">
           <button class="btn btn-primary" onClick={() => openModal({ kind: 'chronicle' })}>
-            Read the Chronicle
+            <Icon name="chronicle" /> Read the Chronicle
           </button>
           <button class="btn" onClick={() => openModal({ kind: 'saves' })}>
-            Load a save
+            <Icon name="load" /> Load a save
           </button>
           <button
             class="btn"
@@ -347,10 +347,10 @@ function Defeat() {
               route.value = 'setup';
             }}
           >
-            New game
+            <Icon name="found" /> New game
           </button>
           <button class="btn" onClick={quitToTitle}>
-            Title screen
+            <Icon name="quit" /> Title screen
           </button>
         </div>
       </div>
@@ -364,6 +364,10 @@ const thinkingName = (): string => {
   const p = id && g ? g.players[id] : undefined;
   return p ? (p.civName ?? `${lookup.leaders[p.leader]?.name ?? 'A rival'}'s people`) : '';
 };
+
+/** "The Builder's people are moving…" / "The Hellenic Kléos is moving…" / "Rivals are moving…" */
+export const thinkingLine = (name: string): string =>
+  !name ? 'Rivals are moving…' : `${name.charAt(0).toUpperCase()}${name.slice(1)} ${/people$/i.test(name) ? 'are' : 'is'} moving…`;
 
 /** The bottom HUD column; reports its height so the camera keeps selected things above it. */
 function BottomStack({ children }: { children: preact.ComponentChildren }) {
@@ -416,7 +420,7 @@ export function Hud() {
       {thinking.value !== null && (
         <div class="thinking" role="status" aria-live="polite">
           <span class="thinking-slip">
-            <Icon name="age" /> {thinkingName()} {thinkingName() ? 'is' : 'Rivals are'} moving…
+            <Icon name="age" /> {thinkingLine(thinkingName())}
           </span>
         </div>
       )}

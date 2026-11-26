@@ -3,7 +3,7 @@ import type { ComponentChildren } from 'preact';
 import { useEffect } from 'preact/hooks';
 import type { Figure } from '@contracts/content-schemas';
 import { closeModal, lookup } from '../../store';
-import { ageLabel, figureUses, KIND_LABEL } from './describe';
+import { ageLabel, bioText, figureUses, KIND_LABEL } from './describe';
 import { Icon } from '../../art/Icon';
 import { CultureCrest, FigurePortrait, tonesOf } from '../../art/game-art';
 import { KIND_ICON } from '../../art/portrait-spec';
@@ -157,6 +157,11 @@ export const FigureCard = (props: {
               {KIND_LABEL[def.kind]}
             </span>
             {!props.compact && <span class="chip">{ageLabel(def.age)}</span>}
+            {!props.compact && def.archetype && (
+              <span class="chip scr-chip-archetype" title="A role the record keeps without a name">
+                Archetype
+              </span>
+            )}
           </div>
           {props.status && <div class="small muted scr-fig-status">{props.status}</div>}
         </div>
@@ -167,7 +172,7 @@ export const FigureCard = (props: {
           {capitalizeFirst(props.reason).replace(/[.\s]+$/, '')}.
         </blockquote>
       )}
-      {!props.compact && <p class="scr-bio">{def.bio}</p>}
+      {!props.compact && <p class="scr-bio">{bioText(def.bio)}</p>}
       {!props.compact && def.quote && <blockquote class="scr-quote">{def.quote}</blockquote>}
       {uses.length > 0 && (
         <dl class="scr-uses">

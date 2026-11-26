@@ -5,7 +5,7 @@ import type { ScreenProps } from './index';
 import { CultureChip, Empty, Portrait, Screen } from './shared/components';
 import { Icon } from '../art/Icon';
 import { CultureCrest, PlayerBanner } from '../art/game-art';
-import { ageLabel, KIND_LABEL } from './shared/describe';
+import { ageLabel, bioText, KIND_LABEL } from './shared/describe';
 import { buildChronicle, type ChronicleAge } from './shared/chronicle';
 import type { FigureKind } from '@contracts/content-schemas';
 
@@ -45,7 +45,7 @@ export const ChronicleScreen = (_: ScreenProps<'chronicle'>) => {
         <div class="scr-tabs" role="tablist" aria-label="Whose chronicle">
           {g.playerOrder.map((id) => (
             <button role="tab" aria-selected={id === shown ? 'true' : 'false'} class={`btn ${id === shown ? 'scr-tab-on' : ''}`} onClick={() => setWho(id)}>
-              {id === player ? 'Yours' : ownerName(id)}
+              {id === player ? 'Yours' : cap(ownerName(id))}
             </button>
           ))}
         </div>
@@ -61,7 +61,7 @@ export const ChronicleScreen = (_: ScreenProps<'chronicle'>) => {
               </div>
             )}
             <div class="scr-chron-eyebrow">The Chronicle of</div>
-            <h2>{view.civName}</h2>
+            <h2>{cap(view.civName)}</h2>
             {view.dream && (
               <div class="scr-chron-motto" lang="und" aria-label={`Motto: ${view.dream.romanized}, ${view.dream.meaning}`}>
                 {view.dream.native}
@@ -81,36 +81,40 @@ export const ChronicleScreen = (_: ScreenProps<'chronicle'>) => {
             </div>
           </div>
 
-          {view.ages.length === 0 && <Empty>The story has not begun.</Empty>}
-          {view.ages.map((a, i) => (
-            <AgeSection age={a} n={i} />
-          ))}
-
+          {/* The verdict first: at the end of a game the player opens this to learn who won. */}
           {g.result && (
-            <section class={`card scr-result${view.result?.won ? ' won' : ''}`} style={{ marginTop: '16px' }}>
+            <section class={`card scr-result${view.result?.won ? ' won' : ''}`} style={{ margin: '4px 0 16px' }}>
               <div class="scr-result-seal" aria-hidden="true">
                 <Icon name={view.result?.won ? 'legend' : 'legacy'} />
               </div>
               <div class="scr-tag">The end of the chronicle</div>
-              <b>{winner} prevailed</b>
+              <b>{winner ? cap(winner) : 'No one'} prevailed</b>
               <p class="small muted">{g.result.reason}</p>
               <ul class="scr-list">
                 {Object.entries(g.result.scores)
                   .sort((x, y) => y[1] - x[1])
                   .map(([id, score]) => (
                     <li class="scr-kv">
-                      <span>{id === player ? `${ownerName(id)} (you)` : ownerName(id)}</span>
+                      <span>{id === player ? `${cap(ownerName(id))} (you)` : cap(ownerName(id))}</span>
                       <b>{score}</b>
                     </li>
                   ))}
               </ul>
             </section>
           )}
+          {view.ages.length === 0 && <Empty>The story has not begun.</Empty>}
+          {view.ages.map((a, i) => (
+            <AgeSection age={a} n={i} />
+          ))}
+
         </>
       )}
     </Screen>
   );
 };
+
+/** Civ names are stored lower-case ("the Sinic Pax"); headings and tabs start with a capital. */
+const cap = (s: string): string => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
 
 const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI'];
 
@@ -120,7 +124,7 @@ const AgeSection = ({ age: a, n }: { age: ChronicleAge; n: number }) => (
     <h3>The {ageLabel(a.age)} Age</h3>
     <div class="scr-chron-events">
       {a.events.map((e, i) => (
-        <p class={`scr-chron-line${i === 0 ? ' scr-dropcap' : ''}`}>
+        <p class={`scr-chron-line${i === 0 && e.text.length > 60 ? ' scr-dropcap' : ''}`}>
           {e.text} <span class="scr-chron-turn">· turn {e.turn}</span>
         </p>
       ))}
@@ -141,7 +145,7 @@ const AgeSection = ({ age: a, n }: { age: ChronicleAge; n: number }) => (
                   </div>
                 </div>
               </div>
-              <p class="scr-chron-line small">{f.bio}</p>
+              <p class="scr-chron-line small">{bioText(f.bio)}</p>
               <p class="scr-history">{f.text}</p>
             </li>
           ))}

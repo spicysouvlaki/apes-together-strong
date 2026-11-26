@@ -21,7 +21,7 @@ function ToastItem({ t }: { t: Toast }) {
   }, [t.id]);
   return (
     <button
-      class={`toast tone-${t.tone}`}
+      class={`toast tone-${t.tone}${t.action?.kind === 'log' ? ' toast-more' : ''}`}
       onClick={() => {
         dismissToast(t.id);
         if (t.at) focusMap(t.at);

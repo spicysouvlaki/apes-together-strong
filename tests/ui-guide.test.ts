@@ -117,7 +117,7 @@ describe('guide: the first figure offer and the cabinet', () => {
     const a = tip(offered, seen('found', 'production', 'research', 'government'))!;
     expect(a.id).toBe('offer');
     expect(a.target).toBe('decision:offer');
-    expect(a.text).toMatch(/really lived/);
+    expect(a.text).toMatch(/drawn from history/);
     const recruited = apply(offered, { type: 'chooseOffer', offer: 'o1', figure: fig.id });
     const b = tip(recruited, seen('found', 'production', 'research', 'government', 'offer'))!;
     expect(b.id).toBe('figures');

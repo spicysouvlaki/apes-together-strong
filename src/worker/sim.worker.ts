@@ -7,6 +7,7 @@ import type { FromWorker, ToWorker } from '@contracts/sim-api';
 import { runAiTurn } from '../ai';
 import { loadContent } from '../content';
 import { createIdbStore, Saves } from '../platform/saves';
+import { createBroadcastTabChannel } from '../platform/tab-guard';
 import { sim } from '../sim';
 import { SimHost } from './host';
 
@@ -19,6 +20,8 @@ const host = new SimHost({
   content: loadContent,
   saves: new Saves(createIdbStore()),
   post: (msg: FromWorker) => scope.postMessage(msg),
+  // Tells an older tab at once that this one took over the autosaves (src/platform/tab-guard.ts).
+  tabs: createBroadcastTabChannel(),
 });
 
 scope.onmessage = (e: MessageEvent<ToWorker>) => {

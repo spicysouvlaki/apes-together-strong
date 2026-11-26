@@ -128,14 +128,14 @@ export const STEPS: readonly Step[] = [
     done: (c) => mySettlements(c).length > 0,
     text: (c) => {
       if (c.view.selectedUnitType && unitDef(c, c.view.selectedUnitType)?.canFound) {
-        return 'This is your settler. Rivers and coasts feed a city well; the dots mark the best sites nearby. Tap Found settlement to build your first city.';
+        return 'This is your settler. Rivers and coasts feed a city well; the numbered sites are the best nearby. Tap Found settlement to build your first city here, or tap a site to march there.';
       }
       const marching = myUnits(c).some((u) => !!unitDef(c, u.type)?.canFound && c.view.ordered.includes(u.id));
       return marching
         ? 'Your settler is on the march and moves on at the start of each turn. When it arrives, select it and tap Found settlement.'
-        : 'Your people wait for a home. Tap the glowing button to pick up your settler, then found your first city.';
+        : 'Your people wait for a home. Tap Found city, bottom right, to pick up your settler, then found your first city.';
     },
-    short: () => 'Found your first city: tap Found settlement, or a dotted site to march there.',
+    short: () => 'Found your first city: tap Found settlement, or a numbered site to march there.',
     target: (c) => {
       if (c.view.selectedUnitType && unitDef(c, c.view.selectedUnitType)?.canFound) return 'found';
       return myUnits(c).some((u) => !!unitDef(c, u.type)?.canFound && c.view.ordered.includes(u.id)) ? null : 'decision:found';
@@ -167,7 +167,7 @@ export const STEPS: readonly Step[] = [
     paced: false,
     when: (c) => pendingOf(c, 'offer'),
     text: () =>
-      'Someone famous wants to join you! Who comes depends on where and how you play: your land, your trade, your deeds. Every one of them really lived.',
+      'Someone famous wants to join you! Who comes depends on where and how you play: your land, your trade, your deeds. Every one of them is drawn from history.',
     target: () => 'decision:offer',
   },
   {

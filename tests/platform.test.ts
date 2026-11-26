@@ -15,6 +15,31 @@ import { TEXT_SCALE_MAX, TEXT_SCALE_MIN, defaultSettings, loadSettings, sanitize
 import { deviceReport, hasWebGL2, isStandalone } from '../src/platform/device';
 import { SimClient, type WorkerLike } from '../src/platform/client';
 
+/** Fields a loadable save must have (src/platform/migrate.ts) and the defaults it fills in. */
+const FILLER = {
+  seed: 1,
+  speed: 'quick',
+  mapSize: 'small',
+  finalAge: 'classical',
+  difficulty: 'normal',
+  ageProgress: 0,
+  rng: [1, 2, 3, 4],
+  nextId: 1,
+  map: {},
+  settlements: {},
+  units: {},
+  figures: {},
+  offers: [],
+  deedsDone: [],
+  wonders: {},
+  cityStates: {},
+  tradeRoutes: [],
+  wars: {},
+  crisis: null,
+  transition: null,
+  result: null,
+};
+
 const state = (turn: number, civName: string | null = null): GameState =>
   ({
     version: 2,
@@ -27,6 +52,7 @@ const state = (turn: number, civName: string | null = null): GameState =>
       ai: { id: 'ai', isHuman: false, leader: 'warrior', civName: 'Rivals', affinity: {} },
       me: { id: 'me', isHuman: true, leader: 'builder', civName, affinity: { greek: 3 } },
     },
+    ...FILLER,
   }) as unknown as GameState;
 
 describe('memory save store', () => {
@@ -37,7 +63,7 @@ describe('memory save store', () => {
     s.turn = 99; // mutating the original must not affect the stored copy
     const got = await store.get('slot:0');
     expect(got?.state.turn).toBe(3);
-    expect(await store.list()).toEqual([{ key: 'slot:0', meta: { slot: 'slot:0', savedAt: 5, turn: 3, age: 'ancient', civName: null, leader: 'builder' }, seq: 1 }]);
+    expect(await store.list()).toEqual([{ key: 'slot:0', meta: { slot: 'slot:0', savedAt: 5, turn: 3, age: 'ancient', civName: null, leader: 'builder' }, seq: 1, version: 2 }]);
     await store.delete('slot:0');
     expect(await store.get('slot:0')).toBeNull();
   });

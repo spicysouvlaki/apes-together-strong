@@ -25,6 +25,15 @@ export const GovernmentList = (props: { onChosen?: () => void }) => {
     props.onChosen?.();
   };
 
+  // Governments of this age not yet open, with the civic that opens each (an empty-looking
+  // screen with one card read as "that's all there is"; playtest).
+  const age = inTransition ? (g.transition?.toAge ?? g.age) : g.age;
+  const later = content.governments
+    .filter((x) => x.age === age && !options.includes(x.id))
+    .map((x) => ({
+      gov: x,
+      by: content.techs.filter((t) => t.modifiers.some((m) => m.effect.kind === 'unlock' && m.effect.what === 'government' && m.effect.id === x.id)).map((t) => t.name),
+    }));
   if (options.length === 0) return <Empty>No government is available yet.</Empty>;
   return (
     <>
@@ -75,6 +84,23 @@ export const GovernmentList = (props: { onChosen?: () => void }) => {
           );
         })}
       </ul>
+      {later.length > 0 && (
+        <div class="scr-later">
+          <p class="scr-tag">Opened later by civics</p>
+          <ul class="scr-later-list small">
+            {later.map(({ gov, by }) => (
+              <li>
+                <b>{gov.name}</b>
+                <span class="muted">
+                  {' '}
+                  · seats {gov.cabinetSlots.map((s) => lookup.cabinetSlots[s]?.name ?? s).join(', ')}
+                  {by.length > 0 && ` · from ${by.join(' or ')}`}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       {confirm && (
         <ConfirmSheet
           title={`Adopt ${lookup.governments[confirm]?.name ?? confirm}?`}
@@ -93,8 +119,14 @@ export const GovernmentList = (props: { onChosen?: () => void }) => {
   );
 };
 
-export const GovernmentScreen = (_: ScreenProps<'government'>) => (
-  <Screen title="Government" label="Government" footer={<button class="btn" onClick={closeModal} aria-label="Done">Done</button>}>
-    <GovernmentList />
-  </Screen>
-);
+export const GovernmentScreen = (_: ScreenProps<'government'>) => {
+  const g = game.value;
+  const player = me.value;
+  // The first government is a turn-one step (Next: Government): back to the map once chosen.
+  const first = !!g && !!player && g.players[player]?.government === null;
+  return (
+    <Screen title="Government" label="Government" footer={<button class="btn" onClick={closeModal} aria-label="Done">Done</button>}>
+      <GovernmentList onChosen={first ? closeModal : undefined} />
+    </Screen>
+  );
+};

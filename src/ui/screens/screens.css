@@ -29,7 +29,9 @@
 }
 .scr-good { color: var(--good); }
 .scr-bad { color: var(--bad); }
-.scr-status { display: flex; align-items: center; gap: 5px; font-weight: 600; }
+.scr-status { display: block; font-weight: 600; }
+.scr-status > svg, .scr-status > .icon { vertical-align: -2px; margin-right: 4px; }
+.scr-status .muted { font-weight: 400; }
 .scr-mods { margin: 6px 0 0; padding-left: 18px; }
 .scr-mods li { margin: 3px 0; }
 .scr-mods li::marker { color: var(--madder); }
@@ -131,16 +133,26 @@
 .scr-fig-row .scr-fig-name { font-size: 1rem; }
 
 /* Cabinet: a council around a round table */
-.scr-council { position: relative; height: 136px; margin: 6px 0 4px; }
+.scr-council { position: relative; height: 168px; margin: 8px 0 6px; }
+.scr-council-dais {
+  position: absolute; inset: 6px 4px 0; border-radius: 50% 50% 8px 8px / 38% 38% 8px 8px;
+  background: radial-gradient(ellipse at 50% 85%, rgba(176, 138, 74, 0.28), rgba(176, 138, 74, 0.06) 70%, transparent 72%);
+  box-shadow: inset 0 0 0 1px rgba(70, 48, 20, 0.14);
+}
 .scr-council-table {
-  position: absolute; left: 50%; top: 72%; width: 150px; height: 62px; margin: -31px 0 0 -75px; border-radius: 50%;
+  position: absolute; left: 50%; top: 76%; width: 140px; height: 56px; margin: -28px 0 0 -70px; border-radius: 50%;
   display: grid; place-items: center; color: var(--paper-hi);
   background: radial-gradient(ellipse at 45% 35%, #8a6a44, #5b4428 70%, #3e2c18);
   box-shadow: 0 6px 10px rgba(40, 24, 8, 0.35), inset 0 0 0 3px rgba(230, 199, 122, 0.45);
 }
-.scr-council-seat { position: absolute; transform: translate(-50%, -50%); }
+.scr-council-seat { position: absolute; transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center; gap: 3px; }
+.scr-council-label {
+  font-family: var(--font-display); font-size: 0.66rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--madder);
+  background: rgba(249, 242, 223, 0.92); padding: 1px 6px; border-radius: 2px; box-shadow: 0 0 0 1px rgba(70, 48, 20, 0.18); white-space: nowrap;
+}
+.scr-council-seat.is-empty .scr-council-label { color: var(--ink-faint); }
 .scr-council-empty {
-  width: 42px; height: 42px; border-radius: 50%; display: grid; place-items: center; color: var(--ink-faint);
+  width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; color: var(--ink-faint);
   border: 1.5px dashed rgba(70, 48, 20, 0.45); background: rgba(248, 240, 220, 0.8);
 }
 .scr-seat { display: flex; align-items: center; gap: 10px; margin-top: 4px; }
@@ -179,7 +191,16 @@
 .scr-node-researching { border: 2px solid var(--woad); box-shadow: 0 0 0 3px rgba(46, 77, 109, 0.18), 0 4px 10px rgba(30, 45, 70, 0.25); }
 .scr-node-available { border-color: var(--gold); box-shadow: inset 0 0 0 1px var(--gold), inset 0 0 0 4px rgba(249, 242, 223, 0.9), var(--shadow-plate); }
 .scr-node-locked { opacity: 0.6; background: var(--grain), rgba(216, 196, 156, 0.4); box-shadow: none; border-style: dashed; }
-.scr-legend-row { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 10px; }
+.scr-legend-row { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0 10px; }
+.scr-legend-row .chip { font-size: 0.72rem; padding-inline: 5px; }
+.scr-tabs .btn { position: relative; }
+.scr-tab-dot {
+  display: inline-grid; place-items: center; min-width: 18px; height: 18px; margin-left: 6px; border-radius: 9px;
+  background: var(--madder); color: #fff7e6; font-size: 0.72rem; font-weight: 800; line-height: 1;
+}
+.scr-earlier { margin-top: 14px; }
+.scr-earlier-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.scr-node.scr-node-flow { position: relative; min-height: 96px; }
 .scr-key-done { color: var(--verdigris); }
 .scr-key-researching { color: var(--woad); border-color: var(--woad); }
 .scr-key-available { color: var(--ochre); border-color: var(--gold); }
@@ -214,7 +235,7 @@
 
 /* Drop caps (Chronicle, crisis) */
 .scr-dropcap::first-letter {
-  float: left; font-family: var(--font-display); font-size: 3.1em; line-height: 0.82; padding: 4px 6px 0 0; color: var(--madder);
+  float: left; font-family: var(--font-display); font-size: 2.55em; line-height: 0.86; padding: 3px 3px 0 0; color: var(--madder);
   font-weight: 700; font-variation-settings: 'SOFT' 100, 'WONK' 1;
 }
 
@@ -285,3 +306,20 @@
 .scr-result.won .scr-result-seal { background: var(--gold-leaf); color: var(--ink); }
 .scr-result-seal .icon { width: 28px; height: 28px; }
 .scr-stats .card + .card { margin-top: 0; }
+
+/* Governments not yet open (government screen) */
+.scr-later { margin-top: 14px; }
+.scr-later-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.scr-later-list li { padding: 8px 10px; border: 1px dashed rgba(70, 48, 20, 0.35); border-radius: 3px; background: rgba(216, 196, 156, 0.25); }
+
+/* Price pill inside a button ("Send envoy [i 20]") */
+.cost-tag {
+  display: inline-flex; align-items: center; gap: 2px; margin-left: 4px; padding: 1px 7px 1px 5px; border-radius: 999px;
+  font-variant-numeric: tabular-nums; font-size: 0.86em; background: rgba(70, 48, 20, 0.1); box-shadow: inset 0 0 0 1px rgba(70, 48, 20, 0.22);
+}
+.btn-primary .cost-tag { background: rgba(255, 247, 230, 0.16); box-shadow: inset 0 0 0 1px rgba(255, 247, 230, 0.35); }
+.scr-fig-cue { color: var(--ochre); font-weight: 650; display: inline-flex; align-items: center; gap: 4px; margin-top: 2px; }
+/* Civ names are stored lower-case ("the Sinic Pax"); a heading starts with a capital. */
+.scr-name-preview::first-letter, .scr-big::first-letter { text-transform: uppercase; }
+.scr-leftover { display: flex; align-items: center; gap: 10px; }
+.scr-leftover .btn { flex: none; }

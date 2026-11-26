@@ -78,7 +78,8 @@ export const CrisisScreen = (_: ScreenProps<'crisis'>) => {
       )}
       {stage && (
         <div class="card scr-stage-card">
-          <p class="scr-stage scr-dropcap">{stage.text}</p>
+          {/* A drop cap needs two lines to sit in; a one-line stage reads better plain. */}
+          <p class={`scr-stage${stage.text.length > 60 ? ' scr-dropcap' : ''}`}>{stage.text}</p>
         </div>
       )}
       {awaiting && stage ? (

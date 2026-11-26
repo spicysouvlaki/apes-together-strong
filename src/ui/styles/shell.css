@@ -114,7 +114,7 @@
 .hud-bottom:has(.unit-sheet) .hud-controls { padding-bottom: 12px; }
 .quick { display: flex; gap: 4px; flex: none; }
 .quick-btn {
-  position: relative; width: 46px; height: 54px; border-radius: 4px; padding: 0;
+  position: relative; width: auto; min-width: 46px; height: 54px; border-radius: 4px; padding: 0 2px;
   border: 1px solid rgba(60, 40, 18, 0.5);
   background: var(--grain), linear-gradient(#fbf4e2, #e8d8b4);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 2px 0 var(--paper-edge), 0 4px 8px rgba(40, 24, 8, 0.28);
@@ -126,7 +126,7 @@
 /* The 48px buttons cannot grow much, so the label follows text size within a readable band. */
 .quick-label {
   font-family: var(--font-display); font-size: clamp(9.5px, calc(10px * var(--text-scale)), 10.5px); font-weight: 650; color: var(--ink);
-  margin-top: 2px; max-width: 46px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; letter-spacing: 0;
+  margin-top: 2px; max-width: 56px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; letter-spacing: 0;
 }
 .quick-btn .badge { position: absolute; top: -7px; right: -6px; }
 .hud-right { min-width: 0; display: flex; flex-direction: column; align-items: flex-end; gap: 7px; }
@@ -223,7 +223,8 @@
   display: flex; flex-direction: column; gap: 6px; pointer-events: none;
 }
 .toast {
-  pointer-events: auto; text-align: left; min-height: var(--tap); padding: 9px 12px 9px 18px; border-radius: 2px; position: relative;
+  pointer-events: auto; text-align: left; min-height: var(--tap); padding: 6px 10px 6px 16px; border-radius: 2px; position: relative;
+  font-size: 0.94rem; line-height: 1.25;
   display: flex; align-items: center; gap: 8px;
   border: 1px solid rgba(70, 48, 20, 0.35); color: var(--ink);
   background: var(--grain), linear-gradient(#faf3e1, #efe2c4);
@@ -232,6 +233,10 @@
 }
 .toast::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 6px; background: var(--ink-soft); }
 .toast-text { flex: 1; min-width: 0; }
+/* The "+N more updates" line is a footnote, not a headline: keep it slim so a busy turn start
+   does not curtain off the top third of the map (playtest: raiders hidden behind three toasts). */
+.toast.toast-more { min-height: 36px; padding-block: 4px; font-size: 0.82rem; color: var(--ink-soft); background: var(--grain), rgba(246, 236, 212, 0.94); box-shadow: 0 2px 6px rgba(40, 24, 8, 0.22); }
+.toast.toast-more::before { width: 3px; }
 .toast.tone-good::before { background: var(--verdigris); }
 .toast.tone-bad::before { background: var(--madder); }
 .toast.tone-bad { color: var(--madder-deep); }
@@ -294,7 +299,10 @@ input[type='range'] { min-height: var(--tap); accent-color: var(--woad); }
 .title-tag { margin: 0 auto; max-width: 270px; font-style: italic; color: var(--ink-soft); }
 .title-buttons { position: relative; z-index: 1; display: flex; flex-direction: column; gap: 12px; width: 100%; max-width: 310px; }
 .title-buttons .btn { min-height: 50px; font-size: 1.05rem; }
-.title-hero { min-height: 58px !important; font-size: 1.15rem !important; }
+.title-hero { min-height: 58px !important; font-size: min(1.15rem, 22px) !important; white-space: nowrap; }
+/* The lockup is display type: it keeps its proportions at large text sizes (text scale 150%
+   wrapped "A chronicle of nations yet to / be" and "Continue · Turn / 33"). */
+.title-eyebrow { white-space: nowrap; font-size: min(0.82rem, 14px) !important; }
 .title-row { display: flex; gap: 10px; }
 .title-row .btn { flex: 1; }
 .title-busy { position: relative; z-index: 1; font-style: italic; color: var(--ink-soft); margin: 4px 0 0; }
@@ -463,3 +471,14 @@ input[type='range'] { min-height: var(--tap); accent-color: var(--woad); }
 .end-turn { font-size: clamp(13px, 1rem, 17px); }
 .end-turn .end-turn-kicker { font-size: clamp(10px, 0.68rem, 12px); }
 .end-turn-two > span { max-width: 96px; }
+
+/* Press feedback for every tappable surface that had none (playtest: toasts, HUD strip, age
+   track, banner, segmented choices, tree nodes, production rows, swatches, glossary terms). */
+.toast:active, .hud-yields:active, .hud-age:active, .segmented button:active:not(:disabled),
+.prod-main:active:not(:disabled), .scr-node:active, .gloss-backdrop .btn-icon:active { filter: brightness(0.94); }
+.toast:active, .scr-node:active, .prod-main:active:not(:disabled) { transform: translateY(1px); }
+.hud-banner:active { transform: translateY(2px); filter: brightness(0.92); }
+.swatch:active { transform: scale(0.92); }
+.term:active { background: rgba(155, 52, 38, 0.12); border-radius: 2px; }
+.reduce-motion .toast:active, .reduce-motion .scr-node:active, .reduce-motion .prod-main:active,
+.reduce-motion .hud-banner:active, .reduce-motion .swatch:active { transform: none; }

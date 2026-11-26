@@ -5,7 +5,7 @@ import type { FigureState } from '@contracts/sim-api';
 import { content, dispatch, game, lookup, me, myTurn, ownerName, q } from '../store';
 import type { ScreenProps } from './index';
 import { ConfirmSheet, Empty, FigureCard, Screen, Section, Sheet } from './shared/components';
-import { ancestorYield, consumeBurstText, describeActivate } from './shared/describe';
+import { ancestorYield, consumeBurstText, describeActivate, shortName } from './shared/describe';
 import { slotIdOfKey, whereText } from './shared/figures';
 import { CABINET_COOLDOWN_TURNS } from '../../emergence/constants';
 import { Icon } from '../art/Icon';
@@ -98,7 +98,7 @@ export const FigureScreen = ({ modal }: ScreenProps<'figure'>) => {
     : [];
 
   return (
-    <Screen title={def.name} label={`Figure: ${def.name}`} footer={buttons.length ? <>{buttons}</> : undefined}>
+    <Screen title={shortName(def.name)} label={`Figure: ${def.name}`} footer={buttons.length ? <>{buttons}</> : undefined}>
       <FigureCard
         def={def}
         reason={def.deed ? null : fs?.reason}
@@ -162,7 +162,7 @@ export const FigureScreen = ({ modal }: ScreenProps<'figure'>) => {
       )}
 
       {pending === 'seat' && a && (
-        <Sheet title={`Seat ${def.name}`} onCancel={() => setPending(null)}>
+        <Sheet title={`Seat ${shortName(def.name)}`} onCancel={() => setPending(null)}>
           {a.seat.map((key) => (
             <button class="btn scr-option" onClick={() => run({ type: 'seatFigure', figure: def.id, slot: key })} aria-label={`Seat as ${seatLabel(key)}`}>
               <Icon name="seat" />
@@ -173,7 +173,7 @@ export const FigureScreen = ({ modal }: ScreenProps<'figure'>) => {
         </Sheet>
       )}
       {pending === 'deploy' && a && (
-        <Sheet title={`Where should ${def.name} muster?`} onCancel={() => setPending(null)}>
+        <Sheet title={`Where should ${shortName(def.name)} muster?`} onCancel={() => setPending(null)}>
           {a.deploy.map((sid) => (
             <button class="btn scr-option" onClick={() => run({ type: 'deployFigure', figure: def.id, settlement: sid })} aria-label={`Deploy at ${g.settlements[sid]?.name ?? sid}`}>
               <Icon name="found" />
@@ -185,7 +185,7 @@ export const FigureScreen = ({ modal }: ScreenProps<'figure'>) => {
       )}
       {pending === 'unseat' && (
         <ConfirmSheet
-          title={`Unseat ${def.name}?`}
+          title={`Unseat ${shortName(def.name)}?`}
           confirmLabel="Unseat"
           onConfirm={() => run({ type: 'unseatFigure', figure: def.id })}
           onCancel={() => setPending(null)}
@@ -197,7 +197,7 @@ export const FigureScreen = ({ modal }: ScreenProps<'figure'>) => {
       )}
       {pending === 'activate' && def.activate && (
         <ConfirmSheet
-          title={`Activate ${def.name}?`}
+          title={`Activate ${shortName(def.name)}?`}
           confirmLabel="Activate"
           onConfirm={() => run({ type: 'activateFigure', figure: def.id })}
           onCancel={() => setPending(null)}
@@ -209,7 +209,7 @@ export const FigureScreen = ({ modal }: ScreenProps<'figure'>) => {
         </ConfirmSheet>
       )}
       {pending === 'consume' && (
-        <Sheet title={`Consume ${def.name}?`} onCancel={() => setPending(null)}>
+        <Sheet title={`Consume ${shortName(def.name)}?`} onCancel={() => setPending(null)}>
           <p class="small muted">
             <GlossText text="They leave play for good and add nothing to your Legacy score. Choose what you gain:" />
           </p>
@@ -229,7 +229,7 @@ export const FigureScreen = ({ modal }: ScreenProps<'figure'>) => {
       )}
       {(pending === 'consume-rp' || pending === 'consume-yields') && (
         <ConfirmSheet
-          title={`Consume ${def.name}?`}
+          title={`Consume ${shortName(def.name)}?`}
           confirmLabel="Consume"
           danger
           onConfirm={() => run({ type: 'consumeFigure', figure: def.id, as: pending === 'consume-rp' ? 'refinement' : 'yields' })}

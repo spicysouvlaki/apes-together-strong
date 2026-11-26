@@ -15,8 +15,14 @@ export const glossaryOpen = signal<GlossaryId | null>(null);
  */
 export function Term({ id, children }: { id: GlossaryId; children?: ComponentChildren }) {
   const open = (e: Event): void => {
-    e.stopPropagation();
-    e.preventDefault();
+    // Inside a choice card (setup leaders, production rows, tech nodes) the term covers much of
+    // the card, so a tap meant for the card must still choose it: let the click bubble there
+    // and explain the term on top. Elsewhere the term is the only target.
+    const host = (e.currentTarget as HTMLElement | null)?.parentElement?.closest('button, [role="radio"], [role="option"]');
+    if (!host) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
     glossaryOpen.value = id;
   };
   return (

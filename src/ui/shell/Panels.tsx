@@ -3,8 +3,9 @@
  */
 import { useEffect } from 'preact/hooks';
 import type { SaveMeta } from '@contracts/sim-api';
-import { PLAYER_SLOT_COUNT, RESUME_SLOT } from './saves-logic';
+import { PLAYER_SLOT_COUNT, RESUME_SLOT, continueSave } from './saves-logic';
 import { TEXT_SCALE_MAX, TEXT_SCALE_MIN } from '../../platform/settings';
+import { exportGame, importGame } from '../../platform/transfer';
 import {
   askConfirm,
   closeModal,
@@ -78,7 +79,7 @@ export function MenuPanel() {
           <Icon name="chronicle" /> Chronicle
         </button>
         <button class="btn" onClick={() => openModal({ kind: 'codex' })}>
-          <Icon name="chronicle" /> How to play
+          <Icon name="help" /> How to play
         </button>
         <button class="btn" onClick={() => openModal({ kind: 'log' })}>
           <Icon name="turn" /> Recent events
@@ -93,7 +94,7 @@ export function MenuPanel() {
           onClick={() =>
             askConfirm({
               title: 'Quit to the title screen?',
-              body: 'Your game was autosaved at the start of this turn. Moves since then are lost unless you save.',
+              body: 'Your game is saved automatically after every move. Continue picks it up where you left off.',
               confirmLabel: 'Quit',
               onConfirm: quitToTitle,
             })
@@ -123,12 +124,34 @@ const doLoad = (slot: string): void => {
   } else go();
 };
 
+const errorText = (err: unknown): string => (err instanceof Error ? err.message : String(err));
+
+/** Downloads the newest save as a .json file (safety net against Safari clearing site data). */
+const doExport = (slot: string): void => {
+  exportGame(slot).then(
+    (name) => pushToast(`Exported ${name}. Keep it in Files to restore this game later.`, 'good'),
+    (err: unknown) => pushToast(`Export failed: ${errorText(err)}`, 'bad'),
+  );
+};
+
+/** Picks a .json save, stores it in the reserved slot, then loads it like any save. */
+const doImport = (): void => {
+  importGame().then(
+    (slot) => {
+      if (slot) doLoad(slot);
+    },
+    (err: unknown) => pushToast(`Import failed: ${errorText(err)}`, 'bad'),
+  );
+};
+
 export function SavesPanel() {
   useEffect(() => refreshSaves(), []);
   const list = saves.value;
   const inGame = route.value === 'game' && game.value !== null;
   const autos = list.filter((s) => s.slot.startsWith('auto:')).sort((a, b) => b.savedAt - a.savedAt);
   const resume = list.find((s) => s.slot === RESUME_SLOT);
+  // In a game, auto:0 is its latest state; on the title screen, what Continue would load.
+  const newest = inGame ? (list.find((s) => s.slot === 'auto:0') ?? null) : continueSave(list);
   const save = (slot: string, n: number): void => {
     saveGame(slot);
     pushToast(`Saved to slot ${n}.`, 'good');
@@ -140,12 +163,12 @@ export function SavesPanel() {
       <Header title={inGame ? 'Save / Load' : 'Load game'} onBack={back} />
       <div class="screen-body">
         <div class="section-title">Autosaves</div>
-        <p class="small muted mt4">Made at the start of each of your turns, and when you leave the app mid-turn.</p>
+        <p class="small muted mt4">The newest is updated after every move; the others are from the start of your recent turns.</p>
         {autos.length === 0 && !resume && <div class="small muted">No autosaves yet.</div>}
         {resume && (
           <div class="card row">
             <div class="grow small">
-              <strong>When you left</strong> · {describe(resume)}
+              <strong>Imported</strong> · {describe(resume)}
             </div>
             <button class="btn" onClick={() => doLoad(resume.slot)}>
               Load
@@ -209,6 +232,18 @@ export function SavesPanel() {
             </div>
           );
         })}
+        <div class="section-title">Backup</div>
+        <p class="small muted mt4">Export a copy to Files in case the browser clears this site's data; import one to restore it.</p>
+        <div class="row mt4">
+          {newest && (
+            <button class="btn" onClick={() => doExport(newest.slot)}>
+              <Icon name="save" /> Export
+            </button>
+          )}
+          <button class="btn" onClick={doImport}>
+            <Icon name="load" /> Import
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -267,7 +302,7 @@ export function SettingsPanel() {
         </div>
         <div class="section-title">Sound</div>
         <label class="card row toggle">
-          <span class="grow">Mute all sound</span>
+          <span class="grow settings-label">Mute all sound</span>
           <input type="checkbox" aria-label="Mute all sound" checked={s.muted} onChange={(e) => patchSettings({ muted: (e.target as HTMLInputElement).checked })} />
         </label>
         <Volume label="Effects" value={s.sfxVolume} disabled={s.muted} onInput={(v) => patchSettings({ sfxVolume: v })} />
@@ -276,12 +311,12 @@ export function SettingsPanel() {
         <GuideSettings />
         <div class="section-title">Comfort</div>
         <label class="card row toggle">
-          <span class="grow">Reduce motion</span>
+          <span class="grow settings-label">Reduce motion</span>
           <input type="checkbox" aria-label="Reduce motion" checked={s.reduceMotion} onChange={(e) => patchSettings({ reduceMotion: (e.target as HTMLInputElement).checked })} />
         </label>
         <label class="card row toggle">
           <span class="grow">
-            Colorblind patterns
+            <span class="settings-label">Colorblind patterns</span>
             <div class="small muted">Adds patterns to banners and borders where supported.</div>
           </span>
           <input

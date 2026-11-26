@@ -33,6 +33,7 @@ import {
   type Ray,
   type ZoomBand,
 } from './camera-math';
+import { CameraMotion, FOCUS_MS } from './camera-motion';
 import { ART } from './palette';
 import type { RenderQuality } from './scatter';
 import { vignetteMaterial } from './scene/materials';
@@ -43,8 +44,6 @@ import { World, type FlashKind, type Selection } from './scene/world';
 import type { RenderHints, Renderer, RendererOptions, RenderSelection, SafeArea } from './index';
 
 const FOV_Y = 40;
-const FOCUS_MS = 380;
-const INERTIA_DECAY_MS = 260;
 const YAW_RATE = 12; // 1/s, exponential approach to the snapped yaw
 /**
  * Starting distance: DEFAULT_HEXES_ACROSS (~7) hexes across the short screen axis at the focus
@@ -62,14 +61,6 @@ const AMBIENT_FRAME_MS = 33;
 const IDLE_FRAME_MS = 75;
 /** Default HUD padding (CSS px) that focus() keeps targets out of (top bar, bottom sheet). */
 export const DEFAULT_SAFE_AREA: SafeArea = { top: 100, right: 0, bottom: 180, left: 0 };
-
-interface Tween {
-  fromX: number;
-  fromZ: number;
-  toX: number;
-  toZ: number;
-  start: number;
-}
 
 const now = (): number => performance.now();
 
@@ -119,9 +110,9 @@ export function createRendererImpl(
   let yaw = 0;
   let yawTarget = 0;
   let band: ZoomBand = 'close';
-  let tween: Tween | null = null;
-  let vx = 0; // inertia, world units per ms
-  let vz = 0;
+  // Tween / inertia state machine (camera-motion.ts): a focus request always wins over a pan.
+  const motion = new CameraMotion(FOCUS_MS);
+  const target = { x: 0, z: 0 };
   let lastFrame = 0;
 
   // --- Snapshot state -------------------------------------------------------------------------
@@ -130,7 +121,7 @@ export function createRendererImpl(
   let lastVisible: readonly number[] = [];
   let mapW = 0;
   let mapH = 0;
-  let selection: Selection = { unit: null, tile: null, reachable: [], attackable: [], path: [] };
+  let selection: Selection = { unit: null, tile: null, reachable: [], attackable: [], path: [], pathTurns: [] };
   let unitsMoving = false;
 
   // --- Loop / stats ---------------------------------------------------------------------------
@@ -262,23 +253,12 @@ export function createRendererImpl(
     lastFrame = t;
     let again = false;
 
-    if (tween) {
-      const k = Math.min(1, (t - tween.start) / FOCUS_MS);
-      const e = k * k * (3 - 2 * k);
-      tx = tween.fromX + (tween.toX - tween.fromX) * e;
-      tz = tween.fromZ + (tween.toZ - tween.fromZ) * e;
-      if (k >= 1) tween = null;
-      else again = true;
-    } else if (vx !== 0 || vz !== 0) {
-      tx -= vx * dt;
-      tz -= vz * dt;
-      const decay = Math.exp(-dt / INERTIA_DECAY_MS);
-      vx *= decay;
-      vz *= decay;
-      if (Math.hypot(vx, vz) < 0.00005) {
-        vx = 0;
-        vz = 0;
-      } else again = true;
+    if (motion.mode !== 'idle') {
+      target.x = tx;
+      target.z = tz;
+      if (motion.step(t, dt, target)) again = true;
+      tx = target.x;
+      tz = target.z;
     }
     let yawChanged = false;
     if (yaw !== yawTarget) {
@@ -358,11 +338,11 @@ export function createRendererImpl(
     for (const a of actions) {
       switch (a.type) {
         case 'interrupt':
-          tween = null;
-          vx = 0;
-          vz = 0;
+          motion.touch();
           break;
         case 'pan':
+          // A focus requested after this gesture began owns the camera (stale drags ignored).
+          if (!motion.gestureOwnsCamera) break;
           ground(a.fromX, a.fromY, g0);
           ground(a.toX, a.toY, g1);
           if (g0.ok && g1.ok) {
@@ -373,16 +353,12 @@ export function createRendererImpl(
           }
           break;
         case 'panEnd': {
-          if (reduceMotion) break;
+          if (reduceMotion || !motion.gestureOwnsCamera) break;
           const cx = (canvas.clientWidth || 1) / 2;
           const cy = (canvas.clientHeight || 1) / 2;
           ground(cx, cy, g0);
           ground(cx + a.vx * 16, cy + a.vy * 16, g1);
-          if (g0.ok && g1.ok) {
-            vx = (g1.x - g0.x) / 16;
-            vz = (g1.z - g0.z) / 16;
-            requestRender();
-          }
+          if (g0.ok && g1.ok && motion.fling((g1.x - g0.x) / 16, (g1.z - g0.z) / 16)) requestRender();
           break;
         }
         case 'pinch':
@@ -394,12 +370,13 @@ export function createRendererImpl(
           requestRender();
           break;
         case 'tap': {
-          const h = pick(a.x, a.y);
+          // Labels first: a tap on a name means the named settlement, not the tile behind it.
+          const h = world.labelHexAt(a.x, a.y) ?? pick(a.x, a.y);
           if (h) for (const cb of tapListeners) cb(h);
           break;
         }
         case 'longPress': {
-          const h = pick(a.x, a.y);
+          const h = world.labelHexAt(a.x, a.y) ?? pick(a.x, a.y);
           if (h) for (const cb of longListeners) cb(h);
           break;
         }
@@ -450,9 +427,7 @@ export function createRendererImpl(
     wake();
     const scale = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1;
     const dy = Math.max(-200, Math.min(200, e.deltaY * scale));
-    tween = null;
-    vx = 0;
-    vz = 0;
+    motion.stop();
     zoomAt(Math.exp(dy * 0.0016), p.x, p.y);
     requestRender();
   };
@@ -480,6 +455,51 @@ export function createRendererImpl(
   canvas.addEventListener('webglcontextlost', onLost);
   canvas.addEventListener('webglcontextrestored', onRestored);
 
+  /**
+   * Fit the main compass rose into the opening view (GDD §11 first impression): the first
+   * spot, scanning the HUD-free area top-down, where the whole rose is on screen and on
+   * unexplored parchment, preferring spots far from the start. Falls back to the World's own
+   * placement when none fits.
+   */
+  const fitRose = (): void => {
+    const cw = canvas.clientWidth || 1;
+    const ch = canvas.clientHeight || 1;
+    const y0 = safeArea.top;
+    const y1 = ch - safeArea.bottom;
+    const cx = (safeArea.left + cw - safeArea.right) / 2;
+    const cy = (y0 + y1) / 2;
+    let best = -1;
+    let bx = 0;
+    let bz = 0;
+    const R = 1.9;
+    for (let j = 0; j <= 12; j++) {
+      for (let i = 0; i <= 8; i++) {
+        const sx = safeArea.left + ((cw - safeArea.left - safeArea.right) * i) / 8;
+        const sy = y0 + ((y1 - y0) * j) / 12;
+        ground(sx, sy, g0);
+        if (!g0.ok) continue;
+        let inside = true;
+        for (let k = 0; k < 8 && inside; k++) {
+          const a = (k * Math.PI) / 4;
+          v3.set(g0.x + Math.cos(a) * R, LAND_TOP, g0.z + Math.sin(a) * R).project(camera);
+          const px = (v3.x * 0.5 + 0.5) * cw;
+          const py = (-v3.y * 0.5 + 0.5) * ch;
+          if (px < 6 || px > cw - 6 || py < y0 || py > y1) inside = false;
+        }
+        if (!inside || !world.roseClearAt(g0.x, g0.z)) continue;
+        const score = Math.hypot(sx - cx, sy - cy);
+        if (score > best) {
+          best = score;
+          bx = g0.x;
+          bz = g0.z;
+        }
+      }
+    }
+    if (best >= 0) world.setRose(bx, bz);
+    // One attempt per new game: the rose must never jump around later.
+    world.rosePending = false;
+  };
+
   let ro: ResizeObserver | null = null;
 
   const api: Renderer = {
@@ -505,11 +525,12 @@ export function createRendererImpl(
         const w = hexToWorld(start);
         tx = w.x;
         tz = w.z;
-        tween = null;
+        motion.stop();
         distance = defaultDistance(camera.aspect || 1);
         applyCamera();
         api.focus(start, { instant: true });
       }
+      if (world.rosePending) fitRose();
       applyCamera();
       requestRender();
     },
@@ -521,6 +542,8 @@ export function createRendererImpl(
         reachable: sel.reachable ?? selection.reachable,
         attackable: sel.attackable ?? selection.attackable,
         path: sel.path ?? selection.path,
+        // A new path without turn marks clears the old marks (they index the old path).
+        pathTurns: sel.pathTurns ?? (sel.path !== undefined ? [] : selection.pathTurns),
       };
       wake();
       if (world.setSelection(selection, now())) unitsMoving = true;
@@ -560,16 +583,13 @@ export function createRendererImpl(
       }
       const ext = viewHalfExtents(distance, camera.aspect || 1, FOV_Y);
       const c = clampTarget(aimX, aimZ, bounds, 2, softHalfExtent(ext.w, bounds.maxX - bounds.minX), softHalfExtent(ext.h, bounds.maxZ - bounds.minZ));
-      vx = 0;
-      vz = 0;
-      if (opts?.instant || reduceMotion) {
-        tween = null;
+      // Always wins: cancels inertia and any drag of a gesture that began before this call.
+      if (motion.focus(tx, tz, c.x, c.z, now(), !!opts?.instant || reduceMotion)) {
         tx = c.x;
         tz = c.z;
         applyCamera();
-      } else {
-        tween = { fromX: tx, fromZ: tz, toX: c.x, toZ: c.z, start: now() };
       }
+      wake();
       requestRender();
     },
 
@@ -611,6 +631,10 @@ export function createRendererImpl(
 
     setHints(hints: Partial<RenderHints>) {
       if (hints.readyUnits !== undefined) world.setReady(hints.readyUnits, now());
+      if (hints.sites !== undefined) {
+        world.setSites(hints.sites);
+        wake();
+      }
       requestRender();
     },
 
@@ -639,9 +663,7 @@ export function createRendererImpl(
     zoomBy(factor: number) {
       const cw = canvas.clientWidth || 1;
       const ch = canvas.clientHeight || 1;
-      tween = null;
-      vx = 0;
-      vz = 0;
+      motion.stop();
       zoomAt(factor, cw / 2, ch / 2);
       requestRender();
     },
