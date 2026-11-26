@@ -1,87 +1,40 @@
 /**
- * Audio engine public surface (GDD §11 "Audio"). STUB — owned by the audio task.
- * Main thread only. Everything is synthesised with the Web Audio API (no audio files yet),
- * so it works offline and costs nothing to precache. The UI calls these; signatures are fixed.
+ * Audio engine public surface (GDD §11 "Audio"). Main thread only.
+ * Everything is synthesised with the Web Audio API (no audio files), so it works offline and
+ * costs nothing to precache. The UI calls these; signatures are fixed.
  *
  * Browsers only allow sound after a user gesture: the UI calls `audio.unlock()` from the
- * first tap, and every other call is a safe no-op until then (and in Node/tests).
+ * first tap (calling it on every tap is cheap and recovers from iOS interruptions), and every
+ * other call is a safe no-op until then (and in Node, workers and tests).
+ *
+ * Modules: types (API), theory (the shared key), recipes (the Sfx palette as data), synth
+ * (layers -> nodes), graph (buses, reverb, limiter), planner (events -> sounds), composer +
+ * voices + ambience (the generative bed), engine (lifecycle, voices, settings).
  */
-import type { Age } from '@contracts/content-schemas';
-import type { PlayerId, SimEvent } from '@contracts/sim-api';
+import { WebAudioEngine } from './engine';
+import type { AudioEngine } from './types';
 
-/** One-shot interface and game sounds. */
-export type Sfx =
-  | 'tap' // any button
-  | 'select' // unit or tile selected
-  | 'deselect'
-  | 'open' // sheet or screen opens
-  | 'close'
-  | 'error' // rejected command
-  | 'move' // unit moves
-  | 'found' // settlement founded
-  | 'build' // production completed
-  | 'wonder'
-  | 'research' // tech or civic completed
-  | 'attack' // melee hit
-  | 'ranged'
-  | 'unitLost'
-  | 'victory' // battle won / city captured
-  | 'offer' // a famous person arrives
-  | 'recruit' // figure welcomed
-  | 'seat' // figure seated
-  | 'activate' // figure's deed
-  | 'hint' // culture hint toast
-  | 'coin' // purchase
-  | 'envoy'
-  | 'war'
-  | 'peace'
-  | 'crisis'
-  | 'milestone'
-  | 'adopt' // tradition or hybrid adopted
-  | 'ageEnd'
-  | 'ageStart'
-  | 'endTurn'
-  | 'turnStart'
-  | 'defeat'
-  | 'chronicle';
+export type { AmbienceScene, AudioEngine, AudioSettings, Sfx } from './types';
+export { planEvents, type PlannedSound, type PlanOptions } from './planner';
+export { SFX_LIST } from './recipes';
 
-export interface AudioSettings {
-  /** 0–100 */
-  sfxVolume: number;
-  /** 0–100 */
-  musicVolume: number;
-  muted: boolean;
-}
-
-export interface AudioEngine {
-  /** Create/resume the AudioContext. Call from a user gesture; idempotent. */
-  unlock(): void;
-  play(sfx: Sfx): void;
-  /**
-   * Play the right sounds for a batch of sim events as heard by `viewer` (own events loud,
-   * rivals' quiet or silent), de-duplicated and spaced so a busy turn does not clip.
-   */
-  playEvents(events: readonly SimEvent[], viewer: PlayerId | null): void;
-  /**
-   * Set the ambient bed: a quiet generative loop per age, tinted by the player's culture
-   * weights (ids from content/cultures.json -> 0..1) and darker while a crisis is active.
-   * `null` age stops the ambience (title screen may pass 'ancient').
-   */
-  setAmbience(scene: { age: Age | null; cultures?: Record<string, number>; crisis?: boolean }): void;
-  setSettings(settings: AudioSettings): void;
-  /** Pause everything when the tab is hidden; resume when shown. */
-  suspend(): void;
-  resume(): void;
-}
-
-const noop = (): void => {};
+const engine = new WebAudioEngine();
 
 export const audio: AudioEngine = {
-  unlock: noop,
-  play: noop,
-  playEvents: noop,
-  setAmbience: noop,
-  setSettings: noop,
-  suspend: noop,
-  resume: noop,
+  unlock: () => engine.unlock(),
+  play: (sfx) => engine.play(sfx),
+  playEvents: (events, viewer) => engine.playEvents(events, viewer),
+  setAmbience: (scene) => engine.setAmbience(scene),
+  setSettings: (settings) => engine.setSettings(settings),
+  suspend: () => engine.suspend(),
+  resume: () => engine.resume(),
 };
+
+/**
+ * Optional: give the event planner a settlement-owner lookup from the latest snapshot so the
+ * player's own `settlementGrew` events make a soft tick (they carry no player id).
+ */
+export const setAudioPlanOptions = (o: import('./planner').PlanOptions): void => engine.setPlanOptions(o);
+
+/** Debug counters (demo page). */
+export const audioStats = () => engine.stats();

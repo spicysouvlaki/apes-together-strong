@@ -13,7 +13,7 @@ import { queries } from '../sim/queries';
 import { exec, me, type AiCtx } from './ctx';
 import type { EmpirePlan } from './economy';
 import { pickWarTarget } from './war';
-import { ownedLuxuries, siteLegal, siteScore } from './sites';
+import { aiSiteScorer, siteLegal } from './sites';
 import { UNREACHABLE, landField, landStepCost } from './util';
 import { enemiesAtWar, hostilesNear, isMilitary, ownSettlements, ownUnits } from './world';
 
@@ -53,16 +53,16 @@ const ownSettlementField = (ai: AiCtx): Int32Array =>
 /** Turn-1 capital: found where the settler stands unless a clearly better spot is in reach. */
 const foundCapital = (ai: AiCtx, u: Unit): void => {
   const { state, player, content } = ai;
-  const lux = ownedLuxuries(state, player, content);
+  const scoreOf = aiSiteScorer(state, player, content, ai.persona);
   const hereIdx = idxOf(ai, u.at);
-  const here = siteLegal(state, player, hereIdx, content) ? siteScore(state, player, hereIdx, content, ai.persona, lux) : -Infinity;
+  const here = siteLegal(state, player, hereIdx, content) ? scoreOf(hereIdx) : -Infinity;
   let best: Hex | null = null;
   let bestScore = here;
   if (state.turn <= 2) {
     for (const r of queries.reachable(state, u.id, content)) {
       const i = idxOf(ai, r.hex);
       if (!siteLegal(state, player, i, content)) continue;
-      const s = siteScore(state, player, i, content, ai.persona, lux);
+      const s = scoreOf(i);
       if (s > bestScore * 1.15 + 2) {
         bestScore = s;
         best = r.hex;

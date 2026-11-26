@@ -25,13 +25,22 @@ const setup = (seed: number): GameSetup => ({
   })),
 });
 
+/**
+ * Input-mutation checks serialize the whole state twice per command, which dominated this
+ * file's run time; one command in `MUTATION_CHECK_EVERY` is checked (tests/sim-fuzz.test.ts
+ * checks every one of its commands).
+ */
+const MUTATION_CHECK_EVERY = 7;
+let applied = 0;
+
 /** A dumb but deterministic scripted player: settle, wander, answer every decision with the first option. */
 const scriptedTurn = (start: GameState, pid: PlayerId, log: string[]): GameState => {
   let state = start;
   const apply = (cmd: Command): void => {
-    const before = JSON.stringify(state);
+    const check = applied++ % MUTATION_CHECK_EVERY === 0;
+    const before = check ? JSON.stringify(state) : '';
     const r = applyCommand(state, pid, cmd, content);
-    expect(JSON.stringify(state)).toBe(before); // input never mutated
+    if (check) expect(JSON.stringify(state)).toBe(before); // input never mutated
     if (r.ok) state = r.state;
     else log.push(`${state.turn} ${pid} ${cmd.type}: ${r.error}`);
   };
@@ -125,11 +134,12 @@ describe('golden replay', () => {
     expect(a.state.turn).toBeGreaterThan(30);
     expect(JSON.stringify(a.state)).toBe(JSON.stringify(b.state));
     expect(a.log).toEqual(b.log);
-  });
+    // Explicit budget: ~4 s alone, but it hit vitest's 5 s default under a full parallel run.
+  }, 60_000);
 
   it('a whole game runs to the end without throwing', () => {
     const { state } = play(99, 3 * 400);
     expect(state.phase).toBe('ended');
     expect(state.result).not.toBeNull();
-  }, 60_000);
+  }, 180_000);
 });

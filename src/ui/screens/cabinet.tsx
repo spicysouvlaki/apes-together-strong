@@ -6,6 +6,32 @@ import { Empty, Portrait, Screen, Section, Sheet } from './shared/components';
 import { describeModifiers, KIND_LABEL } from './shared/describe';
 import { slotIdOfKey } from './shared/figures';
 import { seatLabel } from './figure';
+import { Icon } from '../art/Icon';
+import { FigurePortrait } from '../art/game-art';
+
+/** Decorative council: the seats around a round table, filled with portraits (GDD §3 "Seat"). */
+const Council = ({ seats }: { seats: { key: string; figure: string | null }[] }) => {
+  const n = seats.length;
+  if (n === 0) return null;
+  return (
+    <div class="scr-council" aria-hidden="true">
+      <div class="scr-council-table">
+        <Icon name="cabinet" />
+      </div>
+      {seats.map((s, i) => {
+        // Seats along the far side of the table, like a council seen from the door.
+        const a = n === 1 ? Math.PI * 1.5 : Math.PI * (1.12 + (0.76 * i) / (n - 1));
+        const x = 50 + Math.cos(a) * 34;
+        const y = 70 + Math.sin(a) * 48;
+        return (
+          <div class="scr-council-seat" style={{ left: `${x}%`, top: `${y}%` }}>
+            {s.figure ? <FigurePortrait figure={s.figure} size="sm" badge={false} /> : <span class="scr-council-empty"><Icon name="seat" size="sm" /></span>}
+          </div>
+        );
+      })}
+    </div>
+  );
+};
 
 export const CabinetScreen = (_: ScreenProps<'cabinet'>) => {
   const [picking, setPicking] = useState<string | null>(null);
@@ -56,6 +82,7 @@ export const CabinetScreen = (_: ScreenProps<'cabinet'>) => {
           <Empty>You have no government yet.</Empty>
         )}
       </Section>
+      <Council seats={seats.map((s) => ({ key: s.key, figure: s.figure }))} />
       <Section title="Seats" note="Seated figures give their bonus every turn and count double toward culture weight. A vacated seat takes two turns to fill again.">
         {seats.length === 0 && <Empty>Choose a government to open cabinet seats.</Empty>}
         <ul class="scr-list">
@@ -70,12 +97,12 @@ export const CabinetScreen = (_: ScreenProps<'cabinet'>) => {
                   <button class="card scr-tap" onClick={() => openModal({ kind: 'figure', figure: fig.id })} aria-label={`${seatLabel(s.key)}: ${fig.name}`}>
                     <div class="scr-tag">{seatLabel(s.key)}</div>
                     <div class="scr-seat">
-                      <Portrait name={fig.name} culture={fig.culture} size="sm" legend={fig.kind === 'legend'} />
+                      <Portrait figure={fig.id} size="sm" />
                       <div class="grow">
                         <div class="scr-fig-name">{fig.name}</div>
                         <div class="small">{describeModifiers(fig.cabinetModifiers, lookup).join('; ') || 'Counts double for culture weight'}</div>
                       </div>
-                      <span class="scr-chev">›</span>
+                      <Icon name="chevron" class="scr-chev" />
                     </div>
                   </button>
                 </li>
@@ -91,7 +118,9 @@ export const CabinetScreen = (_: ScreenProps<'cabinet'>) => {
                 >
                   <div class="scr-tag">{seatLabel(s.key)}</div>
                   <div class="scr-seat">
-                    <div class="scr-seat-empty">+</div>
+                    <div class="scr-seat-empty">
+                      <Icon name={wait > 0 ? 'age' : 'plus'} />
+                    </div>
                     <div class="grow">
                       <div>{wait > 0 ? `Free in ${wait} ${wait === 1 ? 'turn' : 'turns'}` : 'Empty seat'}</div>
                       <div class="small muted">Accepts: {accepts}</div>
@@ -119,7 +148,7 @@ export const CabinetScreen = (_: ScreenProps<'cabinet'>) => {
                 }}
                 aria-label={`Seat ${def.name}`}
               >
-                <Portrait name={def.name} culture={def.culture} size="sm" />
+                <Portrait figure={def.id} size="sm" />
                 <span class="grow">
                   <b>{def.name}</b>
                   <br />

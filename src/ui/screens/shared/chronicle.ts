@@ -4,6 +4,7 @@
  */
 import { AGES, type Age, type ContentBundle } from '@contracts/content-schemas';
 import type { ChronicleEntry, GameState, PlayerId } from '@contracts/sim-api';
+import { annalVoice } from '../../../emergence/figures';
 
 export interface ChronicleFigure {
   id: string;
@@ -11,7 +12,7 @@ export interface ChronicleFigure {
   culture: string;
   kind: string;
   bio: string;
-  /** "Thales joined us, drawn by your rivers." */
+  /** "Thales joined the court, drawn by its rivers." (neutral annal voice, as the sim writes it) */
   text: string;
   turn: number;
 }
@@ -57,7 +58,7 @@ export interface ChronicleView {
 const arrivalText = (def: { name: string; deed?: string | undefined }, text: string, content: ContentBundle): string => {
   if (!def.deed) return text;
   const deed = content.deeds.find((d) => d.id === def.deed);
-  return deed ? `${def.name} came to us after ${deed.name}.` : `${def.name} joined us.`;
+  return deed ? `${def.name} joined the court after a deed: ${deed.name}.` : `${def.name} joined the court.`;
 };
 
 const emptyAge = (age: Age): ChronicleAge => ({
@@ -131,7 +132,8 @@ export const buildChronicle = (state: GameState, player: PlayerId, content: Cont
       culture: def.culture,
       kind: def.kind,
       bio: def.bio,
-      text: arrivalText(def, fs.reason ? `${def.name} joined us, ${fs.reason}.` : `${def.name} joined us.`, content),
+      // Annal voice, like the sim's own chronicle lines: read on any civ's tab, so no "us"/"you".
+      text: arrivalText(def, fs.reason ? `${def.name} joined the court, ${annalVoice(fs.reason)}.` : `${def.name} joined the court.`, content),
       turn: fs.recruitedTurn,
     });
   }

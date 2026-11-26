@@ -11,15 +11,16 @@ import { content, game, me, ownerName, q } from '../store';
 import type { ScreenProps } from './index';
 import { Bar, Empty, Screen, Section } from './shared/components';
 import { ageLabel, capitalize } from './shared/describe';
+import { Icon } from '../art/Icon';
 
 /** Stage thresholds of this age's crisis, from content. */
 const lookupCrisisStages = (age: string): number[] | null => content.crises.find((c) => c.age === age)?.stages.map((s) => s.at) ?? null;
 
 const TRACK_COLOR: Record<string, string> = {
-  science: '#3f6f9a',
-  military: '#a8483c',
-  culture: '#7a5c94',
-  legacy: '#b8892b',
+  science: '#2e5a7e',
+  military: '#9b3426',
+  culture: '#7a3f6f',
+  legacy: '#9a6d16',
 };
 
 export const LegacyScreen = (_: ScreenProps<'legacy'>) => {
@@ -44,7 +45,11 @@ export const LegacyScreen = (_: ScreenProps<'legacy'>) => {
                 <span class="scr-tag" style={{ color: TRACK_COLOR[m.track] }}>
                   {capitalize(m.track)}
                 </span>
-                <span class="small">{'★'.repeat(m.achieved)}{'☆'.repeat(3 - m.achieved)}</span>
+                <span class="scr-stars" role="img" aria-label={`${m.achieved} of 3 milestones`}>
+                  {[0, 1, 2].map((k) => (
+                    <Icon name={k < m.achieved ? 'star' : 'starEmpty'} size="sm" />
+                  ))}
+                </span>
               </div>
               <div>{m.achieved >= 3 ? 'All three milestones reached' : m.description}</div>
               <div class="row">
@@ -68,7 +73,7 @@ export const LegacyScreen = (_: ScreenProps<'legacy'>) => {
                 {!r.alive && ' · fallen'}
               </span>
               <div style={{ width: '40%' }}>
-                <Bar value={r.score} max={Math.max(top, 1)} label={`${ownerName(r.id)} score`} color={r.id === player ? 'var(--accent)' : '#9b8f7d'} />
+                <Bar value={r.score} max={Math.max(top, 1)} label={`${ownerName(r.id)} score`} color={r.id === player ? 'var(--woad)' : '#9b8767'} />
               </div>
               <b style={{ width: '40px', textAlign: 'right' }}>{r.score}</b>
             </li>

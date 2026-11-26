@@ -9,6 +9,9 @@ import { selectUnit } from './MapView';
 import { nextIdleUnit } from './hexutil';
 import { highlights, skipUnit, skipped } from './shell-state';
 import { unitHint } from './unit-hints';
+import { Icon } from '../art/Icon';
+import { FigurePortrait } from '../art/game-art';
+import type { IconName } from '../art/icons-data';
 
 export function UnitSheet() {
   const g = game.value;
@@ -38,8 +41,8 @@ export function UnitSheet() {
       <div class="row">
         <div class="grow">
           <div class="unit-name">
-            {fig && <span class="gold-ring" aria-hidden="true" />}
-            {name}
+            {fig && u.figure ? <FigurePortrait figure={u.figure} size="xs" /> : <span class="unit-class-badge" aria-hidden="true"><Icon name={u.unitClass as IconName} /></span>}
+            <span>{name}</span>
           </div>
           <div class="small muted">
             {fig ? `${def?.name ?? capitalize(u.unitClass)} · ` : ''}
@@ -47,25 +50,25 @@ export function UnitSheet() {
             {u.fortified ? ' · Fortified' : ''}
           </div>
         </div>
-        <button class="btn btn-ghost" aria-label="Close unit panel" onClick={() => selectUnit(null)}>
-          ✕
+        <button class="btn btn-ghost btn-icon" aria-label="Close unit panel" onClick={() => selectUnit(null)}>
+          <Icon name="close" />
         </button>
       </div>
       <div class="row unit-stats">
         <span class="chip" aria-label={`Health ${u.hp} of 100`}>
-          ♥ {u.hp}
+          <Icon name="health" size="sm" /> {u.hp}
         </span>
         <span class="chip" aria-label={`Moves left ${num(u.movesLeft)} of ${def?.moves ?? '?'}`}>
-          ➜ {num(u.movesLeft)}/{def?.moves ?? '?'}
+          <Icon name="moves" size="sm" /> {num(u.movesLeft)}/{def?.moves ?? '?'}
         </span>
         {def && def.strength > 0 && (
           <span class="chip" aria-label={`Strength ${def.strength}`}>
-            ⚔ {def.strength}
+            <Icon name="strength" size="sm" /> {def.strength}
           </span>
         )}
         {def?.rangedStrength !== undefined && (
           <span class="chip" aria-label={`Ranged strength ${def.rangedStrength}, range ${def.range ?? 1}`}>
-            🏹 {def.rangedStrength} r{def.range ?? 1}
+            <Icon name="ranged" size="sm" /> {def.rangedStrength} r{def.range ?? 1}
           </span>
         )}
       </div>
@@ -119,12 +122,12 @@ export function UnitSheet() {
                 selectUnit(null);
               }}
             >
-              Found settlement
+              <Icon name="found" /> Found settlement
             </button>
           )}
           {tradeTargets.length > 0 && (
             <button class="btn btn-primary" disabled={!canAct} onClick={() => setRoutePick(true)}>
-              Trade route…
+              <Icon name="trade" /> Trade route…
             </button>
           )}
           {military && !u.fortified && (
@@ -136,7 +139,7 @@ export function UnitSheet() {
                 advance();
               }}
             >
-              Fortify
+              <Icon name="fortify" /> Fortify
             </button>
           )}
           <button
@@ -147,11 +150,11 @@ export function UnitSheet() {
               advance();
             }}
           >
-            Skip
+            <Icon name="skip" /> Skip
           </button>
           {fig && u.figure && (
             <button class="btn" onClick={() => openModal({ kind: 'figure', figure: u.figure as string })}>
-              Figure
+              <Icon name="figures" /> Figure
             </button>
           )}
           {actions?.canRecall && u.figure && (
@@ -163,7 +166,7 @@ export function UnitSheet() {
                 selectUnit(null);
               }}
             >
-              Recall
+              <Icon name="recall" /> Recall
             </button>
           )}
           {!u.figure && (
@@ -183,7 +186,7 @@ export function UnitSheet() {
                 })
               }
             >
-              Disband
+              <Icon name="disband" /> Disband
             </button>
           )}
         </div>

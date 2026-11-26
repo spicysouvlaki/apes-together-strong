@@ -10,7 +10,10 @@ import { FOG_EXPLORED, FOG_VISIBLE } from './colors';
 export type GhostSettlement = Pick<
   Settlement,
   'id' | 'owner' | 'name' | 'kind' | 'population' | 'isCapital' | 'hp' | 'maxHp' | 'at'
->;
+> & {
+  /** Naming culture, for the architecture kit (optional: older memory entries lack it). */
+  namedFor?: string;
+};
 
 export class GhostMemory {
   private key = '';
@@ -60,6 +63,7 @@ export class GhostMemory {
         hp: s.hp,
         maxHp: s.maxHp,
         at: { q: s.at.q, r: s.at.r },
+        namedFor: s.namedFor,
       });
     }
   }

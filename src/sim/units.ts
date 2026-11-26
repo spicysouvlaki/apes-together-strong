@@ -240,14 +240,210 @@ export const pathTo = (paths: PathResult, start: number, target: number): number
   return out.reverse();
 };
 
+// --- Multi-turn paths ----------------------------------------------------------
+
+/** A planned path: tile indices (start excluded, target included) and the turn (0 = now) each is entered. */
+export interface PlannedPath {
+  tiles: number[];
+  turns: number[];
+}
+
+/** Binary min-heap on (f, key): deterministic order for equal f. */
+class StateHeap {
+  private f: number[] = [];
+  private k: number[] = [];
+  get size(): number {
+    return this.k.length;
+  }
+  private less(i: number, j: number): boolean {
+    const fi = this.f[i] as number;
+    const fj = this.f[j] as number;
+    return fi < fj || (fi === fj && (this.k[i] as number) < (this.k[j] as number));
+  }
+  private swap(i: number, j: number): void {
+    const f = this.f[i] as number;
+    this.f[i] = this.f[j] as number;
+    this.f[j] = f;
+    const k = this.k[i] as number;
+    this.k[i] = this.k[j] as number;
+    this.k[j] = k;
+  }
+  push(f: number, key: number): void {
+    this.f.push(f);
+    this.k.push(key);
+    let i = this.k.length - 1;
+    while (i > 0) {
+      const p = (i - 1) >> 1;
+      if (!this.less(i, p)) break;
+      this.swap(i, p);
+      i = p;
+    }
+  }
+  pop(): number {
+    const top = this.k[0] as number;
+    const last = this.k.length - 1;
+    this.swap(0, last);
+    this.f.pop();
+    this.k.pop();
+    let i = 0;
+    for (;;) {
+      const l = 2 * i + 1;
+      const r = l + 1;
+      let m = i;
+      if (l < this.k.length && this.less(l, m)) m = l;
+      if (r < this.k.length && this.less(r, m)) m = r;
+      if (m === i) break;
+      this.swap(i, m);
+      i = m;
+    }
+    return top;
+  }
+}
+
+/** Search-state key: tile index and moves left (in quarter moves). */
+const REM_STEPS = 4;
+const REM_SLOTS = 256;
+const stateKey = (idx: number, rem: number): number => idx * REM_SLOTS + Math.min(REM_SLOTS - 1, Math.round(rem * REM_STEPS));
+
+/**
+ * Cheapest multi-turn path for `unit` to `target` (A* over (tile, moves left), cost = turns
+ * first, then moves left), under exactly the rules of `findPaths`: terrain costs, impassable
+ * terrain and foreign settlements, embarking, entering a tile with any moves left, passing
+ * through but not stopping on tiles whose stacking layer is taken, and never entering tiles
+ * with other owners' units. Only tiles the owner has explored are used. Other owners' units
+ * block this turn's leg exactly as in `findPaths` (so the first leg ends on a `reachable`
+ * tile); on later legs only units on currently visible tiles block (no hidden information).
+ * A turn may end only where the unit may stop. Null when unreachable or `target` is the start.
+ */
+export const planPath = (state: GameState, unit: Unit, target: number, content: ContentBundle): PlannedPath | null => {
+  const def = ci(content).units[unit.type];
+  const p = state.players[unit.owner];
+  const start = tileIndex(state.map, unit.at);
+  if (!def || !p || start < 0 || target < 0 || target === start || !p.explored[target]) return null;
+  const embark = def.unitClass !== 'naval' && canEmbarkPlayer(state, unit.owner, content);
+  const targetTile = state.map.tiles[target];
+  if (!targetTile || !terrainAllows(state, unit.owner, def, targetTile, content, embark)) return null;
+  const positions = unitPositions(state);
+  const civilian = isCivilian(unit);
+  const empire = unit.owner === RAIDER_PLAYER ? [] : empireModifiers(state, unit.owner, content);
+  const fullCache = new Map<number, number>();
+  const fullAt = (idx: number): number => {
+    let f = fullCache.get(idx);
+    if (f === undefined) {
+      f = maxMoves(state, { ...unit, at: hexOfIndex(state.map, idx) }, content, empire);
+      fullCache.set(idx, f);
+    }
+    return f;
+  };
+  let visible: Uint8Array | null = null;
+  const isVisible = (idx: number): boolean => {
+    if (!visible) {
+      visible = new Uint8Array(state.map.tiles.length);
+      for (const i of visibleTileSet(state, unit.owner, content)) visible[i] = 1;
+    }
+    return visible[idx] === 1;
+  };
+  /** Units the player knows are on `idx` when planning for turn `t`. */
+  const knownUnits = (idx: number, t: number): Unit[] | undefined => {
+    const h = hexOfIndex(state.map, idx);
+    const all = positions.get(`${h.q},${h.r}`);
+    if (!all || t === 0 || isVisible(idx)) return all;
+    return all.filter((u) => u.owner === unit.owner);
+  };
+  const canStop = (idx: number, t: number): boolean => idx === start || layerFree(knownUnits(idx, t), unit.owner, civilian, unit.id);
+  if (!canStop(target, 1) && !canStop(target, 0)) return null;
+
+  // Cost g = turn·S + (M − moves left): fewer turns first, then more moves left.
+  const M = Math.max(Math.ceil(unit.movesLeft), Math.ceil(fullAt(start))) + 2;
+  const S = M + 1;
+  const goal = hexOfIndex(state.map, target);
+  /** Admissible lower bound on the final cost through a state (each step costs at least 1). */
+  const h = (idx: number, t: number, rem: number): number => {
+    const d = hexDistance(hexOfIndex(state.map, idx), goal);
+    const now = Math.ceil(rem);
+    if (d <= now) return t * S + (M - Math.max(0, rem - d));
+    return (t + Math.ceil((d - now) / M)) * S;
+  };
+  const bestG = new Map<number, number>();
+  const turnOf = new Map<number, number>();
+  const remOf = new Map<number, number>();
+  const parent = new Map<number, number>();
+  const heap = new StateHeap();
+  const startKey = stateKey(start, unit.movesLeft);
+  const open = (key: number, idx: number, t: number, rem: number, from: number | null): void => {
+    const g = t * S + (M - Math.min(M, rem));
+    const old = bestG.get(key);
+    if (old !== undefined && old <= g) return;
+    bestG.set(key, g);
+    turnOf.set(key, t);
+    remOf.set(key, rem);
+    if (from !== null) parent.set(key, from);
+    heap.push(h(idx, t, rem), key);
+  };
+  open(startKey, start, 0, Math.max(0, unit.movesLeft), null);
+  // Expanded states and the cost they were expanded with (a better cost later re-expands).
+  const expanded = new Map<number, number>();
+  let found: number | null = null;
+  while (heap.size > 0) {
+    const key = heap.pop();
+    const g = bestG.get(key);
+    if (g === undefined || expanded.get(key) === g) continue;
+    expanded.set(key, g);
+    const idx = Math.floor(key / REM_SLOTS);
+    const t = turnOf.get(key) ?? 0;
+    const rem = remOf.get(key) ?? 0;
+    if (idx === target) {
+      found = key;
+      break;
+    }
+    // End the turn here and continue with full moves next turn.
+    if (canStop(idx, t)) {
+      const full = fullAt(idx);
+      if (rem < full) open(stateKey(idx, full), idx, t + 1, full, key);
+    }
+    if (rem <= 0) continue;
+    const here = hexOfIndex(state.map, idx);
+    for (const n of hexNeighbors(here)) {
+      const ni = tileIndex(state.map, n);
+      if (ni < 0 || ni === start || !p.explored[ni]) continue;
+      const tile = state.map.tiles[ni];
+      if (!tile || !terrainAllows(state, unit.owner, def, tile, content, embark)) continue;
+      const occupants = knownUnits(ni, t);
+      if (occupants && occupants.some((u) => u.owner !== unit.owner)) continue;
+      const left = Math.max(0, rem - stepCost(tile, def, content));
+      // Out of moves where it may not stop: a dead end (as in findPaths).
+      if (left <= 0 && !canStop(ni, t)) continue;
+      if (ni === target && !canStop(ni, t)) continue;
+      open(stateKey(ni, left), ni, t, left, key);
+    }
+  }
+  if (found === null) return null;
+  const tiles: number[] = [];
+  const turns: number[] = [];
+  let cur: number | undefined = found;
+  while (cur !== undefined && cur !== startKey) {
+    const prev = parent.get(cur);
+    const idx = Math.floor(cur / REM_SLOTS);
+    if (prev === undefined || Math.floor(prev / REM_SLOTS) !== idx) {
+      tiles.push(idx);
+      turns.push(turnOf.get(cur) ?? 0);
+    }
+    cur = prev;
+  }
+  tiles.reverse();
+  turns.reverse();
+  return { tiles, turns };
+};
+
 export const moveUnit = (ctx: SimCtx, player: PlayerId, unitId: UnitId, to: Hex): string | null => {
   const { state, content } = ctx;
   const unit = state.units[unitId];
-  if (!unit || unit.owner !== player) return 'Not your unit';
+  if (!unit || unit.owner !== player) return 'That unit is not yours.';
   const target = tileIndex(state.map, to);
-  if (target < 0) return 'Off the map';
+  if (target < 0) return 'That tile is off the map.';
+  if (unit.movesLeft <= 0) return 'This unit has no moves left this turn.';
   const paths = findPaths(state, unit, content);
-  if (!paths.endable.includes(target)) return 'Cannot reach that tile this turn';
+  if (!paths.endable.includes(target)) return 'This unit cannot reach that tile this turn.';
   const start = tileIndex(state.map, unit.at);
   const path = pathTo(paths, start, target);
   unit.at = { q: to.q, r: to.r };

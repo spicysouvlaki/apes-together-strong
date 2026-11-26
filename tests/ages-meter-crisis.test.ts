@@ -139,11 +139,11 @@ describe('crisis', () => {
 
     it('rejects a second answer, an option of another stage, and when no crisis is active', () => {
       const { ctx } = atStage1();
-      expect(handleAgesCommand(ctx, 'p1', { type: 'chooseCrisisResponse', option: 'collapse_a2' })).toMatch(/Not an option/);
+      expect(handleAgesCommand(ctx, 'p1', { type: 'chooseCrisisResponse', option: 'collapse_a2' })).toMatch(/not an option/);
       expect(handleAgesCommand(ctx, 'p1', { type: 'chooseCrisisResponse', option: 'collapse_a1' })).toBeNull();
       expect(handleAgesCommand(ctx, 'p1', { type: 'chooseCrisisResponse', option: 'collapse_b1' })).toMatch(/No crisis response/);
       const calm = makeCtx(makeState());
-      expect(handleAgesCommand(calm, 'p1', { type: 'chooseCrisisResponse', option: 'collapse_a1' })).toMatch(/No active crisis/);
+      expect(handleAgesCommand(calm, 'p1', { type: 'chooseCrisisResponse', option: 'collapse_a1' })).toMatch(/No crisis is under way/);
     });
   });
 

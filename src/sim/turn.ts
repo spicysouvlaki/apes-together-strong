@@ -222,8 +222,8 @@ export const worldPhase = (ctx: SimCtx): void => {
  * figure) and are withdrawn at the player's next turn start (src/emergence emergenceTick).
  */
 export const endTurnBlocker = (state: GameState, player: PlayerId): string | null => {
-  if (state.offers.some((o) => o.player === player) && playerSettlements(state, player).length > 0) return 'Answer the figure offer first';
-  if (state.crisis?.awaiting.includes(player)) return 'Choose a crisis response first';
+  if (state.offers.some((o) => o.player === player) && playerSettlements(state, player).length > 0) return 'Answer the figure offer before ending your turn.';
+  if (state.crisis?.awaiting.includes(player)) return 'Choose a response to the crisis before ending your turn.';
   return null;
 };
 

@@ -2,9 +2,11 @@
 import { useState } from 'preact/hooks';
 import { warKey, type PlayerId } from '@contracts/sim-api';
 import { MIN_WAR_TURNS, PEACE_INFLUENCE_COST, SUZERAIN_MIN_ENVOYS } from '../../sim/constants';
-import { YIELD_GLYPH, signed } from '../shell/format';
+import { signed } from '../shell/format';
+import { Icon } from '../art/Icon';
+import { PlayerBanner } from '../art/game-art';
 
-const INF = YIELD_GLYPH.influence;
+const INF = <Icon name="influence" size="sm" />;
 
 /**
  * Envoys still needed to lead: at least the minimum, and one more than whoever leads now (a tie
@@ -49,8 +51,8 @@ export const DiplomacyScreen = (_: ScreenProps<'diplomacy'>) => {
               <li>
                 <div class="card">
                   <div class="row">
-                    <div class="scr-banner-swatch" style={{ background: r.colors.primary }} aria-hidden="true">
-                      <i style={{ background: r.colors.secondary }} />
+                    <div class="scr-banner-swatch" aria-hidden="true">
+                      <PlayerBanner player={r} width={30} />
                     </div>
                     <div class="grow">
                       <div class="scr-fig-name">{ownerName(r.id)}</div>
@@ -63,8 +65,8 @@ export const DiplomacyScreen = (_: ScreenProps<'diplomacy'>) => {
                     <p class="small muted">This people is no more.</p>
                   ) : (
                     <>
-                      <p class={`small ${atWar ? 'scr-bad' : 'scr-good'}`}>
-                        {atWar ? `At war since turn ${since}` : 'At peace'}
+                      <p class={`small scr-status ${atWar ? 'scr-bad' : 'scr-good'}`}>
+                        <Icon name={atWar ? 'war' : 'peace'} size="sm" /> {atWar ? `At war since turn ${since}` : 'At peace'}
                         {atWar && g.turn - since < MIN_WAR_TURNS && (
                           <span class="muted"> · peace possible from turn {since + MIN_WAR_TURNS}</span>
                         )}
@@ -85,11 +87,11 @@ export const DiplomacyScreen = (_: ScreenProps<'diplomacy'>) => {
                             onClick={() => act(`peace:${r.id}`, { type: 'makePeace', target: r.id })}
                             aria-label={`Make peace with ${ownerName(r.id)} for ${PEACE_INFLUENCE_COST} influence`}
                           >
-                            Make peace ({INF} {PEACE_INFLUENCE_COST})
+                            <Icon name="peace" /> Make peace ({INF} {PEACE_INFLUENCE_COST})
                           </button>
                         ) : (
                           <button class="btn" disabled={!turn} onClick={() => setConfirmWar(r.id)} aria-label={`Declare war on ${ownerName(r.id)}`}>
-                            Declare war
+                            <Icon name="war" /> Declare war
                           </button>
                         )}
                       </div>
@@ -154,7 +156,7 @@ export const DiplomacyScreen = (_: ScreenProps<'diplomacy'>) => {
                           onClick={() => act(`envoy:${cs.id}`, { type: 'sendEnvoy', cityState: cs.id })}
                           aria-label={`Send an envoy to ${def.name} for ${cost} influence`}
                         >
-                          Send envoy ({INF} {cost})
+                          <Icon name="envoy" /> Send envoy ({INF} {cost})
                         </button>
                       </div>
                       {influence < cost && turn && (

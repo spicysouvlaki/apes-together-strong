@@ -7,6 +7,7 @@ import { ConfirmSheet, Empty, FigureCard, Screen, Section, Sheet } from './share
 import { ancestorYield, consumeBurstText, describeActivate } from './shared/describe';
 import { seatBlockedReason, slotIdOfKey, whereText } from './shared/figures';
 import { CABINET_COOLDOWN_TURNS } from '../../emergence/constants';
+import { Icon } from '../art/Icon';
 
 type Pending = null | 'seat' | 'deploy' | 'unseat' | 'activate' | 'consume' | 'consume-rp' | 'consume-yields';
 
@@ -50,57 +51,64 @@ export const FigureScreen = ({ modal }: ScreenProps<'figure'>) => {
     setPending(null);
   };
 
-  // Disabled reasons where the rules make them knowable from public state.
+  // Disabled reasons: the sim's own (q.figureActions().blocked) when it gives one, else what
+  // the rules make knowable from public state.
   const reasons: string[] = [];
   if (mine && a) {
+    const blocked = a.blocked ?? {};
+    const why = (key: keyof typeof blocked, fallback: () => string): void => {
+      reasons.push(blocked[key] ?? fallback());
+    };
     if (!turn) reasons.push('You can act on your turn.');
     if (def.uses.includes('cabinet') && a.seat.length === 0 && loc === 'based' && p) {
-      reasons.push(seatBlockedReason(p, def, g.turn, content, seatLabel, (id) => lookup.figures[id]?.name ?? 'someone'));
+      why('seat', () => seatBlockedReason(p, def, g.turn, content, seatLabel, (id) => lookup.figures[id]?.name ?? 'someone'));
     }
-    if (loc === 'seated' && !a.canUnseat && p && p.anarchyTurns > 0) reasons.push('No cabinet changes during anarchy.');
-    if (def.uses.includes('unit') && loc === 'based' && a.deploy.length === 0) reasons.push('They can only take the field from one of your cities.');
-    if (loc === 'unit' && !a.canRecall) reasons.push('Move them into one of your settlements to bring them home.');
+    if (loc === 'seated' && !a.canUnseat && p && (blocked.unseat || p.anarchyTurns > 0)) why('unseat', () => 'No cabinet changes during anarchy.');
+    if (def.uses.includes('unit') && loc === 'based' && a.deploy.length === 0) why('deploy', () => 'They can only take the field from one of your cities.');
+    if (loc === 'unit' && !a.canRecall) why('recall', () => 'Move them into one of your settlements to bring them home.');
     if (def.activate && def.uses.includes('activate') && !a.canActivate && (loc === 'based' || loc === 'seated' || loc === 'unit')) {
-      reasons.push(
-        def.activate.effect === 'rush_wonder'
+      const effect = def.activate.effect;
+      why('activate', () =>
+        effect === 'rush_wonder'
           ? 'Their deed needs a city building a wonder.'
-          : def.activate.effect === 'production_burst'
+          : effect === 'production_burst'
             ? 'Their deed needs a city building something.'
             : 'Their deed is not possible right now.',
       );
     }
+    if (!a.canConsume && blocked.consume) reasons.push(blocked.consume);
   }
 
   const buttons = mine && a
     ? [
         loc === 'based' && def.uses.includes('cabinet') && (
           <button class="btn btn-primary" disabled={!turn || a.seat.length === 0} onClick={() => setPending('seat')} aria-label="Seat in the cabinet">
-            Seat
+            <Icon name="seat" /> Seat
           </button>
         ),
         loc === 'seated' && (
           <button class="btn" disabled={!turn || !a.canUnseat} onClick={() => setPending('unseat')} aria-label="Unseat from the cabinet">
-            Unseat
+            <Icon name="unseat" /> Unseat
           </button>
         ),
         loc === 'based' && def.uses.includes('unit') && (
           <button class="btn" disabled={!turn || a.deploy.length === 0} onClick={() => setPending('deploy')} aria-label="Deploy as a unit">
-            Deploy
+            <Icon name="deploy" /> Deploy
           </button>
         ),
         loc === 'unit' && (
           <button class="btn" disabled={!turn || !a.canRecall} onClick={() => run({ type: 'recallFigure', figure: def.id })} aria-label="Recall home">
-            Recall
+            <Icon name="recall" /> Recall
           </button>
         ),
         def.uses.includes('activate') && def.activate && (loc === 'based' || loc === 'seated' || loc === 'unit') && (
           <button class="btn" disabled={!turn || !a.canActivate} onClick={() => setPending('activate')} aria-label="Activate their one-time deed">
-            Activate
+            <Icon name="activate" /> Activate
           </button>
         ),
         a.canConsume && (
           <button class="btn" disabled={!turn} onClick={() => setPending('consume')} aria-label="Consume this figure">
-            Consume
+            <Icon name="consume" /> Consume
           </button>
         ),
       ].filter(Boolean)
@@ -162,7 +170,7 @@ export const FigureScreen = ({ modal }: ScreenProps<'figure'>) => {
       )}
       {reasons.length > 0 && (
         <Section title="Why some actions are unavailable">
-          <ul class="scr-mods small muted">
+          <ul class="scr-mods scr-reasons small muted">
             {reasons.map((r) => (
               <li>{r}</li>
             ))}
@@ -174,8 +182,9 @@ export const FigureScreen = ({ modal }: ScreenProps<'figure'>) => {
         <Sheet title={`Seat ${def.name}`} onCancel={() => setPending(null)}>
           {a.seat.map((key) => (
             <button class="btn scr-option" onClick={() => run({ type: 'seatFigure', figure: def.id, slot: key })} aria-label={`Seat as ${seatLabel(key)}`}>
+              <Icon name="seat" />
               <span class="grow">{seatLabel(key)}</span>
-              <span class="scr-chev">›</span>
+              <Icon name="chevron" class="scr-chev" />
             </button>
           ))}
         </Sheet>
@@ -184,8 +193,9 @@ export const FigureScreen = ({ modal }: ScreenProps<'figure'>) => {
         <Sheet title={`Where should ${def.name} muster?`} onCancel={() => setPending(null)}>
           {a.deploy.map((sid) => (
             <button class="btn scr-option" onClick={() => run({ type: 'deployFigure', figure: def.id, settlement: sid })} aria-label={`Deploy at ${g.settlements[sid]?.name ?? sid}`}>
+              <Icon name="found" />
               <span class="grow">{g.settlements[sid]?.name ?? sid}</span>
-              <span class="scr-chev">›</span>
+              <Icon name="chevron" class="scr-chev" />
             </button>
           ))}
         </Sheet>

@@ -7,7 +7,9 @@ import { render } from 'preact';
 import type { ComponentType } from 'preact';
 import type { Command, GameState, PlayerId } from '@contracts/sim-api';
 import { applyCommand } from '../../sim';
+import '../styles/fonts';
 import '../styles/base.css';
+import '../styles/shell.css';
 import { bindClient, closeModal, content, dismissToast, game, lastError, modal, openModal, pushToast, route, toasts, type Modal } from '../store';
 import { advanceBots, buildScenario, DEMO_STAGES, HUMAN, stripAffinity, type DemoStage } from './demo-scenario';
 import { screens, type ScreenKind, type ScreenProps } from './index';
@@ -97,7 +99,7 @@ const Demo = () => {
       {g && p && (
         <p class="small muted">
           Turn {g.turn} · {g.age} · {g.phase} · meter {Math.round(g.ageProgress)} · current {g.currentPlayer} · offers{' '}
-          {g.offers.filter((o) => o.player === HUMAN).length} · RP {Math.floor(p.refinementPoints)} · ◆ {Math.floor(p.stock.influence)}
+          {g.offers.filter((o) => o.player === HUMAN).length} · RP {Math.floor(p.refinementPoints)} · influence {Math.floor(p.stock.influence)}
         </p>
       )}
       <div class="row" style={{ flexWrap: 'wrap', gap: '6px' }}>

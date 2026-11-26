@@ -167,16 +167,16 @@ const unrest = (ctx: SimCtx): void => {
 
 export const chooseCrisisResponse = (ctx: SimCtx, player: PlayerId, optionId: string): string | null => {
   const { state } = ctx;
-  if (state.phase !== 'playing') return 'Not during play';
+  if (state.phase !== 'playing') return 'Crisis responses are chosen during play, not at an age transition.';
   const crisis = state.crisis;
   const def = activeCrisisDef(ctx);
-  if (!crisis || !def) return 'No active crisis';
-  if (!crisis.awaiting.includes(player)) return 'No crisis response is due';
+  if (!crisis || !def) return 'No crisis is under way.';
+  if (!crisis.awaiting.includes(player)) return 'No crisis response is due from you right now.';
   const stage = def.stages[crisis.stage - 1];
   const option = stage?.options.find((o) => o.id === optionId);
-  if (!option) return 'Not an option of the current crisis stage';
+  if (!option) return 'That is not an option at this stage of the crisis.';
   const p = state.players[player];
-  if (!p) return 'Unknown player';
+  if (!p) return 'That player is not in this game.';
   for (const key of Object.keys(option.stock) as (keyof typeof option.stock)[]) {
     const delta = option.stock[key] ?? 0;
     p.stock[key] = Math.max(0, (p.stock[key] ?? 0) + delta);

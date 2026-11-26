@@ -4,7 +4,7 @@
  */
 import { performance } from 'node:perf_hooks';
 import type { Age, ContentBundle } from '../../src/contracts/content-schemas';
-import type { Command, GameSetup, GameSpeed, GameState, MapSize, PlayerId, Sim, SimEvent } from '../../src/contracts/sim-api';
+import type { Command, Difficulty, GameSetup, GameSpeed, GameState, MapSize, PlayerId, Sim, SimEvent } from '../../src/contracts/sim-api';
 
 export type RunAiTurn = (state: GameState, player: PlayerId, content: ContentBundle, sim: Sim) => { state: GameState; events: SimEvent[] };
 
@@ -18,6 +18,10 @@ export interface Options {
   maxSeconds: number;
   json: string | null;
   verify: boolean;
+  /** Game difficulty (default 'normal'). */
+  difficulty?: Difficulty;
+  /** Mark p1 as human (still driven by runAiTurn) to measure a competent player against easy/normal/hard rivals. */
+  humanSeat?: boolean;
 }
 
 export const AI_TURN_BUDGET_MS = 3000;
@@ -85,6 +89,15 @@ export interface GameReport {
 
 export class NotImplemented extends Error {}
 
+/** p1's final score over the mean score of the other players (1 = even); null without rivals or scores. */
+export const humanScoreRatio = (g: GameReport): number | null => {
+  const me = g.players.p1;
+  const rivals = Object.entries(g.players).filter(([id]) => id !== 'p1').map(([, p]) => p.score);
+  if (!me || rivals.length === 0) return null;
+  const mean = rivals.reduce((a, b) => a + b, 0) / rivals.length;
+  return mean > 0 ? me.score / mean : null;
+};
+
 export const isNotImplemented = (err: unknown): boolean => err instanceof Error && /not implemented|TODO\(/i.test(err.message);
 
 export const setupFor = (seed: number, o: Options, content: ContentBundle): GameSetup => {
@@ -95,9 +108,10 @@ export const setupFor = (seed: number, o: Options, content: ContentBundle): Game
     seed,
     mapSize: o.size,
     speed: o.speed,
+    difficulty: o.difficulty ?? 'normal',
     players: Array.from({ length: o.players }, (_, i) => ({
       id: `p${i + 1}`,
-      isHuman: false,
+      isHuman: i === 0 && o.humanSeat === true,
       leader: leaders[(seed + i) % leaders.length] ?? leaders[0] ?? '',
       dream: dreams[(seed * 7 + i) % dreams.length] ?? dreams[0] ?? '',
       colors: { primary: COLORS[i] ?? '#888888', secondary: '#f3ede1' },

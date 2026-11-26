@@ -146,8 +146,8 @@ describe('finishTransition', () => {
     expect(p1.government).toBe('monarchy');
     expect(syncCabinet).toHaveBeenCalledWith(ctx, 'p1');
     expect(state.phase).toBe('transition');
-    expect(handleAgesCommand(ctx, 'p1', { type: 'finishTransition' })).toBe('Already finished');
-    expect(handleAgesCommand(ctx, 'p1', { type: 'nameCiv', name: 'Late' })).toBe('Refinement finished');
+    expect(handleAgesCommand(ctx, 'p1', { type: 'finishTransition' })).toBe('You have already finished this transition.');
+    expect(handleAgesCommand(ctx, 'p1', { type: 'nameCiv', name: 'Late' })).toBe('You have already finished this transition.');
   });
 
   it('keeps a chosen name and a government of the new age', () => {
@@ -188,7 +188,7 @@ describe('finishTransition', () => {
   });
 
   it('rejects outside a transition', () => {
-    expect(handleAgesCommand(makeCtx(makeState()), 'p1', { type: 'finishTransition' })).toBe('Not in a transition');
+    expect(handleAgesCommand(makeCtx(makeState()), 'p1', { type: 'finishTransition' })).toBe('There is no age transition under way.');
   });
 });
 

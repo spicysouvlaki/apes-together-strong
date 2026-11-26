@@ -32,19 +32,28 @@ import { growthCost, resourceRevealed, type YieldRecord } from './yields';
 
 // --- Founding ------------------------------------------------------------------
 
-/** Land, passable, not owned by someone else, and no settlement within MIN_SETTLEMENT_DISTANCE. */
-export const canFoundAt = (state: GameState, player: PlayerId, at: Hex, content: ContentBundle): boolean => {
+/**
+ * Why `player` may not found a settlement at `at`, or null when it may: land, passable, not
+ * owned by someone else, and no settlement within MIN_SETTLEMENT_DISTANCE. The one founding
+ * rule: `foundSettlement`, `canFoundAt`, `queries.settleSites` and the AI all use it.
+ */
+export const foundSiteError = (state: GameState, player: PlayerId, at: Hex, content: ContentBundle): string | null => {
   const tile = tileAt(state.map, at);
-  if (!tile || tile.settlement || isWater(tile, content)) return false;
+  if (!tile) return 'That tile is off the map.';
+  if (tile.settlement) return 'There is already a settlement here.';
+  if (isWater(tile, content)) return 'Settlements cannot be founded on water.';
   const terrain = ci(content).terrain[tile.terrain];
-  if (!terrain || terrain.moveCost === null) return false;
-  if (tile.owner !== null && tile.owner !== player) return false;
+  if (!terrain || terrain.moveCost === null) return 'Settlements cannot be founded on impassable terrain.';
+  if (tile.owner !== null && tile.owner !== player) return 'That land belongs to someone else.';
   for (const id of Object.keys(state.settlements)) {
     const s = state.settlements[id];
-    if (s && hexDistance(s.at, at) <= MIN_SETTLEMENT_DISTANCE) return false;
+    if (s && hexDistance(s.at, at) <= MIN_SETTLEMENT_DISTANCE) return 'That tile is too close to another settlement.';
   }
-  return true;
+  return null;
 };
+
+export const canFoundAt = (state: GameState, player: PlayerId, at: Hex, content: ContentBundle): boolean =>
+  foundSiteError(state, player, at, content) === null;
 
 export const borderRadius = (population: number): number => {
   let r = 0;
@@ -127,9 +136,10 @@ export const createSettlement = (
 export const foundSettlement = (ctx: SimCtx, player: PlayerId, unitId: UnitId): string | null => {
   const { state, content } = ctx;
   const unit = state.units[unitId];
-  if (!unit || unit.owner !== player) return 'Not your unit';
-  if (!ci(content).units[unit.type]?.canFound) return 'This unit cannot found settlements';
-  if (!canFoundAt(state, player, unit.at, content)) return 'Cannot found a settlement here';
+  if (!unit || unit.owner !== player) return 'That unit is not yours.';
+  if (!ci(content).units[unit.type]?.canFound) return 'This unit cannot found settlements.';
+  const siteError = foundSiteError(state, player, unit.at, content);
+  if (siteError) return siteError;
   const first = !capitalOf(state, player);
   const culture = namingCulture(state, player, content);
   const s = createSettlement(state, player, unit.at, {
@@ -283,9 +293,9 @@ export const completeItem = (ctx: SimCtx, s: Settlement, item: string): boolean 
 export const setProduction = (ctx: SimCtx, player: PlayerId, sid: SettlementId, item: string | null): string | null => {
   const { state, content } = ctx;
   const s = state.settlements[sid];
-  if (!s || s.owner !== player) return 'Not your settlement';
-  if (s.kind !== 'city') return 'Towns cannot produce; upgrade to a city first';
-  if (item !== null && !canProduce(state, s, item, content)) return 'Cannot produce that here';
+  if (!s || s.owner !== player) return 'That settlement is not yours.';
+  if (s.kind !== 'city') return 'Towns do not build items; upgrade it to a city first.';
+  if (item !== null && !canProduce(state, s, item, content)) return 'That cannot be built here right now.';
   // Progress carries over between items (simplification: one progress counter per settlement).
   s.production.item = item;
   return null;
@@ -295,13 +305,13 @@ export const buyItem = (ctx: SimCtx, player: PlayerId, sid: SettlementId, item: 
   const { state, content } = ctx;
   const s = state.settlements[sid];
   const p = state.players[player];
-  if (!s || !p || s.owner !== player) return 'Not your settlement';
+  if (!s || !p || s.owner !== player) return 'That settlement is not yours.';
   const kind = itemKind(content, item);
-  if (kind === 'wonder' && !WONDERS_PURCHASABLE) return 'Wonders cannot be bought';
-  if (!canProduce(state, s, item, content)) return 'Cannot produce that here';
+  if (kind === 'wonder' && !WONDERS_PURCHASABLE) return 'Wonders cannot be bought; they must be built.';
+  if (!canProduce(state, s, item, content)) return 'That cannot be bought here right now.';
   const gold = goldCostOf(state, s, item, content);
-  if (p.stock.gold < gold) return 'Not enough gold';
-  if (!completeItem(ctx, s, item)) return 'No room to place it';
+  if (p.stock.gold < gold) return `That costs ${gold} gold; you have ${Math.floor(p.stock.gold)}.`;
+  if (!completeItem(ctx, s, item)) return 'There is no free tile around the settlement to place it.';
   p.stock.gold -= gold;
   if (s.production.item === item) s.production = { item: null, progress: 0 };
   return null;
@@ -319,10 +329,10 @@ export const upgradeSettlement = (ctx: SimCtx, player: PlayerId, sid: Settlement
   const { state, content } = ctx;
   const s = state.settlements[sid];
   const p = state.players[player];
-  if (!s || !p || s.owner !== player) return 'Not your settlement';
-  if (s.kind === 'city') return 'Already a city';
+  if (!s || !p || s.owner !== player) return 'That settlement is not yours.';
+  if (s.kind === 'city') return `${s.name} is already a city.`;
   const cost = upgradeCostOf(state, s, content);
-  if (p.stock.gold < cost) return 'Not enough gold';
+  if (p.stock.gold < cost) return `Upgrading ${s.name} costs ${cost} gold; you have ${Math.floor(p.stock.gold)}.`;
   p.stock.gold -= cost;
   s.kind = 'city';
   addChronicle(state, player, 'city', s.id, `${s.name} became a city.`);

@@ -2,13 +2,23 @@
  * Renderer public API (workstream 4). The UI (src/ui) consumes ONLY this module.
  *
  * WHAT IT DOES
- *   Draws `GameState` snapshots with stand-in art in one three.js scene on the main thread:
- *   instanced beveled hex prisms colored from content/terrain.json, features, resources,
- *   territory, settlements (+ name labels), unit figurines, selection highlights, fog of war,
- *   and a flat-icon strategic zoom. It never mutates state and never imports the sim.
+ *   Draws `GameState` snapshots as a crafted diorama (GDD §11) in one three.js scene on the main
+ *   thread: beveled hex prisms with soil-strata sides on a board plinth, a stylized water sheet,
+ *   parchment fog, relief, vegetation and micro-detail, culture-kit settlements, figurine units,
+ *   name labels, highlights and a parchment-atlas strategic zoom. It never mutates state and
+ *   never imports the sim. Everything is procedural (no image or model files).
+ *
+ * ART PIPELINE (all render-side, see each module)
+ *   palette.ts        art-directed colors: light rig, haze, paper/ink, strata, water, biome pastels
+ *   scene/materials   hand-written shaders: warm key + cool fill + hemisphere, vertex AO, depth
+ *                     haze, filmic shoulder, memory (explored) tint, atlas blend at strategic zoom
+ *   textures.ts       procedural detail texels (mottle, cracks, ripples, grain) + per-tile map field
+ *   scatter.ts        deterministic prop placement; architecture.ts culture motif kits + blending
+ *   scene/geometry    tiles, trees, mountains, micro-detail, resource props, building pieces
+ *   scene/figurines   painted-figurine units
  *
  * USAGE
- *   const r = createRenderer(canvas, loadContent(), { reduceMotion, pixelRatioCap: 2 });
+ *   const r = createRenderer(canvas, loadContent(), { reduceMotion, pixelRatioCap: 2, quality: 'high' });
  *   // every snapshot from the worker:
  *   r.setState(state, myPlayerId, queries.visibleTiles(state, myPlayerId, content));
  *   r.onTap((hex) => …);  r.onLongPress((hex) => …);  r.onZoomBand((band) => …);
@@ -37,26 +47,35 @@
  *
  * FOG OF WAR
  *   `visible` = tile indices currently in sight (pass `queries.visibleTiles`); explored comes
- *   from `state.players[viewer].explored`. Unexplored = parchment, no features/relief.
- *   Explored-not-visible = dimmed. Other players' units and settlements show only on visible
- *   tiles; the viewer's own always show. `viewer = null` reveals everything (debug/spectate).
+ *   from `state.players[viewer].explored`. Unexplored = aged parchment (paper grain, stains,
+ *   faint rhumb lines, an ink wash along the edge of what is known), no terrain hint.
+ *   Explored-not-visible = desaturated with a paper wash (not darkened). Other players' units and
+ *   settlements show only on visible tiles; the viewer's own always show. `viewer = null`
+ *   reveals everything (debug/spectate).
  *
  * ZOOM BANDS
- *   'close' | 'regional' show the diorama (labels included); 'strategic' swaps props/units for
- *   flat discs (settlements) and dots (units) so the whole map reads at a glance. Bands have
- *   hysteresis; `onZoomBand` fires only on change (not on subscribe).
+ *   'close' | 'regional' show the diorama (labels included; micro-detail full at close, sparse at
+ *   regional); 'strategic' morphs the board into a flat parchment atlas (paper biomes, inked
+ *   coasts and relief glyphs, stronger territory washes) with stamped city icons and unit dots.
+ *   Bands have hysteresis; `onZoomBand` fires only on change (not on subscribe).
  *
- * READABILITY (stand-in art, GDD §11)
- *   Terrain colors come from content but are graded render-side (terrain-style.ts) so close
- *   pairs stay distinguishable; water is a flat seamless sheet; hills get mounds; rivers are
- *   ribbons between river tiles (rivers.ts); resources show a class-coded marker on a light
- *   badge (bonus = gold ball, luxury = magenta diamond, strategic = dark block). Territory has
- *   crisp outer-edge borders only (borders.ts): dark keyline + owner primary + thin secondary.
- *   Units stand on an owner-colored base with a rim: white = yours, dark = rival, red = at war.
- *   Rival settlements at war with the viewer get a red tile ring and a red ⚔ label.
- *   Labels are de-overlapped on camera moves (label-layout.ts); lower priority labels shift
- *   up/down or hide. Labels and props are hidden at strategic zoom where flat icons take over
- *   (round = city/town, gold rim = capital, hexagon with white rim = city-state).
+ * READABILITY (GDD §11)
+ *   Terrain colors come from content, graded for distinguishability (terrain-style.ts) and then
+ *   into one pastel family (palette.ts). Resources are small props (sheaves, orchards, animals,
+ *   ore, fish rings, bales) over a soft halo in their class color (bonus gold, luxury magenta,
+ *   strategic steel); unknown ids keep the class marker. Territory: crisp outer-edge borders
+ *   (keyline + owner primary + secondary, borders.ts) and a soft wash. Units are figurines on a
+ *   round base with a team-colored band and a rim: white = yours, dark = rival, red = at war;
+ *   figure-units/commanders add a gold ring. Rival settlements at war with the viewer get a red
+ *   ring and a red ⚔ label. Labels are serif parchment cartouches ('Fraunces', redrawn once the
+ *   font loads), de-overlapped on camera moves (label-layout.ts).
+ *
+ * SETTLEMENTS
+ *   Built from per-culture motif kits keyed by the culture `architecture` of `namedFor`, blended
+ *   with the owner's adopted traditions' and hybrids' cultures (architecture.ts), so hybrids look
+ *   hybrid. Size grows with population; cities/city-states get walls (by age material), cities a
+ *   centerpiece, capitals a gold finial; built wonders add a landmark silhouette. Owner banners
+ *   sway and carry the colorblind pattern.
  *
  * FOG MEMORY
  *   Rival settlements seen once stay on explored-but-not-visible tiles as faded "ghosts" with a
@@ -71,24 +90,34 @@
  *                                the remaining area (default top 100, bottom 180)
  *   r.focus(hex, { safeArea })   one-off override
  *   r.zoomBy(factor)             >1 zooms out about the screen center (buttons, bench)
+ *   createRenderer(…, { quality: 'low' }) / r.setQuality('low' | 'high') / r.getQuality()
+ *                                'low' drops micro-detail, blob shadows and ambient animation
+ *   r.flash(hex, kind)           combat: ring + unit hit-shake + dust; found: settlement pop-in +
+ *                                dust; capture: banner swap flourish; recruit: golden sparkle.
+ *                                Under reduceMotion only the ring shows.
  *   r.stats().frameMs            CPU ms per rendered frame (EMA)
  *   Trade routes owned by the viewer draw as a dotted line between their settlements.
  *
  * PERFORMANCE
- *   ~40-55 draw calls at close/regional zoom regardless of map size (everything is instanced;
+ *   ~50-60 draw calls at close/regional zoom regardless of map size (everything is instanced;
  *   empty layers cost nothing; labels are one atlas-backed instanced draw), ~15 at strategic.
- *   Renders on demand only (camera motion, new state, animations), so `stats().fps` is the rate
- *   while something moves, not idle. Selecting a unit pulses its ring for ~2 s, then rests.
+ *   Measured (375x812 @2x): small map 57 draws / ~170k tris high, 51 / ~100k low; fully revealed
+ *   standard map ~450k / ~290k tris. Renders on demand (camera motion, new state, animations);
+ *   ambient animation (water ripples/foam, banner sway, attack pulse, selected-unit bob) runs at
+ *   ~30 fps for ~9 s after the last interaction, then the map sleeps; never under reduceMotion or
+ *   quality 'low'. `stats().fps` is the rate while something moves, not idle.
  *   Handles webglcontextlost/restored by re-uploading everything from the last snapshot.
- *   Demo: /render-demo.html?bench=1 runs a scripted pan/zoom and reports frame times.
+ *   Demo: /render-demo.html?real=1 (&bench=1, &quality=low, &age=classical, &reveal=1).
  */
 import type { ContentBundle } from '@contracts/content-schemas';
 import type { Hex } from '@contracts/hex';
 import type { GameState, PlayerId, UnitId } from '@contracts/sim-api';
 import type { ZoomBand } from './camera-math';
 import { createRendererImpl } from './renderer';
+import type { RenderQuality } from './scatter';
 
 export type { ZoomBand } from './camera-math';
+export type { RenderQuality } from './scatter';
 
 export interface RenderSelection {
   /** Highlighted unit (yellow base ring). */
@@ -112,6 +141,11 @@ export interface RendererOptions {
   patterns?: boolean;
   /** HUD padding in CSS px kept clear by focus(). Default { top: 100, bottom: 180 }. */
   safeArea?: Partial<SafeArea>;
+  /**
+   * 'high' (default): micro-detail, blob shadows, animated water/flags/pulses.
+   * 'low': drops those for weaker GPUs (fewer draw calls and fragments).
+   */
+  quality?: RenderQuality;
 }
 
 /** Screen padding (CSS px) covered by HUD; focus() centers targets in what's left. */
@@ -158,6 +192,9 @@ export interface Renderer {
   setSafeArea(area: Partial<SafeArea>): void;
   /** Zoom about the screen center; factor > 1 zooms out. */
   zoomBy(factor: number): void;
+  /** Switch render quality at runtime (see RendererOptions.quality). */
+  setQuality(q: RenderQuality): void;
+  getQuality(): RenderQuality;
   dispose(): void;
 }
 

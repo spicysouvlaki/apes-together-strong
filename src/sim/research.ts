@@ -40,8 +40,8 @@ export const researchOptionsFor = (
 
 export const setResearch = (ctx: SimCtx, player: PlayerId, tree: Tree, id: string): string | null => {
   const p = ctx.state.players[player];
-  if (!p) return 'Unknown player';
-  if (!researchOptionsFor(ctx.state, player, tree, ctx.content).some((o) => o.id === id)) return 'Cannot research that now';
+  if (!p) return 'That player is not in this game.';
+  if (!researchOptionsFor(ctx.state, player, tree, ctx.content).some((o) => o.id === id)) return 'That cannot be researched yet.';
   // Progress is a single counter per tree; switching keeps it (simplification).
   p.research[tree].current = id;
   return null;
@@ -108,9 +108,9 @@ const governmentUnlockers = (content: ContentBundle): Record<string, string[]> =
 export const setGovernment = (ctx: SimCtx, player: PlayerId, government: string): string | null => {
   const { state, content } = ctx;
   const p = state.players[player];
-  if (!p) return 'Unknown player';
-  if (!governmentOptionsFor(state, player, content).includes(government)) return 'That government is not available';
-  if (p.government === government) return 'Already your government';
+  if (!p) return 'That player is not in this game.';
+  if (p.government === government) return 'That is already your government.';
+  if (!governmentOptionsFor(state, player, content).includes(government)) return 'That government is not available yet.';
   const free = p.government === null || state.phase === 'transition';
   p.government = government;
   p.anarchyTurns = free ? 0 : ANARCHY_TURNS;

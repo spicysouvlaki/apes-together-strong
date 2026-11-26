@@ -91,7 +91,7 @@ const finalChecks = (rc: RuleCtx, cost: number): string | null => {
   const recap = rc.state.transition?.recap[rc.player];
   if (rc.state.phase !== 'transition' || !recap) return 'Refine at the next age transition';
   if (recap.done) return 'Refinement finished';
-  if ((p?.refinementPoints ?? 0) < cost) return 'Not enough points';
+  if ((p?.refinementPoints ?? 0) < cost) return `Needs ${cost} points (you have ${Math.floor(p?.refinementPoints ?? 0)})`;
   return null;
 };
 
@@ -99,7 +99,7 @@ const checkTradition = (t: Tradition, rc: RuleCtx): Check => {
   const p = rc.state.players[rc.player];
   const cost = finalCost(t.cost, rc.heaviest === t.culture, rc);
   const blocked = ((): string | null => {
-    if (!p) return 'Unknown player';
+    if (!p) return 'That player is not in this game.';
     if (p.traditions.includes(t.id)) return 'Already adopted';
     if (ageIndex(t.age) > ageIndex(targetAge(rc.state))) return `Available from the ${ageName(t.age)} age`;
     const need = TIER_WEIGHT[t.tier];
@@ -124,7 +124,7 @@ const checkHybrid = (h: Hybrid, rc: RuleCtx): Check => {
   const [a, b] = h.cultures;
   const cost = finalCost(h.cost, rc.heaviest === a || rc.heaviest === b, rc);
   const blocked = ((): string | null => {
-    if (!p) return 'Unknown player';
+    if (!p) return 'That player is not in this game.';
     if (p.hybrids.includes(h.id)) return 'Already adopted';
     if (ageIndex(h.age) > ageIndex(targetAge(rc.state))) return `Available from the ${ageName(h.age)} age`;
     for (const c of [a, b]) {
@@ -159,12 +159,12 @@ export const refinementOptions = (state: GameState, player: PlayerId, content: C
 export const adoptTradition = (ctx: SimCtx, player: PlayerId, id: string): string | null => {
   const { state, content } = ctx;
   const t = content.traditions.find((x) => x.id === id);
-  if (!t) return 'Unknown tradition';
+  if (!t) return 'That tradition does not exist.';
   const check = checkTradition(t, ruleCtx(state, player, content));
   if (check.blocked) return check.blocked;
   const p = state.players[player];
   const recap = state.transition?.recap[player];
-  if (!p || !recap) return 'Not in a transition';
+  if (!p || !recap) return 'Traditions can only be adopted at an age transition.';
   p.refinementPoints -= check.cost;
   p.traditions.push(t.id);
   if (t.tier === 'signature') recap.signaturesBought++;
@@ -176,12 +176,12 @@ export const adoptTradition = (ctx: SimCtx, player: PlayerId, id: string): strin
 export const adoptHybrid = (ctx: SimCtx, player: PlayerId, id: string): string | null => {
   const { state, content } = ctx;
   const h = content.hybrids.find((x) => x.id === id);
-  if (!h) return 'Unknown hybrid';
+  if (!h) return 'That hybrid does not exist.';
   const check = checkHybrid(h, ruleCtx(state, player, content));
   if (check.blocked) return check.blocked;
   const p = state.players[player];
   const recap = state.transition?.recap[player];
-  if (!p || !recap) return 'Not in a transition';
+  if (!p || !recap) return 'Hybrids can only be adopted at an age transition.';
   p.refinementPoints -= check.cost;
   p.hybrids.push(h.id);
   recap.hybridsBought++;

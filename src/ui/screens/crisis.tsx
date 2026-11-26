@@ -4,6 +4,7 @@ import type { ScreenProps } from './index';
 import { Empty, Screen, Section } from './shared/components';
 import { describeModifiers, YIELD_LABEL } from './shared/describe';
 import type { Yields, YieldType } from '@contracts/content-schemas';
+import { Icon } from '../art/Icon';
 
 const stockText = (stock: Yields): string[] =>
   (Object.keys(stock) as YieldType[])
@@ -63,17 +64,21 @@ export const CrisisScreen = (_: ScreenProps<'crisis'>) => {
         )
       }
     >
-      <p class="scr-tag">
-        Crisis · stage {crisis.stage} of {def.stages.length}
-      </p>
+      <div class="scr-broadsheet-mast">
+        <span class="scr-broadsheet-rule" />
+        <span class="scr-tag">
+          <Icon name="crisis" size="sm" /> Crisis · stage {crisis.stage} of {def.stages.length}
+        </span>
+        <span class="scr-broadsheet-rule" />
+      </div>
       <h2 class="scr-crisis-title">{def.name}</h2>
-      <p>{def.description}</p>
+      <p class="scr-broadsheet-lede">{def.description}</p>
       {def.pressure.length > 0 && (
         <p class="small muted">While it lasts: {describeModifiers(def.pressure, lookup).join('; ')}.</p>
       )}
       {stage && (
-        <div class="card">
-          <p class="scr-stage">{stage.text}</p>
+        <div class="card scr-stage-card">
+          <p class="scr-stage scr-dropcap">{stage.text}</p>
         </div>
       )}
       {awaiting && stage ? (

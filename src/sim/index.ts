@@ -126,10 +126,10 @@ const createGame: Sim['createGame'] = (setup: GameSetup, content: ContentBundle)
 
 const dispatch = (ctx: SimCtx, player: PlayerId, command: Command): string | null => {
   const { state } = ctx;
-  if (state.phase === 'ended') return 'The game is over';
+  if (state.phase === 'ended') return 'The game is over.';
   const p = state.players[player];
-  if (!p) return 'Unknown player';
-  if (!p.alive) return 'You have been eliminated';
+  if (!p) return 'That player is not in this game.';
+  if (!p.alive) return 'You have been eliminated.';
 
   if (AGES_COMMANDS.has(command.type)) {
     const before = state.phase;
@@ -140,9 +140,9 @@ const dispatch = (ctx: SimCtx, player: PlayerId, command: Command): string | nul
   }
   if (state.phase === 'transition') {
     if (command.type === 'setGovernment') return setGovernment(ctx, player, command.government);
-    return 'Only refinement, naming and government choices are allowed during the transition';
+    return 'During the age transition you can only refine traditions, name your civilization and choose a government.';
   }
-  if (player !== state.currentPlayer) return 'Not your turn';
+  if (player !== state.currentPlayer) return 'It is not your turn.';
   if (FIGURE_COMMANDS.has(command.type)) return handleFigureCommand(ctx, player, command);
 
   switch (command.type) {
@@ -152,16 +152,16 @@ const dispatch = (ctx: SimCtx, player: PlayerId, command: Command): string | nul
       return attack(ctx, player, command.unit, command.target);
     case 'fortify': {
       const u = state.units[command.unit];
-      if (!u || u.owner !== player) return 'Not your unit';
-      if (u.unitClass === 'civilian') return 'Civilians cannot fortify';
+      if (!u || u.owner !== player) return 'That unit is not yours.';
+      if (u.unitClass === 'civilian') return 'Civilian units cannot fortify.';
       u.fortified = true;
       u.movesLeft = 0;
       return null;
     }
     case 'disbandUnit': {
       const u = state.units[command.unit];
-      if (!u || u.owner !== player) return 'Not your unit';
-      if (u.figure) return 'Recall the figure instead';
+      if (!u || u.owner !== player) return 'That unit is not yours.';
+      if (u.figure) return 'A figure cannot be disbanded; recall them to a settlement instead.';
       removeUnit(ctx, u.id);
       return null;
     }
@@ -188,7 +188,7 @@ const dispatch = (ctx: SimCtx, player: PlayerId, command: Command): string | nul
     case 'endTurn':
       return endTurn(ctx, player);
     default:
-      return `Unknown command ${command.type}`;
+      return 'That action is not recognized.';
   }
 };
 
@@ -220,16 +220,71 @@ const YIELD_COMMANDS: ReadonlySet<Command['type']> = new Set([
   'chooseCrisisResponse',
 ]);
 
+const isStr = (v: unknown): boolean => typeof v === 'string';
+const isHex = (v: unknown): boolean =>
+  typeof v === 'object' && v !== null && Number.isInteger((v as { q?: unknown }).q) && Number.isInteger((v as { r?: unknown }).r);
+
+/** Fields each command needs, so a malformed command from a buggy caller gets a clean error. */
+const COMMAND_SHAPE: Record<Command['type'], Record<string, (v: unknown) => boolean>> = {
+  moveUnit: { unit: isStr, to: isHex },
+  attack: { unit: isStr, target: isHex },
+  fortify: { unit: isStr },
+  disbandUnit: { unit: isStr },
+  foundSettlement: { unit: isStr },
+  openTradeRoute: { unit: isStr, to: isStr },
+  setProduction: { settlement: isStr, item: (v) => v === null || isStr(v) },
+  buyItem: { settlement: isStr, item: isStr },
+  upgradeSettlement: { settlement: isStr },
+  setResearch: { tree: (v) => v === 'tech' || v === 'civic', id: isStr },
+  setGovernment: { government: isStr },
+  chooseOffer: { offer: isStr, figure: (v) => v === null || isStr(v) },
+  seatFigure: { figure: isStr, slot: isStr },
+  unseatFigure: { figure: isStr },
+  deployFigure: { figure: isStr, settlement: isStr },
+  recallFigure: { figure: isStr },
+  activateFigure: { figure: isStr },
+  consumeFigure: { figure: isStr, as: (v) => v === 'refinement' || v === 'yields' },
+  declareWar: { target: isStr },
+  makePeace: { target: isStr },
+  sendEnvoy: { cityState: isStr },
+  chooseCrisisResponse: { option: isStr },
+  adoptTradition: { tradition: isStr },
+  adoptHybrid: { hybrid: isStr },
+  nameCiv: { name: isStr },
+  finishTransition: {},
+  endTurn: {},
+};
+
+const wellFormed = (command: unknown): command is Command => {
+  if (typeof command !== 'object' || command === null) return false;
+  const shape = Object.prototype.hasOwnProperty.call(COMMAND_SHAPE, (command as { type?: unknown }).type as string)
+    ? COMMAND_SHAPE[(command as Command).type]
+    : undefined;
+  if (!shape) return false;
+  for (const [field, ok] of Object.entries(shape)) if (!ok((command as unknown as Record<string, unknown>)[field])) return false;
+  return true;
+};
+
+/**
+ * Never throws: a bug in any module (or a malformed command from the UI) becomes
+ * `{ ok: false, error }` with the original message, and the input state is untouched because
+ * every module works on the clone.
+ */
 const applyCommand: Sim['applyCommand'] = (state, player, command, content) => {
-  const ctx: SimCtx = { state: structuredClone(state), content, events: [] };
-  const error = dispatch(ctx, player, command);
-  if (error !== null) return { ok: false, error };
-  if (YIELD_COMMANDS.has(command.type) && ctx.state.phase !== 'ended') {
-    // Captures, wars and routes touch the other side too: refresh every living player then.
-    const all = command.type === 'attack' || command.type === 'declareWar' || command.type === 'makePeace' || command.type === 'openTradeRoute';
-    for (const pid of all ? ctx.state.playerOrder : [player]) refreshIncome(ctx.state, pid, content);
+  try {
+    if (!wellFormed(command)) return { ok: false, error: 'That action is not recognized.' };
+    const ctx: SimCtx = { state: structuredClone(state), content, events: [] };
+    const error = dispatch(ctx, player, command);
+    if (error !== null) return { ok: false, error };
+    if (YIELD_COMMANDS.has(command.type) && ctx.state.phase !== 'ended') {
+      // Captures, wars and routes touch the other side too: refresh every living player then.
+      const all = command.type === 'attack' || command.type === 'declareWar' || command.type === 'makePeace' || command.type === 'openTradeRoute';
+      for (const pid of all ? ctx.state.playerOrder : [player]) refreshIncome(ctx.state, pid, content);
+    }
+    return { ok: true, state: ctx.state, events: ctx.events };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
-  return { ok: true, state: ctx.state, events: ctx.events };
 };
 
 export const sim: Sim = { createGame, applyCommand };

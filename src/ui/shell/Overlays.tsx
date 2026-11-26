@@ -10,6 +10,7 @@ import { CitySheet } from './CitySheet';
 import { toastDuration } from './event-toasts';
 import { MenuPanel, SavesPanel, SettingsPanel } from './Panels';
 import { TileInfo } from './TileInfo';
+import { Icon } from '../art/Icon';
 
 function ToastItem({ t }: { t: Toast }) {
   useEffect(() => {
@@ -25,8 +26,8 @@ function ToastItem({ t }: { t: Toast }) {
       }}
       aria-label={t.action ? `${t.text} Tap to open.` : t.text}
     >
-      {t.text}
-      {t.action && <span aria-hidden="true"> ›</span>}
+      <span class="toast-text">{t.text}</span>
+      {t.action && <Icon name="chevron" size="sm" />}
     </button>
   );
 }

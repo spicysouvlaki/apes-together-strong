@@ -7,7 +7,9 @@ import { useState } from 'preact/hooks';
 import type { ProductionOption } from '@contracts/sim-api';
 import type { YieldType } from '@contracts/content-schemas';
 import { closeModal, content, dispatch, game, lookup, me, myTurn, openModal, q } from '../store';
-import { YIELD_GLYPH, YIELD_NAME, capitalize, num, signed, turnsText } from './format';
+import { YIELD_ICON, YIELD_NAME, capitalize, num, signed, turnsText } from './format';
+import { Icon } from '../art/Icon';
+import { FigurePortrait } from '../art/game-art';
 
 const CITY_YIELDS: readonly YieldType[] = ['food', 'production', 'gold', 'science', 'culture', 'faith', 'influence', 'happiness'];
 
@@ -18,9 +20,9 @@ const itemDescription = (o: ProductionOption): string => {
     const u = lookup.units[o.item];
     if (!u) return '';
     const parts = [capitalize(u.unitClass)];
-    if (u.strength > 0) parts.push(`⚔ ${u.strength}`);
-    if (u.rangedStrength !== undefined) parts.push(`🏹 ${u.rangedStrength}`);
-    parts.push(`➜ ${u.moves}`);
+    if (u.strength > 0) parts.push(`strength ${u.strength}`);
+    if (u.rangedStrength !== undefined) parts.push(`ranged ${u.rangedStrength}`);
+    parts.push(`${u.moves} ${u.moves === 1 ? 'move' : 'moves'}`);
     if (u.canFound) parts.push('Founds settlements');
     if (u.canTrade) parts.push('Opens trade routes');
     return parts.join(' · ');
@@ -68,21 +70,25 @@ export function CitySheet({ settlement }: { settlement: string }) {
       <div class="row">
         <div class="grow">
           <h2 class="sheet-title">
-            {s.isCapital && <span aria-label="Capital">★ </span>}
+            {s.isCapital && (
+              <span class="capital-mark" role="img" aria-label="Capital">
+                <Icon name="capital" />
+              </span>
+            )}
             {s.name}
           </h2>
           <div class="small muted">
             {capitalize(s.kind)} · Population {s.population} · Walls {Math.round(s.hp)}/{s.maxHp}
           </div>
         </div>
-        <button class="btn btn-ghost" aria-label="Close city panel" onClick={closeModal}>
-          ✕
+        <button class="btn btn-ghost btn-icon" aria-label="Close city panel" onClick={closeModal}>
+          <Icon name="close" />
         </button>
       </div>
 
       <div class="progress-line" aria-label={`Food ${num(s.foodStored)} of ${num(growth)} to grow`}>
         <span class="small">
-          {YIELD_GLYPH.food} Growth {num(s.foodStored)}/{num(growth)}
+          <Icon name="food" size="sm" /> Growth <span class="tnum">{num(s.foodStored)}/{num(growth)}</span>
         </span>
         <span class="bar" aria-hidden="true">
           <span style={{ width: `${Math.min(100, (s.foodStored / Math.max(1, growth)) * 100)}%` }} />
@@ -91,8 +97,8 @@ export function CitySheet({ settlement }: { settlement: string }) {
 
       <div class="yield-grid" aria-label="Yields per turn">
         {CITY_YIELDS.map((y) => (
-          <span class="chip" key={y} aria-label={`${YIELD_NAME[y]} ${signed(yields[y])}`}>
-            <span aria-hidden="true">{YIELD_GLYPH[y]}</span> {signed(yields[y])}
+          <span class={`chip yield-chip y-${y}`} key={y} aria-label={`${YIELD_NAME[y]} ${signed(yields[y])}`}>
+            <Icon name={YIELD_ICON[y]} /> {signed(yields[y])}
           </span>
         ))}
       </div>
@@ -105,7 +111,7 @@ export function CitySheet({ settlement }: { settlement: string }) {
             disabled={!canAct || gold < upgradeCost}
             onClick={() => dispatch({ type: 'upgradeSettlement', settlement: s.id })}
           >
-            Upgrade to city · {YIELD_GLYPH.gold} {upgradeCost}
+            <Icon name="upgrade" /> Upgrade to city · <Icon name="gold" size="sm" /> {upgradeCost}
           </button>
         </div>
       )}
@@ -160,7 +166,7 @@ export function CitySheet({ settlement }: { settlement: string }) {
                           <span class="row">
                             <strong class="grow">{itemName(o.item)}</strong>
                             <span class="small">
-                              {YIELD_GLYPH.production} {o.cost} · {turnsText(o.turns)}
+                              <Icon name="production" size="sm" /> {o.cost} · {turnsText(o.turns)}
                             </span>
                           </span>
                           <span class="small muted prod-desc">{itemDescription(o)}</span>
@@ -172,7 +178,7 @@ export function CitySheet({ settlement }: { settlement: string }) {
                             aria-label={`Buy ${itemName(o.item)} for ${o.goldCost} gold`}
                             onClick={() => dispatch({ type: 'buyItem', settlement: s.id, item: o.item })}
                           >
-                            Buy {YIELD_GLYPH.gold} {o.goldCost}
+                            Buy <Icon name="gold" size="sm" /> {o.goldCost}
                           </button>
                         )}
                       </div>
@@ -204,10 +210,9 @@ export function CitySheet({ settlement }: { settlement: string }) {
             const def = lookup.figures[f.id];
             return (
               <button key={f.id} class="btn figure-row" onClick={() => openModal({ kind: 'figure', figure: f.id })}>
-                <span class="portrait mini" aria-hidden="true">
-                  {(def?.name ?? '?').slice(0, 1)}
-                </span>
-                <span class="grow">{def?.name ?? f.id}</span>›
+                <FigurePortrait figure={f.id} size="xs" />
+                <span class="grow">{def?.name ?? f.id}</span>
+                <Icon name="chevron" size="sm" />
               </button>
             );
           })}

@@ -255,33 +255,33 @@ export interface AttackPlan {
 /** What attacking `target` with `u` would hit, or an error. Shared by the command and the query. */
 export const planAttack = (state: GameState, u: Unit, target: Hex, content: ContentBundle): AttackPlan | string => {
   const def = ci(content).units[u.type];
-  if (!def) return 'Unknown unit';
-  if (u.hasAttacked) return 'Already attacked this turn';
-  if (u.movesLeft <= 0) return 'No moves left';
+  if (!def) return 'That unit no longer exists.';
+  if (u.hasAttacked) return 'This unit has already attacked this turn.';
+  if (u.movesLeft <= 0) return 'This unit has no moves left this turn.';
   const canRanged = def.rangedStrength !== undefined && def.range !== undefined;
-  if (def.strength <= 0 && !canRanged) return 'This unit cannot attack';
+  if (def.strength <= 0 && !canRanged) return 'This unit cannot attack.';
   const tile = tileAt(state.map, target);
-  if (!tile) return 'Off the map';
+  if (!tile) return 'That tile is off the map.';
   const dist = hexDistance(u.at, target);
-  if (dist < 1) return 'Cannot attack your own tile';
-  if (canRanged ? dist > (def.range ?? 0) : dist !== 1) return 'Out of range';
+  if (dist < 1) return 'A unit cannot attack its own tile.';
+  if (canRanged ? dist > (def.range ?? 0) : dist !== 1) return 'That target is out of range.';
   const there = unitsAt(state, target);
   const defender = there.find((o) => o.owner !== u.owner && !isCivilian(o)) ?? null;
   const civilians = there.filter((o) => o.owner !== u.owner && isCivilian(o));
   const sRaw = tile.settlement ? state.settlements[tile.settlement] : undefined;
   const settlement = sRaw && sRaw.owner !== u.owner ? sRaw : null;
   const enemyOwner = defender?.owner ?? settlement?.owner ?? civilians[0]?.owner;
-  if (enemyOwner === undefined) return 'Nothing to attack there';
-  if (!isHostile(state, u.owner, enemyOwner)) return 'Not at war with them';
-  if (!defender && !settlement && canRanged) return 'Ranged units cannot capture civilians';
-  if (settlement && !defender && settlement.hp <= 0 && canRanged) return 'Walls are down: a melee unit must take it';
+  if (enemyOwner === undefined) return 'There is nothing to attack there.';
+  if (!isHostile(state, u.owner, enemyOwner)) return 'You are not at war with them; declare war first.';
+  if (!defender && !settlement && canRanged) return 'Ranged units cannot capture civilians; use a melee unit.';
+  if (settlement && !defender && settlement.hp <= 0 && canRanged) return 'The walls are down: only a melee unit can take the city.';
   return { ranged: canRanged, defender, settlement, civilians };
 };
 
 export const attack = (ctx: SimCtx, player: PlayerId, unitId: UnitId, target: Hex): string | null => {
   const { state, content } = ctx;
   const u = state.units[unitId];
-  if (!u || u.owner !== player) return 'Not your unit';
+  if (!u || u.owner !== player) return 'That unit is not yours.';
   const plan = planAttack(state, u, target, content);
   if (typeof plan === 'string') return plan;
   resolveAttack(ctx, u, target, plan);

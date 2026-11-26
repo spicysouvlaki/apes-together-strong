@@ -1,18 +1,22 @@
 /**
  * npm run autoplay -- [--games 3] [--seed 1] [--turns 200] [--size small] [--players 4]
  *                     [--speed quick] [--max-seconds 300] [--json out.json] [--verify]
+ *                     [--difficulty easy|normal|hard] [--human-seat]
  *
  * Plays N seeded AI-only games headless through the public Sim API and `runAiTurn`, and prints
  * per game: turns and offers per age, figures per culture per player, traditions and hybrids,
  * settlements, final scores, and AI turn timings (budget: < 3 s per AI turn late game).
  * --verify plays each seed twice and compares the final states byte for byte (determinism).
+ * --human-seat marks p1 as human (difficulty bonuses then apply to the others) while the AI
+ * still plays it, and reports p1's final score over the rivals' mean: how a competent player
+ * fares against easy/normal/hard rivals.
  *
  * Timing uses performance.now() here only — never inside the sim.
  */
 import { writeFileSync } from 'node:fs';
 import type { ContentBundle } from '../src/contracts/content-schemas';
 import type { Sim } from '../src/contracts/sim-api';
-import { AI_TURN_BUDGET_MS, COLORS, NotImplemented, playGame, type GameReport, type Options, type RunAiTurn } from './lib/autoplay';
+import { AI_TURN_BUDGET_MS, COLORS, NotImplemented, humanScoreRatio, playGame, type GameReport, type Options, type RunAiTurn } from './lib/autoplay';
 
 const parseArgs = (argv: string[]): Options => {
   const o: Options = { games: 3, seed: 1, turns: 250, size: 'small', speed: 'quick', players: 4, maxSeconds: 300, json: null, verify: false };
@@ -48,9 +52,16 @@ const parseArgs = (argv: string[]): Options => {
       }
       case '--json': o.json = next(); break;
       case '--verify': o.verify = true; break;
+      case '--human-seat': o.humanSeat = true; break;
+      case '--difficulty': {
+        const v = next();
+        if (v !== 'easy' && v !== 'normal' && v !== 'hard') throw new Error('--difficulty is easy | normal | hard');
+        o.difficulty = v;
+        break;
+      }
       case '--help':
       case '-h':
-        console.log('Usage: npm run autoplay -- [--games N] [--seed S] [--turns T] [--size small|standard|large] [--speed quick|standard|epic] [--players P] [--max-seconds S] [--json out.json] [--verify]');
+        console.log('Usage: npm run autoplay -- [--games N] [--seed S] [--turns T] [--size small|standard|large] [--speed quick|standard|epic] [--players P] [--max-seconds S] [--json out.json] [--verify] [--difficulty easy|normal|hard] [--human-seat]');
         process.exit(0);
         break;
       default:
@@ -206,6 +217,15 @@ const main = async (): Promise<number> => {
     const ai = reports.filter((r) => r.aiTurns > 0);
     const avg = ai.reduce((s, r) => s + r.avgAiMs * r.aiTurns, 0) / Math.max(1, ai.reduce((s, r) => s + r.aiTurns, 0));
     printSummary(reports);
+    if (o.humanSeat) {
+      const ratios = reports.map(humanScoreRatio);
+      const valid = ratios.filter((r): r is number => r !== null);
+      const avg = valid.reduce((a, b) => a + b, 0) / Math.max(1, valid.length);
+      const wins = reports.filter((r) => r.result?.winner === 'p1').length;
+      console.log(
+        `human seat (p1) vs ${o.difficulty ?? 'normal'} rivals: score ratio avg ${avg.toFixed(2)} (per seed ${ratios.map((r) => (r === null ? '-' : r.toFixed(2))).join(', ')}), p1 won ${wins}/${reports.length}`,
+      );
+    }
     console.log(`\n${reports.length} game(s): avg AI turn ${avg.toFixed(1)} ms, worst ${Math.max(...reports.map((r) => r.worstAiMs)).toFixed(1)} ms; statuses ${reports.map((r) => r.status).join(', ')}`);
   }
   if (o.json) {

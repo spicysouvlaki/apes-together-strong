@@ -190,7 +190,7 @@ describe('founding', () => {
     expect(capital?.kind).toBe('city');
     expect(capital?.name).toBe('B1');
     expect(state.units[a.id]).toBeUndefined();
-    expect(fail(state, 'p1', { type: 'foundSettlement', unit: b.id })).toMatch(/Cannot found/);
+    expect(fail(state, 'p1', { type: 'foundSettlement', unit: b.id })).toMatch(/too close|already a settlement|belongs to|water|impassable/);
     expect(queries.canFound(state, w.id, content)).toBe(false);
     expect(queries.canFound(state, m.id, content)).toBe(false);
     state = run(state, 'p1', { type: 'foundSettlement', unit: c.id });
@@ -301,7 +301,7 @@ describe('movement', () => {
     expect(queries.reachable(state, u.id, content).some((x) => x.hex.q === at(2, 1).q && x.hex.r === at(2, 1).r)).toBe(true);
     state = run(state, 'p1', { type: 'moveUnit', unit: u.id, to: at(3, 2) });
     expect(state.units[u.id]?.movesLeft).toBe(0);
-    expect(fail(state, 'p1', { type: 'moveUnit', unit: u.id, to: at(4, 2) })).toMatch(/reach/);
+    expect(fail(state, 'p1', { type: 'moveUnit', unit: u.id, to: at(4, 2) })).toMatch(/no moves left/);
   });
 
   it('one military unit per tile; enemies block; naval units stay on water', () => {
@@ -446,7 +446,7 @@ describe('trees and government', () => {
   it('research completes from science; finishing the age tree adds 4 to the meter', () => {
     let state = fixtureState();
     expect(queries.researchOptions(state, 'p1', 'tech', content).map((o) => o.id)).toEqual(['pottery']);
-    expect(fail(state, 'p1', { type: 'setResearch', tree: 'tech', id: 'bronze' })).toMatch(/Cannot/);
+    expect(fail(state, 'p1', { type: 'setResearch', tree: 'tech', id: 'bronze' })).toMatch(/cannot be researched yet/);
     state = run(state, 'p1', { type: 'setResearch', tree: 'tech', id: 'pottery' });
     addSettlement(state, 'p1', at(5, 5));
     const p1 = state.players.p1;

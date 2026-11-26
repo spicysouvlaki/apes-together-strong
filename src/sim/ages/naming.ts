@@ -59,10 +59,10 @@ export const nameOptions = (state: GameState, player: PlayerId, content: Content
 export const setCivName = (ctx: SimCtx, player: PlayerId, raw: string): string | null => {
   const name = raw.trim();
   if (name.length < CIV_NAME_MIN || name.length > CIV_NAME_MAX) {
-    return `Name must be ${CIV_NAME_MIN}–${CIV_NAME_MAX} characters`;
+    return `A name must be ${CIV_NAME_MIN}–${CIV_NAME_MAX} characters long.`;
   }
   const p = ctx.state.players[player];
-  if (!p) return 'Unknown player';
+  if (!p) return 'That player is not in this game.';
   p.civName = name;
   ctx.events.push({ type: 'civNamed', player, name });
   addChronicle(ctx.state, player, 'name', player, `The people took the name ${name}.`);

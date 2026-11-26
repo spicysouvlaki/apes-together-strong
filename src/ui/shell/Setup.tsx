@@ -18,6 +18,22 @@ import {
   randomSeed,
 } from './setup-logic';
 import { loading, patchSettings, settings } from './shell-state';
+import { Icon } from '../art/Icon';
+import { SetupBanner } from '../art/game-art';
+import { leaderEmblem } from '../art/heraldry-spec';
+
+/** A numbered step of the founding ritual (roman numeral rubric). */
+const Step = ({ n, title, note }: { n: string; title: string; note?: string }) => (
+  <div class="setup-step">
+    <span class="setup-step-n" aria-hidden="true">
+      {n}
+    </span>
+    <span class="setup-step-text">
+      <span class="setup-step-title">{title}</span>
+      {note && <span class="setup-step-note">{note}</span>}
+    </span>
+  </div>
+);
 
 export function Setup() {
   const last = settings.peek().lastSetup;
@@ -50,29 +66,34 @@ export function Setup() {
   return (
     <div class="screen setup" role="main">
       <div class="screen-header">
-        <h1>New game</h1>
-        <button class="btn btn-ghost" onClick={() => (route.value = 'title')} aria-label="Back to title">
-          ‹ Back
+        <button class="btn btn-ghost btn-icon" onClick={() => (route.value = 'title')} aria-label="Back to title">
+          <Icon name="back" />
         </button>
+        <h1>Found a people</h1>
       </div>
       <div class="screen-body">
-        <div class="section-title">Leader</div>
+        <Step n="I" title="Who leads them" note="Your leader's gift lasts the whole game." />
         <div class="choice-list" role="radiogroup" aria-label="Leader archetype">
           {content.leaders.map((l) => (
             <button
               key={l.id}
               role="radio"
               aria-checked={leader === l.id}
-              class={`card choice${leader === l.id ? ' selected' : ''}`}
+              class={`card choice leader-choice${leader === l.id ? ' selected' : ''}`}
               onClick={() => setLeader(l.id)}
             >
-              <strong>{l.name}</strong>
-              <span class="small muted">{l.ability}</span>
+              <span class="leader-emblem" aria-hidden="true">
+                <Icon name={leaderEmblem(l.id)} />
+              </span>
+              <span class="leader-text">
+                <strong>{l.name}</strong>
+                <span class="small muted">{l.ability}</span>
+              </span>
             </button>
           ))}
         </div>
 
-        <div class="section-title">Founding dream</div>
+        <Step n="II" title="The founding dream" note="An idea in an old tongue, carried as your motto." />
         <div class="choice-list" role="radiogroup" aria-label="Founding dream">
           {dreams.map((id) => {
             const d = lookup.dreams[id];
@@ -85,22 +106,23 @@ export function Setup() {
                 class={`card choice dream${dream === id ? ' selected' : ''}`}
                 onClick={() => setDream(id)}
               >
-                <span class="dream-native">
+                <span class={`dream-native${d.native.length > 10 ? ' dream-long' : ''}`} lang="und">
                   {d.native}
                 </span>
-                <span class="small">
-                  {d.romanized !== d.native ? <em>{d.romanized}</em> : null}
-                  {d.romanized !== d.native ? ' · ' : ''}
-                  {d.language}
-                </span>
-                <span class="small muted">“{d.meaning}”</span>
+                {d.romanized !== d.native && <span class="dream-roman">{d.romanized}</span>}
+                <span class="dream-meaning">“{d.meaning}”</span>
+                <span class="dream-lang">{d.language}</span>
               </button>
             );
           })}
         </div>
 
-        <div class="section-title">Banner</div>
-        <div class="card">
+        <Step n="III" title="Your banner" />
+        <div class="card banner-card">
+          <div class="banner-stand" aria-hidden="true">
+            <SetupBanner primary={primary} secondary={secondary} leader={leader} width={76} />
+          </div>
+          <div class="grow">
           <div class="small muted">Primary</div>
           <div class="swatches" role="radiogroup" aria-label="Primary banner color">
             {BANNER_COLORS.filter((c) => c.hex !== '#ffffff').map((c) => (
@@ -132,12 +154,10 @@ export function Setup() {
               />
             ))}
           </div>
-          <div class="banner-preview" aria-hidden="true" style={{ background: primary, borderColor: secondary }}>
-            <span style={{ background: secondary }} />
           </div>
         </div>
 
-        <div class="section-title">Your people</div>
+        <Step n="IV" title="Your people" />
         <div class="swatches" role="radiogroup" aria-label="Skin tone">
           {SKIN_TONES.map((hex, i) => (
             <button
@@ -152,7 +172,7 @@ export function Setup() {
           ))}
         </div>
 
-        <div class="section-title">World</div>
+        <Step n="V" title="The world" />
         <div class="card">
           <div class="small muted">Map size</div>
           <div class="segmented" role="radiogroup" aria-label="Map size">
@@ -188,16 +208,20 @@ export function Setup() {
                 aria-invalid={seed === null}
                 onInput={(e) => setSeedText((e.target as HTMLInputElement).value)}
               />
-              <button class="btn" aria-label="New random seed" onClick={() => setSeedText(String(randomSeed(Math.random)))}>
-                🎲
+              <button class="btn btn-icon" aria-label="New random seed" onClick={() => setSeedText(String(randomSeed(Math.random)))}>
+                <Icon name="dice" />
               </button>
             </div>
           </label>
         </div>
       </div>
       <div class="screen-footer">
-        <button class="btn btn-primary" disabled={seed === null || !!busy} onClick={start}>
-          {busy ?? 'Begin'}
+        <button class="btn btn-primary setup-begin" disabled={seed === null || !!busy} onClick={start}>
+          {busy ? busy : (
+            <>
+              <Icon name="found" /> Found your people
+            </>
+          )}
         </button>
       </div>
     </div>

@@ -43,7 +43,7 @@ export const RosterScreen = (_: ScreenProps<'roster'>) => {
                   onClick={() => openModal({ kind: 'figure', figure: e.fs.id })}
                   aria-label={`${e.def.name}, ${e.where}`}
                 >
-                  <Portrait name={e.def.name} culture={e.def.culture} size="sm" legend={e.def.kind === 'legend'} />
+                  <Portrait figure={e.def.id} size="sm" />
                   <div class="grow">
                     <div class="scr-fig-name">{e.def.name}</div>
                     <div class="small muted">

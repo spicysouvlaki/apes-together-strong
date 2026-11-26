@@ -17,6 +17,12 @@ import type {
   YieldType,
 } from '@contracts/content-schemas';
 import type { GameState, PlayerId, Settlement, Tile } from '@contracts/sim-api';
+import {
+  DIFFICULTY_HUMAN_SETTLEMENT_HAPPINESS,
+  DIFFICULTY_RIVAL_COST_PERCENT,
+  DIFFICULTY_RIVAL_YIELD_PERCENT,
+  DIFFICULTY_YIELDS,
+} from './constants';
 import { ci, isWater, neighborTiles } from './lookup';
 
 type EffectOf<K extends Effect['kind']> = Extract<Effect, { kind: K }>;
@@ -73,6 +79,25 @@ export const playerModifiers = (state: GameState, playerId: PlayerId, content: C
   for (const e of p.effects) {
     if (e.untilTurn === -1 || e.untilTurn >= state.turn) out.push(...e.modifiers);
   }
+  out.push(...difficultyModifiers(state.difficulty ?? 'normal', p.isHuman));
+  return out;
+};
+
+/**
+ * Difficulty as ordinary modifiers (GDD §9: rivals get yield bonuses, never hidden
+ * information), so it goes through the same engine as every other bonus. 'normal' adds none.
+ */
+export const difficultyModifiers = (difficulty: GameState['difficulty'], isHuman: boolean): Modifier[] => {
+  const out: Modifier[] = [];
+  if (isHuman) {
+    const happiness = DIFFICULTY_HUMAN_SETTLEMENT_HAPPINESS[difficulty];
+    if (happiness) out.push({ scope: 'settlement', effect: { kind: 'yield', yield: 'happiness', add: happiness } });
+    return out;
+  }
+  const percent = DIFFICULTY_RIVAL_YIELD_PERCENT[difficulty];
+  if (percent) for (const y of DIFFICULTY_YIELDS) out.push({ scope: 'empire', effect: { kind: 'yield', yield: y, percent } });
+  const cost = DIFFICULTY_RIVAL_COST_PERCENT[difficulty];
+  if (cost) for (const target of ['unit', 'building'] as const) out.push({ scope: 'empire', effect: { kind: 'cost', target, percent: cost } });
   return out;
 };
 

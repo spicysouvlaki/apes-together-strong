@@ -8,11 +8,12 @@ import { cabinetSeats, cultureWeights, figureActions } from '../emergence';
 import { milestones, refinementOptions, score } from './ages';
 import { attackTargetsOf, isHostile } from './combat';
 import { envoyCostFor, tradeTargetsOf } from './diplomacy';
-import { ci, hexOfIndex, playerSettlements } from './lookup';
+import { ci, hexOfIndex, playerSettlements, tileIndex } from './lookup';
 import { empireModifiers } from './modifiers';
 import { governmentOptionsFor, researchOptionsFor } from './research';
 import { availableItems, canFoundAt, goldCostOf, itemCost, upgradeCostOf } from './settlements';
-import { findPaths, visibleTileSet } from './units';
+import { settleSitesFor } from './sites';
+import { findPaths, planPath, visibleTileSet } from './units';
 import { growthCost, settlementCapFor, settlementYields, workedTilesWithYields } from './yields';
 
 export const queries: SimQueries = {
@@ -72,9 +73,16 @@ export const queries: SimQueries = {
   envoyCost: (state, player, cityState) => envoyCostFor(state, player, cityState),
   cabinetSeats,
   figureActions,
-  // TODO(sim): implement settleSites and pathTo (contracts: added for settler hints and multi-turn moves).
-  settleSites: () => [],
-  pathTo: () => null,
+  settleSites: (state, unitId, content) => {
+    const u = state.units[unitId];
+    return u ? settleSitesFor(state, u, content) : [];
+  },
+  pathTo: (state, unitId, to, content) => {
+    const u = state.units[unitId];
+    if (!u) return null;
+    const plan = planPath(state, u, tileIndex(state.map, to), content);
+    return plan ? plan.tiles.map((i) => hexOfIndex(state.map, i)) : null;
+  },
   cultureWeights,
   refinementOptions,
   milestones,

@@ -23,7 +23,12 @@ import {
 import { screens, type ScreenKind } from '../screens';
 import type { ModalKind } from '../store';
 import { decisionLabel, decisionModal, planEndTurn, type Prompt } from './decisions';
-import { AGE_NAME, HUD_YIELDS, YIELD_GLYPH, YIELD_NAME, happinessFace, happinessWord, num, signed } from './format';
+import { AGE_NAME, HUD_YIELDS, YIELD_ICON, YIELD_NAME, happinessIcon, happinessWord, num, signed } from './format';
+import { Icon } from '../art/Icon';
+import type { IconName } from '../art/icons-data';
+import { PlayerBanner } from '../art/game-art';
+import { TickNumber } from './TickNumber';
+import { lookup } from '../store';
 import { firstFounder, idleUnits, nextIdleUnit } from './hexutil';
 import { selectUnit } from './MapView';
 import { endTurnSent, foundNudgeTurn, idleConfirmedTurn, legendOpen, skipped } from './shell-state';
@@ -50,6 +55,37 @@ const founder = computed(() => {
 
 const plan = computed(() => planEndTurn(pending.value, isRegistered, founder.value));
 
+/** First crisis stage of this age (where the track turns red), from content. */
+const crisisAt = (age: string): number | null => content.crises.find((c) => c.age === age)?.stages[0]?.at ?? null;
+
+/** The age meter: an inked track with a wax-seal marker; the crisis stretch is washed red. */
+function AgeTrack({ progress, crisisAt: at, crisis }: { progress: number; crisisAt: number | null; crisis: boolean }) {
+  const pct = Math.max(0, Math.min(100, progress));
+  return (
+    <span class="age-track" aria-hidden="true">
+      {at !== null && <span class="age-track-crisis" style={{ left: `${at}%` }} />}
+      <span class="age-track-fill" style={{ width: `${pct}%` }} />
+      {[25, 50, 75].map((x) => (
+        <i class="age-track-tick" style={{ left: `${x}%` }} />
+      ))}
+      <span class={`age-seal${crisis ? ' crisis' : ''}`} style={{ left: `${pct}%` }}>
+        <Icon name={crisis ? 'crisis' : 'age'} size="sm" />
+      </span>
+    </span>
+  );
+}
+
+/** The player's banner hanging under the top bar; tap for the Chronicle. */
+function HudBanner() {
+  const p = myPlayer.value;
+  if (!p) return null;
+  return (
+    <button class="hud-banner" aria-label="Chronicle" onClick={() => openModal({ kind: 'chronicle' })}>
+      <PlayerBanner player={p} width={34} />
+    </button>
+  );
+}
+
 function TopBar() {
   const p = myPlayer.value;
   const g = game.value;
@@ -64,20 +100,21 @@ function TopBar() {
         onClick={() => (legendOpen.value = !legendOpen.value)}
       >
         {HUD_YIELDS.map((y) => (
-          <span class="hud-yield" key={y} aria-hidden="true">
+          <span class={`hud-yield y-${y}`} key={y} aria-hidden="true">
             <span class="hud-yield-top">
-              <span aria-hidden="true">{YIELD_GLYPH[y]}</span> {Math.floor(p.stock[y])}
+              <Icon name={YIELD_ICON[y]} />
+              <TickNumber value={Math.floor(p.stock[y])} />
             </span>
             <span class="hud-yield-inc">{signed(p.income[y])}</span>
           </span>
         ))}
       </button>
       <button class="hud-icon" aria-label="Menu" onClick={() => openModal({ kind: 'menu' })}>
-        ☰
+        <Icon name="menu" />
       </button>
       <div class="hud-sub">
-        <span class="hud-pill" role="img" aria-label={`Happiness ${num(p.happiness)}, ${happinessWord(p.happiness)}`}>
-          {happinessFace(p.happiness)} {num(p.happiness)}
+        <span class={`hud-pill hud-mood${p.happiness < 0 ? ' low' : ''}`} role="img" aria-label={`Happiness ${num(p.happiness)}, ${happinessWord(p.happiness)}`}>
+          <Icon name={happinessIcon(p.happiness)} /> <span class="tnum">{num(p.happiness)}</span>
         </span>
         <button
           class={`hud-age${crisis ? ' crisis' : ''}`}
@@ -85,12 +122,10 @@ function TopBar() {
           onClick={() => openModal({ kind: 'legacy' })}
         >
           <span class="hud-age-name">{AGE_NAME[g.age]}</span>
-          <span class="hud-meter" aria-hidden="true">
-            <span style={{ width: `${Math.max(0, Math.min(100, g.ageProgress))}%` }} />
-          </span>
+          <AgeTrack progress={g.ageProgress} crisisAt={crisisAt(g.age)} crisis={crisis} />
         </button>
-        <span class="hud-pill" aria-label={`Turn ${g.turn}`}>
-          Turn {g.turn}
+        <span class="hud-pill hud-turn" aria-label={`Turn ${g.turn}`}>
+          <Icon name="turn" size="sm" /> <span class="tnum">{g.turn}</span>
         </span>
       </div>
       {legendOpen.value && <YieldLegend player={p} onClose={() => (legendOpen.value = false)} />}
@@ -151,20 +186,27 @@ function EndTurnButton() {
   const disabled = busy || !myTurn.value;
   const label = busy ? 'Rivals are moving…' : pl.mode === 'next' && pl.next ? `Next: ${decisionLabel(pl.next)}` : 'End Turn';
   const badge = pl.mode === 'end' ? pl.advisory.length : 0;
+  const isNext = pl.mode === 'next' && !!pl.next && !busy;
   return (
     <button
-      class={`btn btn-primary end-turn${pl.mode === 'next' ? ' is-next' : ''}`}
+      class={`btn btn-primary end-turn${pl.mode === 'next' ? ' is-next' : ''}${busy ? ' is-busy' : ''}`}
       disabled={disabled}
       onClick={endTurn}
       aria-label={badge > 0 ? `${label}. ${badge} things still open.` : label}
     >
-      {pl.mode === 'next' && pl.next && !busy ? (
+      <span class="end-turn-seal" aria-hidden="true">
+        <Icon name={busy ? 'age' : isNext ? 'next' : 'endTurn'} />
+      </span>
+      {isNext && pl.next ? (
         <span class="end-turn-two" aria-hidden="true">
           <span class="end-turn-kicker">Next</span>
           <span>{decisionLabel(pl.next)}</span>
         </span>
       ) : (
-        <span aria-hidden="true">{busy ? 'Rivals…' : label}</span>
+        <span class="end-turn-two" aria-hidden="true">
+          <span class="end-turn-kicker">{busy ? 'Waiting' : `Turn ${game.value?.turn ?? ''}`}</span>
+          <span>{busy ? 'Rivals…' : label}</span>
+        </span>
       )}
       {badge > 0 && (
         <span class="badge" aria-hidden="true">
@@ -181,7 +223,8 @@ function AdvisoryChip() {
   if (!next || !myTurn.value) return null;
   return (
     <button class="btn advisory" onClick={() => openDecision(next)} aria-label={`Open ${decisionLabel(next)}`}>
-      {decisionLabel(next)} ›
+      <span>{decisionLabel(next)}</span>
+      <Icon name="next" size="sm" />
     </button>
   );
 }
@@ -199,17 +242,17 @@ function NextUnit() {
   if (count === 0) return null;
   return (
     <button class="btn next-unit" onClick={goNext} aria-label={`Next unit. ${count} waiting for orders.`}>
-      ⟳ Unit <span class="badge">{count}</span>
+      <Icon name="next" size="sm" /> Unit <span class="badge">{count}</span>
     </button>
   );
 }
 
-const QUICK: { kind: 'roster' | 'cabinet' | 'tree' | 'diplomacy'; glyph: string; label: string }[] = [
-  { kind: 'roster', glyph: '👥', label: 'Figures' },
-  { kind: 'cabinet', glyph: '🏛', label: 'Cabinet' },
-  { kind: 'tree', glyph: '⚗', label: 'Research' },
+const QUICK: { kind: 'roster' | 'cabinet' | 'tree' | 'diplomacy'; icon: IconName; label: string }[] = [
+  { kind: 'roster', icon: 'figures', label: 'Figures' },
+  { kind: 'cabinet', icon: 'cabinet', label: 'Cabinet' },
+  { kind: 'tree', icon: 'research', label: 'Research' },
   // "Nations" fits the 46px button; the screen itself is titled Diplomacy (aria-label says so).
-  { kind: 'diplomacy', glyph: '🤝', label: 'Nations' },
+  { kind: 'diplomacy', icon: 'nations', label: 'Nations' },
 ];
 
 const QUICK_ARIA: Record<string, string> = { diplomacy: 'Diplomacy' };
@@ -243,7 +286,7 @@ function QuickButtons() {
             aria-label={badge ? `${QUICK_ARIA[b.kind] ?? b.label}, ${badgeText(b.kind, badge)}` : (QUICK_ARIA[b.kind] ?? b.label)}
             onClick={() => openModal(b.kind === 'tree' ? { kind: 'tree', tree: researchTree() } : { kind: b.kind })}
           >
-            <span aria-hidden="true">{b.glyph}</span>
+            <Icon name={b.icon} />
             <span class="quick-label">{b.label}</span>
             {badge > 0 && <span class={`badge${b.kind === 'tree' ? ' warn' : ''}`}>{badge}</span>}
           </button>
@@ -259,11 +302,12 @@ function QuickButtons() {
  */
 function Defeat() {
   const g = game.value;
+  const p0 = myPlayer.value;
   return (
     <section class="screen defeat" role="alertdialog" aria-modal="true" aria-label="Defeat">
       <div class="screen-body defeat-body">
         <div class="defeat-mark" aria-hidden="true">
-          ⚑
+          {p0 ? <PlayerBanner player={p0} width={88} /> : <Icon name="commander" size="lg" />}
         </div>
         <h1 class="defeat-title">Your people have been conquered</h1>
         <p class="muted">
@@ -294,6 +338,13 @@ function Defeat() {
   );
 }
 
+const thinkingName = (): string => {
+  const id = thinking.value;
+  const g = game.value;
+  const p = id && g ? g.players[id] : undefined;
+  return p ? (p.civName ?? `${lookup.leaders[p.leader]?.name ?? 'A rival'}'s people`) : '';
+};
+
 export function Hud() {
   const p = myPlayer.value;
   if (p && !p.alive) return modal.value ? null : <Defeat />;
@@ -304,6 +355,7 @@ export function Hud() {
   return (
     <>
       <TopBar />
+      <HudBanner />
       {!sheetOpen && (
         <div class="hud-bottom">
           <div class="hud-controls">
@@ -319,7 +371,9 @@ export function Hud() {
       )}
       {thinking.value !== null && (
         <div class="thinking" role="status" aria-live="polite">
-          Rivals are moving…
+          <span class="thinking-slip">
+            <Icon name="age" /> {thinkingName()} {thinkingName() ? 'is' : 'Rivals are'} moving…
+          </span>
         </div>
       )}
     </>

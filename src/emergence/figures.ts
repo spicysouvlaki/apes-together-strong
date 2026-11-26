@@ -16,10 +16,10 @@ import type { SimCtx } from '../sim/ctx';
 import { addAgeProgress } from '../sim/ages';
 import { costPercent, applyCostPercent, playerModifiers } from '../sim/modifiers';
 import { removeUnit, spawnUnit } from '../sim/units';
-import { baseAtHome, slotAccepts, vacateSeat } from './cabinet';
+import { baseAtHome, slotAccepts, slotIdOfKey, vacateSeat } from './cabinet';
 import * as K from './constants';
 import { dropOffer } from './offers';
-import { figureDef, getPlayer, homeSettlement, ownSettlementAt, tileIndex } from './util';
+import { figureDef, getPlayer, homeSettlement, ownSettlementAt, ownSettlements, tileIndex } from './util';
 
 type FigureCommand = Extract<
   Command,
@@ -47,7 +47,7 @@ interface Owned {
 const ownedFigure = (state: GameState, player: PlayerId, id: FigureId, content: ContentBundle): Owned | string => {
   const fs = state.figures[id];
   const def = figureDef(content, id);
-  if (!fs || !def || fs.owner !== player) return 'You do not have that figure.';
+  if (!fs || !def || fs.owner !== player) return 'That figure is not in your court.';
   return { fs, def };
 };
 
@@ -58,24 +58,36 @@ const isActive = (fs: FigureState): boolean =>
 export const annalVoice = (text: string): string =>
   text.replace(/\byour people\b/g, 'this people').replace(/\bYour\b/g, 'Its').replace(/\byour\b/g, 'its').replace(/\byou\b/g, 'it');
 
+/** A cabinet seat's display name ("Warleader"), from content/cabinet_slots.json. */
+export const seatName = (content: ContentBundle, key: string): string =>
+  content.cabinetSlots.find((x) => x.id === slotIdOfKey(key))?.name ?? 'That seat';
+
+const turnsWord = (n: number): string => (n === 1 ? '1 more turn' : `${n} more turns`);
+
 export const seatError = (state: GameState, player: PlayerId, id: FigureId, key: string, content: ContentBundle): string | null => {
   const o = ownedFigure(state, player, id, content);
   if (typeof o === 'string') return o;
   const p = getPlayer(state, player);
-  if (p.anarchyTurns > 0) return 'No cabinet during anarchy.';
-  if (o.fs.location.state !== 'based') return 'Only figures based in a city can be seated.';
+  if (!o.def.uses.includes('cabinet')) return `${o.def.name} does not serve in a cabinet.`;
+  if (p.anarchyTurns > 0) return `There is no cabinet during anarchy (${turnsWord(p.anarchyTurns)}).`;
+  if (o.fs.location.state === 'seated') return `${o.def.name} already holds a seat; unseat them first.`;
+  if (o.fs.location.state === 'unit') return `${o.def.name} is in the field; recall them to a city first.`;
+  if (o.fs.location.state !== 'based') return `${o.def.name} is no longer active.`;
   if (!(key in p.cabinet)) return 'Your government has no such seat.';
-  if (p.cabinet[key]) return 'That seat is taken.';
-  if ((p.cabinetCooldown[key] ?? 0) > state.turn) return 'That seat is still being vacated.';
-  if (!slotAccepts(content, key, o.def)) return 'That seat does not suit this figure.';
+  const occupant = p.cabinet[key];
+  if (occupant) return `The ${seatName(content, key)} seat is taken by ${figureDef(content, occupant)?.name ?? 'someone else'}.`;
+  const free = p.cabinetCooldown[key] ?? 0;
+  if (free > state.turn) return `The ${seatName(content, key)} seat was just vacated; it is free on turn ${free}.`;
+  if (!slotAccepts(content, key, o.def)) return `The ${seatName(content, key)} seat does not suit ${o.def.name}.`;
   return null;
 };
 
 export const unseatError = (state: GameState, player: PlayerId, id: FigureId, content: ContentBundle): string | null => {
   const o = ownedFigure(state, player, id, content);
   if (typeof o === 'string') return o;
-  if (getPlayer(state, player).anarchyTurns > 0) return 'No cabinet changes during anarchy.';
-  if (o.fs.location.state !== 'seated') return 'That figure is not seated.';
+  const p = getPlayer(state, player);
+  if (p.anarchyTurns > 0) return `The cabinet cannot change during anarchy (${turnsWord(p.anarchyTurns)}).`;
+  if (o.fs.location.state !== 'seated') return `${o.def.name} does not hold a seat.`;
   if (!homeSettlement(state, player)) return 'You have no city to receive them.';
   return null;
 };
@@ -92,10 +104,16 @@ export const deployError = (
 ): string | null => {
   const o = ownedFigure(state, player, id, content);
   if (typeof o === 'string') return o;
-  if (!o.def.uses.includes('unit') || !figureUnitDef(content, o.def)) return 'This figure cannot take the field.';
-  if (o.fs.location.state !== 'based') return 'Only figures based in a city can be deployed.';
+  if (!o.def.uses.includes('unit') || !figureUnitDef(content, o.def)) return `${o.def.name} cannot take the field.`;
+  if (o.fs.location.state === 'seated') return `${o.def.name} holds a cabinet seat; unseat them first.`;
+  if (o.fs.location.state === 'unit') return `${o.def.name} is already in the field.`;
+  if (o.fs.location.state !== 'based') return `${o.def.name} is no longer active.`;
   const s = state.settlements[settlement];
-  if (!s || s.owner !== player || s.kind !== 'city') return 'Figures can only be deployed from your cities.';
+  if (!s || s.owner !== player || s.kind !== 'city') {
+    return ownSettlements(state, player).some((x) => x.kind === 'city')
+      ? 'Figures can only be deployed from one of your cities.'
+      : 'You need a city (not a town) to deploy figures from.';
+  }
   return null;
 };
 
@@ -108,8 +126,8 @@ const recallTarget = (state: GameState, player: PlayerId, fs: FigureState): Sett
 export const recallError = (state: GameState, player: PlayerId, id: FigureId, content: ContentBundle): string | null => {
   const o = ownedFigure(state, player, id, content);
   if (typeof o === 'string') return o;
-  if (o.fs.location.state !== 'unit') return 'That figure is not in the field.';
-  if (!recallTarget(state, player, o.fs)) return 'Move the figure into one of your settlements first.';
+  if (o.fs.location.state !== 'unit') return `${o.def.name} is not in the field.`;
+  if (!recallTarget(state, player, o.fs)) return `Move ${o.def.name} into one of your settlements first.`;
   return null;
 };
 
@@ -161,20 +179,20 @@ export const activateError = (state: GameState, player: PlayerId, id: FigureId, 
   const o = ownedFigure(state, player, id, content);
   if (typeof o === 'string') return o;
   const act = o.def.activate;
-  if (!act || !o.def.uses.includes('activate')) return 'This figure has no one-time deed to perform.';
-  if (!isActivateEffect(act.effect)) return 'Unknown effect.';
-  if (!isActive(o.fs)) return 'That figure is no longer active.';
+  if (!act || !o.def.uses.includes('activate')) return `${o.def.name} has no great deed to perform.`;
+  if (!isActivateEffect(act.effect)) return `${o.def.name}'s deed cannot be performed.`;
+  if (!isActive(o.fs)) return `${o.def.name} is no longer active.`;
   switch (act.effect) {
     case 'rush_wonder':
-      return effectSettlement(state, o.fs, buildsWonder(content)) ? null : 'Start building a wonder first.';
+      return effectSettlement(state, o.fs, buildsWonder(content)) ? null : 'No wonder is being built; start one first.';
     case 'production_burst':
-      return effectSettlement(state, o.fs, buildsSomething) ? null : 'Set something to build first.';
+      return effectSettlement(state, o.fs, buildsSomething) ? null : 'Nothing is being built; choose something to build first.';
     case 'grow_city':
     case 'explore_reveal':
-      return homeSettlement(state, player) ? null : 'You have no settlement.';
+      return homeSettlement(state, player) ? null : 'You need a settlement first.';
     case 'free_unit':
-      if (!homeSettlement(state, player)) return 'You have no settlement.';
-      return bestMilitaryUnit(state, player, content) ? null : 'No unit available to raise.';
+      if (!homeSettlement(state, player)) return 'You need a settlement first.';
+      return bestMilitaryUnit(state, player, content) ? null : 'You have no military unit to raise yet.';
     default:
       return null;
   }
@@ -183,7 +201,7 @@ export const activateError = (state: GameState, player: PlayerId, id: FigureId, 
 export const consumeError = (state: GameState, player: PlayerId, id: FigureId, content: ContentBundle): string | null => {
   const o = ownedFigure(state, player, id, content);
   if (typeof o === 'string') return o;
-  return isActive(o.fs) ? null : 'That figure is no longer active.';
+  return isActive(o.fs) ? null : `${o.def.name} is no longer active.`;
 };
 
 // ---------------------------------------------------------------------------
@@ -201,7 +219,7 @@ const leaveActiveDuty = (ctx: SimCtx, fs: FigureState): void => {
 const chooseOffer = (ctx: SimCtx, player: PlayerId, offerId: string, figureId: FigureId | null): string | null => {
   const { state, content } = ctx;
   const offer = state.offers.find((o) => o.id === offerId);
-  if (!offer || offer.player !== player) return 'No such offer.';
+  if (!offer || offer.player !== player) return 'That offer is no longer open.';
   const p = getPlayer(state, player);
 
   if (figureId === null) {
@@ -213,9 +231,9 @@ const chooseOffer = (ctx: SimCtx, player: PlayerId, offerId: string, figureId: F
     return null;
   }
 
-  if (!offer.candidates.includes(figureId)) return 'That figure is not in this offer.';
+  if (!offer.candidates.includes(figureId)) return 'That figure is not part of this offer.';
   const def = figureDef(content, figureId);
-  if (!def) return 'Unknown figure.';
+  if (!def) return 'That figure is not part of this offer.';
   const taken = state.figures[figureId];
   if (taken) {
     // Normally unreachable (recruiting clears rivals' offers), but stay safe.
@@ -297,7 +315,7 @@ const deploy = (ctx: SimCtx, player: PlayerId, id: FigureId, settlement: Settlem
   const unitDef = figureUnitDef(ctx.content, figureDef(ctx.content, id) as Figure) as UnitDef;
   const s = ctx.state.settlements[settlement] as Settlement;
   const unit = spawnUnit(ctx, player, unitDef.id, s.at, id);
-  if (!unit) return 'No room to muster around that city.';
+  if (!unit) return 'There is no free tile around that city to muster them.';
   fs.location = { state: 'unit', unit };
   return null;
 };
@@ -442,6 +460,6 @@ export const handleFigureCommand = (ctx: SimCtx, player: PlayerId, command: Comm
     case 'consumeFigure':
       return consume(ctx, player, c.figure, c.as);
     default:
-      return `Not a figure command: ${command.type}`;
+      return 'That action is not recognized.';
   }
 };

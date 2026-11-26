@@ -12,6 +12,10 @@ import { weightRows } from './shared/figures';
 import { groupRefinement, TIER_LABEL, type HybridItem, type TraditionItem } from './shared/refinement';
 import { GovernmentList } from './government';
 import { HEAVIEST_CULTURE_DISCOUNT_PERCENT, REFINEMENT_ESCALATION } from '../../sim/ages/constants';
+import { Icon } from '../art/Icon';
+import { CultureCrest, PlayerBanner } from '../art/game-art';
+
+const CHAPTER = ['I', 'II', 'III', 'IV', 'V'];
 
 /** Adoptions already made in this transition (display only: the sim prices them; GDD §6). */
 const adoptedThisTransition = (p: { chronicle: readonly { turn: number; kind: string }[] }, turn: number): number =>
@@ -109,10 +113,14 @@ export const TransitionScreen = (_: ScreenProps<'transition'>) => {
 
   return (
     <Screen title={STEP_TITLE[step]} label="Age transition" closable={false} onBack={back} footer={footer} className="scr-transition">
-      <div class="scr-steps" aria-label={`Step ${i + 1} of ${STEPS.length}`} style={{ margin: '-8px -16px 8px' }}>
+      <div class="scr-steps" aria-label={`Step ${i + 1} of ${STEPS.length}`}>
         {STEPS.map((s, k) => (
-          <i class={k <= i ? 'on' : ''} data-step={s} />
+          <i class={k < i ? 'on' : k === i ? 'on now' : ''} data-step={s} />
         ))}
+      </div>
+      <div class="scr-page" key={step}>
+      <div class="scr-chapter" aria-hidden="true">
+        Chapter {CHAPTER[i] ?? i + 1}
       </div>
 
       {step === 'recap' && (
@@ -120,10 +128,12 @@ export const TransitionScreen = (_: ScreenProps<'transition'>) => {
           <p class="scr-big">The {ageLabel(t.fromAge)} age ends</p>
           <div class="scr-stats">
             <div class="card scr-stat">
+              <Icon name="legacy" size="lg" />
               <b>{recap.legacyPointsEarned}</b>
               <span class="small muted">legacy points</span>
             </div>
             <div class="card scr-stat">
+              <Icon name="culture" size="lg" />
               <b>{recap.rpEarned}</b>
               <span class="small muted">refinement points earned</span>
             </div>
@@ -150,7 +160,7 @@ export const TransitionScreen = (_: ScreenProps<'transition'>) => {
                 if (!def) return null;
                 return (
                   <li class="row">
-                    <Portrait name={def.name} culture={def.culture} size="sm" />
+                    <Portrait figure={def.id} size="sm" />
                     <div class="grow">
                       <div class="scr-fig-name">{def.name}</div>
                       <div class="small muted">{ancestorYield(def.kind)}</div>
@@ -175,6 +185,10 @@ export const TransitionScreen = (_: ScreenProps<'transition'>) => {
 
       {step === 'name' && (
         <>
+          <div class="scr-name-banner" aria-hidden="true">
+            <PlayerBanner player={p} width={84} wave />
+            <div class="scr-name-preview">{name.trim() || p.civName || '…'}</div>
+          </div>
           <p>Your people need a name for the {ageLabel(t.toAge)} age. It is drawn from the cultures you have gathered and your founding dream.</p>
           {p.civName && <p class="small muted">Now known as {p.civName}.</p>}
           <div role="radiogroup" aria-label="Proposed names">
@@ -185,9 +199,7 @@ export const TransitionScreen = (_: ScreenProps<'transition'>) => {
                 class={`btn scr-option ${name === n ? 'scr-selected' : ''}`}
                 onClick={() => setName(n)}
               >
-                <span class="grow" style={{ fontFamily: 'Georgia, serif', fontSize: '1.1rem' }}>
-                  {n}
-                </span>
+                <span class="grow scr-name-option">{n}</span>
               </button>
             ))}
           </div>
@@ -216,6 +228,9 @@ export const TransitionScreen = (_: ScreenProps<'transition'>) => {
 
       {step === 'begin' && (
         <>
+          <div class="scr-name-banner" aria-hidden="true">
+            <PlayerBanner player={p} width={64} wave />
+          </div>
           <p class="scr-big">{p.civName ?? (name.trim() || recap.nameOptions[0] || 'Your people')}</p>
           <ul class="scr-mods">
             <li>Government: {govForNewAge ? gov.name : `${lookup.governments[content.governments.find((x) => x.age === t.toAge)?.id ?? '']?.name ?? 'the first available'} (default)`}</li>
@@ -235,6 +250,7 @@ export const TransitionScreen = (_: ScreenProps<'transition'>) => {
           <p class="small muted">Units start weaker until upgraded, old buildings give half yields, the cabinet empties and the trees turn to a new age.</p>
         </>
       )}
+      </div>
 
       {adopting && (
         <ConfirmSheet
@@ -293,7 +309,13 @@ const RefineStep = (props: {
         {rows.length ? <WeightBars rows={rows} /> : <Empty>No culture weight yet.</Empty>}
       </Section>
       {shown.map((c) => (
-        <Section title={`${cultureName(c.culture)} · weight ${c.weight}`}>
+        <Section
+          title={
+            <>
+              <CultureCrest culture={c.culture} size={20} /> {cultureName(c.culture)} · weight {c.weight}
+            </>
+          }
+        >
           {c.tiers.map((tier) => (
             <>
               <div class="scr-tag" style={{ margin: '8px 0 4px' }}>{TIER_LABEL[tier.tier]}</div>
@@ -338,7 +360,13 @@ const RefineCard = (props: { item: TraditionItem | HybridItem; onAdopt: (a: Adop
     <div class={`card scr-trad ${cls}`}>
       <div class="scr-kv">
         <span class="scr-fig-name">{item.def.name}</span>
-        {item.owned ? <span class="chip scr-good">✓ Adopted</span> : opt ? <span class="chip">{opt.cost} pts</span> : null}
+        {item.owned ? (
+          <span class="chip scr-good">
+            <Icon name="done" size="sm" /> Adopted
+          </span>
+        ) : opt ? (
+          <span class="chip scr-cost">{opt.cost} pts</span>
+        ) : null}
       </div>
       {hybrid && (
         <div class="scr-chips">
@@ -361,7 +389,7 @@ const RefineCard = (props: { item: TraditionItem | HybridItem; onAdopt: (a: Adop
               onClick={() => props.onAdopt({ kind: hybrid ? 'hybrid' : 'tradition', id: item.def.id, name: item.def.name, cost: opt.cost })}
               aria-label={`Adopt ${item.def.name} for ${opt.cost} points`}
             >
-              Adopt ({opt.cost})
+              <Icon name="plus" /> Adopt ({opt.cost})
             </button>
           ) : (
             <span class="small muted">{opt.blocked}</span>

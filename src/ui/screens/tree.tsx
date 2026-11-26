@@ -7,6 +7,7 @@ import { Bar, Empty, Screen, Sheet } from './shared/components';
 import { ageLabel, describeModifiers } from './shared/describe';
 import { DEFAULT_TREE_METRICS, layoutTree, unlockedBy } from './shared/tree-layout';
 import { num } from '../shell/format';
+import { Icon } from '../art/Icon';
 
 /** Taller cells than the default so each node can say what it gives; scales with text size. */
 const textScale = (): number => {
@@ -31,7 +32,7 @@ const unlockDetails = (techId: string): { kind: string; name: string; text: stri
     .map((u) => ({
       kind: 'Unit',
       name: u.name,
-      text: [u.strength > 0 ? `⚔ ${u.strength}` : '', u.rangedStrength !== undefined ? `🏹 ${u.rangedStrength}` : '', `➜ ${u.moves}`]
+      text: [u.strength > 0 ? `strength ${u.strength}` : '', u.rangedStrength !== undefined ? `ranged ${u.rangedStrength}` : '', `${u.moves} ${u.moves === 1 ? 'move' : 'moves'}`]
         .filter(Boolean)
         .join(' · '),
     })),
@@ -51,7 +52,7 @@ export const TreeScreen = ({ modal }: ScreenProps<'tree'>) => {
   const earlierDone = content.techs.filter((t) => t.tree === tree && t.age !== g.age && p.techs.includes(t.id)).length;
   const k = Math.max(1, textScale());
   const layout = layoutTree(nodes, { ...DEFAULT_TREE_METRICS, cellW: Math.round(150 * k), cellH: Math.round(112 * k) });
-  const glyph = tree === 'tech' ? '⚗' : '✿';
+  const glyph = <Icon name={tree === 'tech' ? 'science' : 'culture'} size="sm" />;
   const pointName = tree === 'tech' ? 'science' : 'culture';
   const options = q.researchOptions(g, player, tree, content);
   const slot = p.research[tree];
@@ -91,10 +92,10 @@ export const TreeScreen = ({ modal }: ScreenProps<'tree'>) => {
         {earlierDone > 0 && ` · ${earlierDone} earlier-age nodes completed`}
       </p>
       <div class="scr-legend-row small">
-        <span class="chip">Done</span>
-        <span class="chip" style={{ outline: '2px solid var(--accent)' }}>Researching</span>
-        <span class="chip" style={{ outline: '1px solid var(--gold)' }}>Available</span>
-        <span class="chip" style={{ opacity: 0.6 }}>Locked</span>
+        <span class="chip scr-key scr-key-done"><Icon name="done" size="sm" /> Done</span>
+        <span class="chip scr-key scr-key-researching"><Icon name={tree === 'tech' ? 'science' : 'culture'} size="sm" /> Researching</span>
+        <span class="chip scr-key scr-key-available"><Icon name="star" size="sm" /> Available</span>
+        <span class="chip scr-key scr-key-locked"><Icon name="locked" size="sm" /> Locked</span>
       </div>
       {nodes.length === 0 ? (
         <Empty>No {tree === 'tech' ? 'technologies' : 'civics'} in this age.</Empty>
@@ -109,8 +110,9 @@ export const TreeScreen = ({ modal }: ScreenProps<'tree'>) => {
                   <path
                     d={`M${e.x1},${e.y1} C${mid},${e.y1} ${mid},${e.y2} ${e.x2},${e.y2}`}
                     fill="none"
-                    stroke={lit ? '#7a9a6a' : '#cdbf9f'}
-                    stroke-width={lit ? 2.5 : 2}
+                    stroke={lit ? '#2b2118' : '#a8916a'}
+                    stroke-width={lit ? 2 : 1.4}
+                    stroke-dasharray={lit ? undefined : '4 3'}
                   />
                 );
               })}
@@ -132,8 +134,8 @@ export const TreeScreen = ({ modal }: ScreenProps<'tree'>) => {
                   {st === 'researching' && <Bar value={slot.progress} max={n.cost} label={`${n.name} progress`} />}
                   <span class="scr-node-meta">
                     {st === 'done'
-                      ? '✓ Done'
-                      : `${glyph} ${n.cost}${st !== 'locked' && turns !== null ? ` · ${turns} ${turns === 1 ? 'turn' : 'turns'}` : ''}`}
+                      ? <><Icon name="done" size="sm" /> Done</>
+                      : <>{st === 'locked' ? <Icon name="locked" size="sm" /> : glyph} {n.cost}{st !== 'locked' && turns !== null ? ` · ${turns} ${turns === 1 ? 'turn' : 'turns'}` : ''}</>}
                   </span>
                 </button>
               );

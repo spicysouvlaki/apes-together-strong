@@ -444,3 +444,63 @@ describe('determinism', () => {
     expect(JSON.parse(a).figures).not.toEqual({});
   });
 });
+
+describe('figureActions.blocked (player-facing reasons)', () => {
+  it('names who holds the only fitting seat; actions that never apply are absent', () => {
+    const state = world();
+    give(state, 'eg_statesman', 'p1', { state: 'seated', slot: 'elder#0' });
+    give(state, 'gr_statesman');
+    const a = figureActions(state, 'gr_statesman', content);
+    expect(a.seat).toEqual([]);
+    expect(a.blocked).toEqual({ seat: 'The Elder seat is taken by eg_statesman.' });
+  });
+
+  it('lists the holders when every fitting seat is taken', () => {
+    const state = world();
+    give(state, 'eg_general', 'p1', { state: 'seated', slot: 'elder#0' });
+    give(state, 'gr_general', 'p1', { state: 'seated', slot: 'warleader#0' });
+    give(state, 'mo_general');
+    expect(figureActions(state, 'mo_general', content).blocked.seat).toBe('The fitting seats are taken by eg_general and gr_general.');
+    // A seated figure cannot deploy until unseated; seating it elsewhere is not offered.
+    expect(figureActions(state, 'eg_general', content).blocked).toEqual({ deploy: 'eg_general holds a cabinet seat; unseat them first.' });
+  });
+
+  it('a just-vacated seat says when it frees up, and the command says the same', () => {
+    const state = world();
+    give(state, 'gr_general', 'p1', { state: 'seated', slot: 'warleader#0' });
+    give(state, 'gr_statesman');
+    state.turn = 10;
+    state.players.p1!.cabinetCooldown['elder#0'] = 12;
+    expect(figureActions(state, 'gr_statesman', content).blocked.seat).toBe('The Elder seat was just vacated; it is free on turn 12.');
+    expect(cmd(state, 'p1', { type: 'seatFigure', figure: 'gr_statesman', slot: 'elder#0' }).err).toBe(
+      'The Elder seat was just vacated; it is free on turn 12.',
+    );
+  });
+
+  it('anarchy, a government without a fitting seat, and no seat at all', () => {
+    const state = world();
+    give(state, 'gr_statesman');
+    state.players.p1!.anarchyTurns = 2;
+    expect(figureActions(state, 'gr_statesman', content).blocked.seat).toBe('There is no cabinet during anarchy (2 more turns).');
+    give(state, 'mo_statesman', 'p2', { state: 'based', settlement: 'cap2' });
+    expect(figureActions(state, 'mo_statesman', content).blocked.seat).toBe('Your government has no seat for a statesman.');
+    state.players.p2!.government = null;
+    state.players.p2!.cabinet = {};
+    expect(figureActions(state, 'mo_statesman', content).blocked.seat).toBe('Choose a government first; its cabinet has the seats.');
+  });
+
+  it('a deed with nothing to work on, a field unit away from home, a retired figure', () => {
+    const state = world();
+    give(state, 'eg_builder');
+    expect(figureActions(state, 'eg_builder', content).blocked.activate).toBe('No wonder is being built; start one first.');
+    const unit = addUnit(state, content, 'p1', content.units.find((x) => x.figureKind === 'general')?.id ?? '', at(5, 5));
+    state.units[unit]!.figure = 'eg_general';
+    give(state, 'eg_general', 'p1', { state: 'unit', unit });
+    expect(figureActions(state, 'eg_general', content).blocked).toEqual({
+      seat: 'eg_general is in the field; recall them to a city first.',
+      recall: 'Move eg_general into one of your settlements first.',
+    });
+    give(state, 'gr_general', 'p1', { state: 'retired' });
+    expect(figureActions(state, 'gr_general', content).blocked).toEqual({});
+  });
+});

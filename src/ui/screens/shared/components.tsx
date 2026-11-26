@@ -1,21 +1,17 @@
-/** Shared building blocks for the decision screens. Stand-in art only (CLAUDE.md "Art for now"). */
+/** Shared building blocks for the decision screens (art direction: src/ui/styles/base.css). */
 import type { ComponentChildren } from 'preact';
 import { useEffect } from 'preact/hooks';
 import type { Figure } from '@contracts/content-schemas';
-import { closeModal, content, lookup } from '../../store';
-import {
-  ageLabel,
-  cultureColor as colorIn,
-  cultureTint as tintIn,
-  figureUses,
-  initials,
-  KIND_LABEL,
-} from './describe';
+import { closeModal, lookup } from '../../store';
+import { ageLabel, figureUses, KIND_LABEL } from './describe';
+import { Icon } from '../../art/Icon';
+import { CultureCrest, FigurePortrait, tonesOf } from '../../art/game-art';
+import { KIND_ICON } from '../../art/portrait-spec';
 
 export const cultureName = (id: string): string => lookup.cultures[id]?.name ?? id;
-const CULTURE_ORDER = content.cultures.map((c) => c.id);
-export const cultureColor = (id: string): string => colorIn(id, CULTURE_ORDER);
-export const cultureTint = (id: string): string => tintIn(id, CULTURE_ORDER);
+/** The culture's pigment (crest field, weight bars). */
+export const cultureColor = (id: string): string => tonesOf(id).base;
+export const cultureTint = (id: string): string => tonesOf(id).tint;
 
 /** Full-height screen: sticky header with optional close, scroll body, sticky footer for primary actions. */
 export const Screen = (props: {
@@ -42,15 +38,15 @@ export const Screen = (props: {
     <section class={`screen scr ${props.className ?? ''}`} role="dialog" aria-modal="true" aria-label={props.label}>
       <header class="screen-header">
         {props.onBack && (
-          <button class="btn btn-ghost" aria-label="Back" onClick={props.onBack}>
-            ‹
+          <button class="btn btn-ghost btn-icon" aria-label="Back" onClick={props.onBack}>
+            <Icon name="back" />
           </button>
         )}
         <h1>{props.title}</h1>
         {props.headerExtra}
         {closable && (
-          <button class="btn btn-ghost scr-close" aria-label="Close" onClick={closeModal}>
-            ✕
+          <button class="btn btn-ghost btn-icon scr-close" aria-label="Close" onClick={closeModal}>
+            <Icon name="close" />
           </button>
         )}
       </header>
@@ -70,19 +66,11 @@ export const Section = (props: { title: ComponentChildren; note?: ComponentChild
 
 export const Empty = (props: { children: ComponentChildren }) => <p class="scr-empty muted">{props.children}</p>;
 
-export const Portrait = (props: { name: string; culture: string; size?: 'sm' | 'md' | 'lg'; legend?: boolean }) => (
-  <div
-    class={`portrait scr-portrait scr-portrait-${props.size ?? 'md'} ${props.legend ? 'scr-portrait-legend' : ''}`}
-    style={{ background: cultureColor(props.culture) }}
-    aria-hidden="true"
-  >
-    {initials(props.name)}
-  </div>
-);
+export const Portrait = (props: { figure: string; size?: 'xs' | 'sm' | 'md' | 'lg' }) => <FigurePortrait figure={props.figure} size={props.size ?? 'md'} />;
 
 export const CultureChip = (props: { culture: string; suffix?: ComponentChildren }) => (
   <span class="chip scr-culture-chip" style={{ background: cultureTint(props.culture) }}>
-    <i class="scr-dot" style={{ background: cultureColor(props.culture) }} />
+    <CultureCrest culture={props.culture} size={15} />
     {cultureName(props.culture)}
     {props.suffix}
   </span>
@@ -106,8 +94,8 @@ export const Sheet = (props: { title: ComponentChildren; onCancel: () => void; c
     <div class="sheet scr-sheet" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
       <div class="row">
         <h2 class="grow scr-sheet-title">{props.title}</h2>
-        <button class="btn btn-ghost" aria-label="Cancel" onClick={props.onCancel}>
-          ✕
+        <button class="btn btn-ghost btn-icon" aria-label="Cancel" onClick={props.onCancel}>
+          <Icon name="close" />
         </button>
       </div>
       <div class="scr-sheet-body">{props.children}</div>
@@ -151,24 +139,34 @@ export const FigureCard = (props: {
   onSelect?: () => void;
   extra?: ComponentChildren;
   status?: ComponentChildren;
+  /** Position in a dealt hand: staggers the card's deal-in animation. */
+  deal?: number;
 }) => {
   const { def } = props;
   const uses = props.compact ? [] : figureUses(def, lookup);
   const body = (
     <>
       <div class="row scr-fig-head">
-        <Portrait name={def.name} culture={def.culture} legend={def.kind === 'legend'} size={props.compact ? 'sm' : 'md'} />
+        <Portrait figure={def.id} size={props.compact ? 'sm' : 'md'} />
         <div class="grow">
           <div class="scr-fig-name">{def.name}</div>
           <div class="scr-chips">
             <CultureChip culture={def.culture} />
-            <span class="chip">{KIND_LABEL[def.kind]}</span>
+            <span class="chip">
+              <Icon name={KIND_ICON[def.kind]} size="sm" />
+              {KIND_LABEL[def.kind]}
+            </span>
             {!props.compact && <span class="chip">{ageLabel(def.age)}</span>}
           </div>
           {props.status && <div class="small muted scr-fig-status">{props.status}</div>}
         </div>
       </div>
-      {props.reason && <p class="scr-reason">“{capitalizeFirst(props.reason).replace(/[.\s]+$/, '')}.”</p>}
+      {props.reason && (
+        <blockquote class="scr-reason">
+          <span class="scr-reason-mark" aria-hidden="true">“</span>
+          {capitalizeFirst(props.reason).replace(/[.\s]+$/, '')}.
+        </blockquote>
+      )}
       {!props.compact && <p class="scr-bio">{def.bio}</p>}
       {!props.compact && def.quote && <blockquote class="scr-quote">{def.quote}</blockquote>}
       {uses.length > 0 && (
@@ -188,7 +186,8 @@ export const FigureCard = (props: {
     return (
       <button
         type="button"
-        class={`card scr-fig-card scr-tap ${props.selected ? 'scr-selected' : ''}`}
+        class={`card scr-fig-card scr-tap ${props.selected ? 'scr-selected' : ''}${props.deal !== undefined ? ' scr-deal' : ''}`}
+        style={props.deal !== undefined ? { animationDelay: `${props.deal * 90}ms` } : undefined}
         aria-pressed={props.selected ? 'true' : 'false'}
         aria-label={`${def.name}, ${cultureName(def.culture)} ${KIND_LABEL[def.kind]}`}
         onClick={props.onSelect}
@@ -209,6 +208,7 @@ export const WeightBars = (props: { rows: { culture: string; weight: number }[] 
     <ul class="scr-weights" aria-label="Culture weight">
       {props.rows.map((r) => (
         <li class="scr-weight-row">
+          <CultureCrest culture={r.culture} size={20} />
           <span class="scr-weight-name">{cultureName(r.culture)}</span>
           <div class="grow">
             <Bar value={r.weight} max={Math.max(max, 5)} label={`${cultureName(r.culture)} weight ${r.weight}`} color={cultureColor(r.culture)} />

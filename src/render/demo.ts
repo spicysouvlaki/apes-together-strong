@@ -10,6 +10,8 @@
  *   ?reveal=1        start with fog off (viewer null)
  *   ?reduceMotion=1
  *   ?patterns=1      colorblind patterns on
+ *   ?quality=low     low render quality (no micro-detail, shadows or water animation)
+ *   ?age=classical   materials shift by age
  *   ?bench=1         scripted pan/zoom across all zoom bands; reports frame times per band
  * Scenario extras: p1 is at war with p2 (red rims/rings), a fortified unit, a damaged city,
  * a p1 trade route, ready-unit hints, and the "Scout" button walks a unit away so the rival
@@ -19,6 +21,7 @@
 import { Resource, Terrain, type ContentBundle } from '@contracts/content-schemas';
 import { hexDistance, hexEquals, hexesInRange, offsetToAxial, type Hex } from '@contracts/hex';
 import type { GameState, MapState, PlayerState, Settlement, Tile, Unit, UnitId } from '@contracts/sim-api';
+import '@fontsource-variable/fraunces';
 import { loadContent, rawContent } from '../content';
 import { createRenderer, type Renderer } from './index';
 import { tileIndex } from './layout';
@@ -236,6 +239,15 @@ const buildState = (map: MapState, content: ContentBundle, seed: number, starts?
   ];
   const settlements: Record<string, Settlement> = {};
   const taken: Hex[] = [];
+  // Real culture motif kits (content/cultures.json `architecture`): p1 Egyptian with Greek
+  // traditions (a hybrid look), p2 Spanish with the Al-Andalus hybrid, p3 Chinese, a Norse
+  // city-state. ?age= switches the age (materials shift).
+  const cultureOf: Record<string, string> = { p1: 'egyptian', p2: 'spanish', p3: 'chinese', 'cs:demo': 'norse' };
+  const tradOf = (culture: string, n: number): string[] =>
+    (content.traditions ?? []).filter((t) => t.culture === culture).slice(0, n).map((t) => t.id);
+  if (players.p1) players.p1.traditions = [...tradOf('egyptian', 2), ...tradOf('greek', 3)];
+  if (players.p2) players.p2.hybrids = (content.hybrids ?? []).filter((h) => h.cultures.includes('spanish')).slice(0, 1).map((h) => h.id);
+  if (players.p3) players.p3.traditions = tradOf('mongol', 2);
   const names: Record<string, string[]> = {
     p1: ['Uruk', 'Eridu', 'Lagash'],
     p2: ['Memphis', 'Thebes'],
@@ -256,7 +268,7 @@ const buildState = (map: MapState, content: ContentBundle, seed: number, starts?
         owner,
         originalOwner: owner,
         name,
-        namedFor: 'demo',
+        namedFor: cultureOf[owner] ?? 'demo',
         at: hex,
         kind,
         population: kind === 'city' ? 3 + Math.floor(rnd() * 8) : 1 + Math.floor(rnd() * 4),
@@ -336,7 +348,7 @@ const buildState = (map: MapState, content: ContentBundle, seed: number, starts?
     finalAge: 'classical',
     difficulty: 'normal',
     turn: 12,
-    age: 'ancient',
+    age: (['ancient', 'classical', 'exploration', 'modern'] as const).find((a) => a === new URLSearchParams(location.search).get('age')) ?? 'ancient',
     phase: 'playing',
     currentPlayer: 'p1',
     ageProgress: 20,
@@ -350,7 +362,19 @@ const buildState = (map: MapState, content: ContentBundle, seed: number, starts?
     figures: {},
     offers: [],
     deedsDone: [],
-    wonders: {},
+    wonders: Object.fromEntries(
+      (
+        [
+          ['great_pyramid', 'p1'],
+          ['parthenon', 'p1'],
+          ['great_wall', 'p3'],
+          ['house_of_wisdom', 'p2'],
+        ] as const
+      ).flatMap(([w, owner]) => {
+        const cap = Object.values(settlements).find((x) => x.owner === owner && x.isCapital);
+        return cap ? [[w, { owner, settlement: cap.id, turn: 5 }]] : [];
+      }),
+    ),
     cityStates: {},
     tradeRoutes,
     wars: { 'p1|p2': 5 },
@@ -437,6 +461,7 @@ const main = async (): Promise<void> => {
   const renderer: Renderer = createRenderer(canvas, content, {
     reduceMotion: params.get('reduceMotion') === '1',
     patterns,
+    quality: params.get('quality') === 'low' ? 'low' : 'high',
     // The demo HUD is small: top stats, bottom button row.
     safeArea: { top: 70, bottom: 70 },
   });
@@ -615,6 +640,10 @@ const main = async (): Promise<void> => {
     benchRaf = requestAnimationFrame(loop);
   };
   btn('bench', runBench);
+  btn('quality', () => {
+    renderer.setQuality(renderer.getQuality() === 'high' ? 'low' : 'high');
+    infoEl.textContent = `quality ${renderer.getQuality()}`;
+  });
   if (params.get('bench') === '1') setTimeout(runBench, 500);
 
   setInterval(() => {

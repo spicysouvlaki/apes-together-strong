@@ -3,9 +3,10 @@
  * Public API and usage notes live in ./index.ts.
  */
 import {
+  BufferGeometry,
   Color,
-  DirectionalLight,
-  HemisphereLight,
+  Float32BufferAttribute,
+  Mesh,
   PerspectiveCamera,
   Scene,
   Vector3,
@@ -30,7 +31,9 @@ import {
   type Ray,
   type ZoomBand,
 } from './camera-math';
-import { PALETTE } from './colors';
+import { ART } from './palette';
+import type { RenderQuality } from './scatter';
+import { vignetteMaterial } from './scene/materials';
 import { GestureRecognizer, LONG_PRESS_MS, type GestureAction } from './gestures';
 import { ELEVATION_STEP, LAND_TOP, MAX_ELEVATION } from './heights';
 import { hexToWorld, mapBounds, type MapBounds } from './layout';
@@ -46,6 +49,10 @@ const YAW_RATE = 12; // 1/s, exponential approach to the snapped yaw
  * focus point (GDD §11: start where you can see your surroundings, not one tile).
  */
 const DEFAULT_DISTANCE = 25;
+/** Ambient animation (water, flags, pulses) runs this long after the last interaction. */
+const AMBIENT_MS = 9000;
+/** Ambient frames are throttled to ~30 fps (battery). */
+const AMBIENT_FRAME_MS = 33;
 /** Default HUD padding (CSS px) that focus() keeps targets out of (top bar, bottom sheet). */
 export const DEFAULT_SAFE_AREA: SafeArea = { top: 100, right: 0, bottom: 180, left: 0 };
 
@@ -68,22 +75,33 @@ export function createRendererImpl(
   const pixelRatioCap = options.pixelRatioCap ?? 2;
   let safeArea: SafeArea = { ...DEFAULT_SAFE_AREA, ...options.safeArea };
 
+  let quality: RenderQuality = options.quality ?? 'high';
   const gl = new WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance', alpha: false });
-  gl.setClearColor(new Color(PALETTE.background));
+  gl.setClearColor(new Color(ART.bgHorizon));
   canvas.style.touchAction = 'none';
   (canvas.style as CSSStyleDeclaration & { webkitUserSelect?: string }).webkitUserSelect = 'none';
   canvas.style.userSelect = 'none';
 
   const scene = new Scene();
-  scene.background = new Color(PALETTE.background);
-  const hemi = new HemisphereLight(0xfff3df, 0x8f8068, 1.9);
-  const sun = new DirectionalLight(0xffe2b8, 2.1);
-  sun.position.set(-0.55, 1, 0.45);
-  scene.add(hemi, sun);
-
-  const camera = new PerspectiveCamera(FOV_Y, 1, 0.3, 800);
-  const world = new World(content, { reduceMotion, patterns: options.patterns ?? false });
+  // Lighting lives in the diorama shaders (scene/materials.ts); no three.js lights needed.
+  const camera = new PerspectiveCamera(FOV_Y, 1, 1, 900);
+  const world = new World(content, { reduceMotion, patterns: options.patterns ?? false, quality });
   scene.add(world.root);
+  // One cheap full-screen pass: vignette + cool atmospheric tint at the top of the screen.
+  const vigGeo = new BufferGeometry();
+  vigGeo.setAttribute('position', new Float32BufferAttribute([-1, -1, 0, 3, -1, 0, -1, 3, 0], 3));
+  const vigMat = vignetteMaterial(0.42);
+  const vignette = new Mesh(vigGeo, vigMat);
+  vignette.frustumCulled = false;
+  vignette.renderOrder = 1000;
+  scene.add(vignette);
+  let ambientUntil = 0;
+  let ambientTimer: ReturnType<typeof setTimeout> | null = null;
+  const animOn = (): boolean => !reduceMotion && quality === 'high';
+  world.uniforms.uAnim.value = animOn() ? 1 : 0;
+  const wake = (): void => {
+    if (animOn()) ambientUntil = now() + AMBIENT_MS;
+  };
 
   // --- Camera state ---------------------------------------------------------------------------
   let bounds: MapBounds = mapBounds(1, 1);
@@ -144,6 +162,11 @@ export function createRendererImpl(
     const k = shortAxisFactor(camera.aspect || 1);
     distance = clampDistance(distance, maxDistance, MIN_DISTANCE / k);
     const norm = distance * k;
+    // Haze toward the horizon scales with zoom; the atlas look fades in toward strategic zoom.
+    world.uniforms.uFogNear.value = distance * 1.05;
+    world.uniforms.uFogFar.value = distance * 2.9;
+    const a = (norm - REGIONAL_MAX * 0.85) / (REGIONAL_MAX * 0.35);
+    world.uniforms.uAtlas.value = a <= 0 ? 0 : a >= 1 ? 1 : a * a * (3 - 2 * a);
     const ext = viewHalfExtents(distance, camera.aspect || 1, FOV_Y);
     const c = clampTarget(tx, tz, bounds, 2, ext.w, ext.h);
     tx = c.x;
@@ -264,6 +287,13 @@ export function createRendererImpl(
       again = again || unitsMoving;
     }
     if (world.animateFlashes(t)) again = true;
+    const ambient = animOn() && t < ambientUntil;
+    world.setAmbient(ambient);
+    if (ambient) {
+      world.uniforms.uTime.value = t / 1000;
+      // Idle bob of the selected unit rides the ambient frames.
+      if (!again && world.wantsAmbient()) world.drawUnits(t);
+    }
 
     const camChanged =
       camera.position.x !== lpX ||
@@ -291,7 +321,15 @@ export function createRendererImpl(
     }
     lastRenderAt = t;
     if (again) requestRender();
-    else lastFrame = 0;
+    else {
+      lastFrame = 0;
+      if (ambient && ambientTimer === null) {
+        ambientTimer = setTimeout(() => {
+          ambientTimer = null;
+          requestRender();
+        }, AMBIENT_FRAME_MS);
+      }
+    }
   }
 
   // --- Input ----------------------------------------------------------------------------------
@@ -363,6 +401,7 @@ export function createRendererImpl(
 
   const onDown = (e: PointerEvent): void => {
     e.preventDefault();
+    wake();
     try {
       canvas.setPointerCapture(e.pointerId);
     } catch {
@@ -395,6 +434,7 @@ export function createRendererImpl(
   const onWheel = (e: WheelEvent): void => {
     e.preventDefault();
     const p = local(e);
+    wake();
     const scale = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1;
     const dy = Math.max(-200, Math.min(200, e.deltaY * scale));
     tween = null;
@@ -444,6 +484,7 @@ export function createRendererImpl(
         recomputeLimits();
       }
       const t = now();
+      wake();
       world.update(state, viewer, visible, t);
       unitsMoving = world.drawUnits(t);
       if (first || sizeChanged) {
@@ -468,6 +509,7 @@ export function createRendererImpl(
         attackable: sel.attackable ?? selection.attackable,
         path: sel.path ?? selection.path,
       };
+      wake();
       if (world.setSelection(selection, now())) unitsMoving = true;
       requestRender();
     },
@@ -528,6 +570,7 @@ export function createRendererImpl(
     },
 
     flash(hex, kind: FlashKind) {
+      wake();
       world.flash(hex, kind, now());
       requestRender();
     },
@@ -563,6 +606,17 @@ export function createRendererImpl(
       safeArea = { ...safeArea, ...area };
     },
 
+    setQuality(q: RenderQuality) {
+      quality = q;
+      world.uniforms.uAnim.value = animOn() ? 1 : 0;
+      world.setQuality(q);
+      requestRender();
+    },
+
+    getQuality() {
+      return quality;
+    },
+
     zoomBy(factor: number) {
       const cw = canvas.clientWidth || 1;
       const ch = canvas.clientHeight || 1;
@@ -579,6 +633,8 @@ export function createRendererImpl(
       if (raf) cancelAnimationFrame(raf);
       raf = 0;
       clearLong();
+      if (ambientTimer !== null) clearTimeout(ambientTimer);
+      ambientTimer = null;
       ro?.disconnect();
       canvas.removeEventListener('pointerdown', onDown);
       canvas.removeEventListener('pointermove', onMove);
@@ -591,16 +647,39 @@ export function createRendererImpl(
       tapListeners.clear();
       longListeners.clear();
       bandListeners.clear();
-      scene.remove(world.root);
+      scene.remove(world.root, vignette);
       world.dispose();
+      vigGeo.dispose();
+      vigMat.dispose();
       gl.dispose();
     },
   };
+
+  // Debug-only (not in the Renderer interface): render synchronously and wait for the GPU, so
+  // the demo can measure frames even when rAF is throttled (hidden tabs). Returns ms.
+  const pixel = new Uint8Array(4);
+  Object.defineProperty(api, 'debugFrame', {
+    enumerable: false,
+    value: (): { ms: number; drawCalls: number; triangles: number } => {
+      if (raf) cancelAnimationFrame(raf);
+      raf = 0;
+      const t0 = now();
+      frame();
+      // readPixels blocks until the GPU has finished the frame (finish() may not).
+      const ctx = gl.getContext();
+      ctx.readPixels(0, 0, 1, 1, ctx.RGBA, ctx.UNSIGNED_BYTE, pixel);
+      const ms = now() - t0;
+      if (raf) cancelAnimationFrame(raf);
+      raf = 0;
+      return { ms, drawCalls, triangles };
+    },
+  });
 
   if (typeof ResizeObserver !== 'undefined') {
     ro = new ResizeObserver(() => api.resize());
     ro.observe(canvas);
   }
+  world.onInvalidate = requestRender;
   world.setBand(band);
   api.resize();
   return api;

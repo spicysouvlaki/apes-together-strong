@@ -122,7 +122,7 @@ describe('traditions', () => {
   it('blocks without enough points, already owned, outside the transition and after finishing', () => {
     const state = inTransition(2);
     setWeights(state, 'p1', { greek: 1, chinese: 2 }); // greek not heaviest: full cost 3
-    expect(adopt(state, 'symposium')).toBe('Not enough points');
+    expect(adopt(state, 'symposium')).toBe('Needs 3 points (you have 2)');
     player(state, 'p1').refinementPoints = 3;
     expect(adopt(state, 'symposium')).toBeNull();
     expect(adopt(state, 'symposium')).toBe('Already adopted');
@@ -144,7 +144,7 @@ describe('traditions', () => {
   });
 
   it('rejects unknown ids', () => {
-    expect(adopt(inTransition(), 'nope')).toBe('Unknown tradition');
+    expect(adopt(inTransition(), 'nope')).toBe('That tradition does not exist.');
   });
 });
 

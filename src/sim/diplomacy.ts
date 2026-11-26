@@ -43,11 +43,11 @@ const validTarget = (state: GameState, target: PlayerId): boolean => {
 
 export const declareWar = (ctx: SimCtx, player: PlayerId, target: PlayerId): string | null => {
   const { state } = ctx;
-  if (target === player) return 'Cannot declare war on yourself';
-  if (target === RAIDER_PLAYER) return 'Raiders are always hostile';
-  if (!validTarget(state, target)) return 'Unknown target';
+  if (target === player) return 'You cannot declare war on yourself.';
+  if (target === RAIDER_PLAYER) return 'Raiders are already hostile to everyone.';
+  if (!validTarget(state, target)) return 'There is no such civilization or city-state.';
   const key = warKey(player, target);
-  if (state.wars[key] !== undefined) return 'Already at war';
+  if (state.wars[key] !== undefined) return 'You are already at war with them.';
   state.wars[key] = state.turn;
   // Trade routes between the two stop.
   state.tradeRoutes = state.tradeRoutes.filter((r) => {
@@ -62,12 +62,16 @@ export const declareWar = (ctx: SimCtx, player: PlayerId, target: PlayerId): str
 export const makePeace = (ctx: SimCtx, player: PlayerId, target: PlayerId): string | null => {
   const { state } = ctx;
   const p = state.players[player];
-  if (!p) return 'Unknown player';
+  if (!p) return 'That player is not in this game.';
   const key = warKey(player, target);
   const began = state.wars[key];
-  if (began === undefined) return 'Not at war';
-  if (state.turn - began < MIN_WAR_TURNS) return `Peace is possible after ${MIN_WAR_TURNS} turns of war`;
-  if (p.stock.influence < PEACE_INFLUENCE_COST) return 'Not enough influence';
+  if (began === undefined) return 'You are not at war with them.';
+  if (state.turn - began < MIN_WAR_TURNS) {
+    const left = MIN_WAR_TURNS - (state.turn - began);
+    return `Peace is possible after ${MIN_WAR_TURNS} turns of war (${left} more ${left === 1 ? 'turn' : 'turns'}).`;
+  }
+  if (p.stock.influence < PEACE_INFLUENCE_COST)
+    return `Making peace costs ${PEACE_INFLUENCE_COST} influence; you have ${Math.floor(p.stock.influence)}.`;
   p.stock.influence -= PEACE_INFLUENCE_COST;
   delete state.wars[key];
   ctx.events.push({ type: 'peaceMade', a: player, b: target });
@@ -102,11 +106,11 @@ export const sendEnvoy = (ctx: SimCtx, player: PlayerId, cityState: string): str
   const p = state.players[player];
   const cs = state.cityStates[cityState];
   const def = ci(content).cityStates[cityState];
-  if (!p) return 'Unknown player';
-  if (!cs || !def || !cs.alive) return 'No such city-state';
-  if (state.wars[warKey(player, CITY_STATE_PREFIX + cityState)] !== undefined) return 'At war with them';
+  if (!p) return 'That player is not in this game.';
+  if (!cs || !def || !cs.alive) return 'That city-state no longer exists.';
+  if (state.wars[warKey(player, CITY_STATE_PREFIX + cityState)] !== undefined) return 'You cannot send envoys to a city-state you are at war with.';
   const cost = envoyCostFor(state, player, cityState);
-  if (p.stock.influence < cost) return 'Not enough influence';
+  if (p.stock.influence < cost) return `An envoy costs ${cost} influence; you have ${Math.floor(p.stock.influence)}.`;
   p.stock.influence -= cost;
   cs.envoys[player] = (cs.envoys[player] ?? 0) + 1;
   p.stats.envoysSent++;
@@ -143,12 +147,12 @@ export const tradeTargetsOf = (state: GameState, unitId: UnitId, content: Conten
 export const openTradeRoute = (ctx: SimCtx, player: PlayerId, unitId: UnitId, to: SettlementId): string | null => {
   const { state, content } = ctx;
   const u = state.units[unitId];
-  if (!u || u.owner !== player) return 'Not your unit';
-  if (!tradeTargetsOf(state, unitId, content).includes(to)) return 'Cannot open a route to that settlement from here';
+  if (!u || u.owner !== player) return 'That unit is not yours.';
+  if (!tradeTargetsOf(state, unitId, content).includes(to)) return 'This unit cannot open a trade route to that settlement from here.';
   const owned = state.tradeRoutes.filter((r) => r.owner === player).length;
-  if (owned >= tradeRouteCap(state, player, content)) return 'No free trade route capacity';
+  if (owned >= tradeRouteCap(state, player, content)) return 'All your trade routes are in use.';
   const target = state.settlements[to];
-  if (!target) return 'Unknown settlement';
+  if (!target) return 'That settlement no longer exists.';
   // The nearest home settlement is the route's origin (ties: first listed).
   let from = '';
   let bestD = Infinity;

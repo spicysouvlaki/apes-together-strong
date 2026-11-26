@@ -47,7 +47,7 @@ export const agesWorldPhase = (ctx: SimCtx): void => {
  */
 export const handleAgesCommand = (ctx: SimCtx, player: PlayerId, command: Command): string | null => {
   const p = ctx.state.players[player];
-  if (!p || !p.alive) return 'Unknown or eliminated player';
+  if (!p || !p.alive) return p ? 'You have been eliminated.' : 'That player is not in this game.';
   switch (command.type) {
     case 'chooseCrisisResponse':
       return chooseCrisisResponse(ctx, player, command.option);
@@ -57,13 +57,13 @@ export const handleAgesCommand = (ctx: SimCtx, player: PlayerId, command: Comman
       return adoptHybrid(ctx, player, command.hybrid);
     case 'nameCiv': {
       const recap = ctx.state.transition?.recap[player];
-      if (ctx.state.phase !== 'transition' || !recap) return 'Name your civilization at an age transition';
-      if (recap.done) return 'Refinement finished';
+      if (ctx.state.phase !== 'transition' || !recap) return 'You can name your civilization at the next age transition.';
+      if (recap.done) return 'You have already finished this transition.';
       return setCivName(ctx, player, command.name);
     }
     case 'finishTransition':
       return finishTransition(ctx, player);
     default:
-      return `Not an ages command: ${command.type}`;
+      return 'That action is not recognized.';
   }
 };

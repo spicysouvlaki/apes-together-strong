@@ -82,7 +82,11 @@ export class LabelLayer {
   private n = 0;
   private dirtyTexture = false;
 
-  constructor(private readonly parent: Object3D) {
+  constructor(
+    private readonly parent: Object3D,
+    /** Called after the display font loads and the cache was cleared (caller re-pushes labels). */
+    onFontsReady?: () => void,
+  ) {
     this.canvas = document.createElement('canvas');
     this.canvas.width = ATLAS_W;
     this.canvas.height = ATLAS_H;
@@ -115,6 +119,16 @@ export class LabelLayer {
     this.mesh.count = 0;
     this.mesh.matrixAutoUpdate = false;
     parent.add(this.mesh);
+    // Labels use the bundled display serif; redraw the atlas once it is available.
+    const fonts = typeof document !== 'undefined' ? (document as Document & { fonts?: FontFaceSet }).fonts : undefined;
+    if (fonts && onFontsReady) {
+      const redraw = (): void => {
+        this.cache.clear();
+        onFontsReady();
+      };
+      void fonts.ready.then(redraw);
+      fonts.addEventListener?.('loadingdone', redraw);
+    }
   }
 
   begin(): void {
@@ -248,17 +262,18 @@ export class LabelLayer {
     ctx.rect(x0, y0, SLOT_W, SLOT_H);
     ctx.clip();
     ctx.globalAlpha = spec.ghost ? 0.72 : 1;
-    const nameFont = '700 28px -apple-system, system-ui, sans-serif';
-    const popFont = '800 24px -apple-system, system-ui, sans-serif';
+    // Typeset to the UI's display serif (bundled as 'Fraunces'); Georgia until it loads.
+    const nameFont = `600 28px Fraunces, "Fraunces Variable", Georgia, serif`;
+    const popFont = `700 21px Fraunces, "Fraunces Variable", Georgia, serif`;
     const name = (spec.capital ? '★ ' : '') + (spec.name ?? spec.text);
     const pop = spec.population !== undefined ? String(spec.population) : '';
     const pad = 10;
-    const sw = 18; // swatch
+    const sw = 18; // crest
     const h = SLOT_H - 10;
     const top = y0 + 5;
     const left = x0 + 3;
     ctx.font = popFont;
-    const popW = pop ? Math.max(h - 12, ctx.measureText(pop).width + 14) : 0;
+    const popW = pop ? Math.max(h - 14, ctx.measureText(pop).width + 14) : 0;
     ctx.font = nameFont;
     const fixed = pad + sw + 8 + (pop ? 8 + popW : 0) + pad + (spec.war ? 26 : 0);
     // Long names truncate at ~220 px so a label never dominates the screen.
@@ -267,26 +282,28 @@ export class LabelLayer {
     while (t.length > 1 && ctx.measureText(t).width > maxText) t = t.slice(0, -2) + '…';
     const tw = Math.min(maxText, ctx.measureText(t).width);
     const w = Math.ceil(fixed + tw);
-    const rad = h / 2;
-    const pill = (): void => {
+    const rad = 11;
+    const pill = (inset: number): void => {
       ctx.beginPath();
-      ctx.moveTo(left + rad, top);
-      ctx.arcTo(left + w, top, left + w, top + h, rad);
-      ctx.arcTo(left + w, top + h, left, top + h, rad);
-      ctx.arcTo(left, top + h, left, top, rad);
-      ctx.arcTo(left, top, left + w, top, rad);
-      ctx.closePath();
+      ctx.roundRect(left + inset, top + inset, w - inset * 2, h - inset * 2, Math.max(2, rad - inset));
     };
-    pill();
-    // Opaque light pill: readable over any terrain; ghost labels are greyer.
-    ctx.fillStyle = spec.ghost ? 'rgba(226, 221, 210, 0.95)' : 'rgba(252, 248, 238, 0.97)';
+    // Parchment cartouche: warm paper fill, ink keyline, a fine inner rule.
+    pill(0);
+    const grad = ctx.createLinearGradient(0, top, 0, top + h);
+    grad.addColorStop(0, spec.ghost ? 'rgba(232, 224, 208, 0.95)' : 'rgba(251, 245, 228, 0.98)');
+    grad.addColorStop(1, spec.ghost ? 'rgba(218, 208, 188, 0.95)' : 'rgba(238, 225, 196, 0.98)');
+    ctx.fillStyle = grad;
     ctx.fill();
-    ctx.lineWidth = 4;
-    ctx.strokeStyle = spec.war ? '#d23a2f' : spec.color;
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = spec.war ? '#c4372c' : '#4a3826';
     if (spec.ghost) ctx.setLineDash([7, 5]);
     ctx.stroke();
     ctx.setLineDash([]);
-    // Swatch: owner color + pattern; city-states get a diamond.
+    pill(4);
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = spec.war ? 'rgba(196, 55, 44, 0.6)' : spec.color;
+    ctx.stroke();
+    // Crest: owner color + pattern; city-states get a diamond.
     const sx = left + pad + sw / 2;
     const sy = top + h / 2;
     ctx.beginPath();
@@ -297,12 +314,19 @@ export class LabelLayer {
       ctx.lineTo(sx - sw / 2 - 2, sy);
       ctx.closePath();
     } else {
-      ctx.arc(sx, sy, sw / 2, 0, Math.PI * 2);
+      // Heater shield.
+      const hw = sw / 2 + 1;
+      ctx.moveTo(sx - hw, sy - hw);
+      ctx.lineTo(sx + hw, sy - hw);
+      ctx.lineTo(sx + hw, sy + 1);
+      ctx.quadraticCurveTo(sx + hw, sy + hw, sx, sy + hw + 3);
+      ctx.quadraticCurveTo(sx - hw, sy + hw, sx - hw, sy + 1);
+      ctx.closePath();
     }
     ctx.fillStyle = spec.color;
     ctx.fill();
     ctx.lineWidth = 2;
-    ctx.strokeStyle = '#2f2a24';
+    ctx.strokeStyle = '#3a2c1f';
     ctx.stroke();
     if (spec.pattern) {
       ctx.save();
@@ -311,22 +335,22 @@ export class LabelLayer {
       ctx.restore();
     }
     // Name.
-    ctx.fillStyle = '#231f1a';
+    ctx.fillStyle = '#2e2218';
     ctx.textBaseline = 'middle';
     ctx.font = nameFont;
     let cx = left + pad + sw + 8;
     ctx.fillText(t, cx, sy + 1);
     cx += tw + 8;
     if (pop) {
-      // Population badge: dark rounded rect with white digits (legible at any size).
-      const bh = h - 12;
+      // Population seal: ink roundel with paper digits (legible at any size).
+      const bh = h - 14;
       const bx = cx;
       const by = sy - bh / 2;
       ctx.beginPath();
       ctx.roundRect(bx, by, popW, bh, bh / 2);
-      ctx.fillStyle = '#2f2a24';
+      ctx.fillStyle = '#4a3826';
       ctx.fill();
-      ctx.fillStyle = '#ffffff';
+      ctx.fillStyle = '#fbf3df';
       ctx.font = popFont;
       ctx.textAlign = 'center';
       ctx.fillText(pop, bx + popW / 2, sy + 1);

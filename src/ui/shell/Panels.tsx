@@ -22,14 +22,22 @@ import {
 } from '../store';
 import { AGE_NAME } from './format';
 import { loading, patchSettings, settings } from './shell-state';
+import { Icon } from '../art/Icon';
 
 function Header({ title, onBack }: { title: string; onBack?: () => void }) {
   return (
     <div class="screen-header">
+      {onBack && (
+        <button class="btn btn-ghost btn-icon" aria-label="Back" onClick={onBack}>
+          <Icon name="back" />
+        </button>
+      )}
       <h1>{title}</h1>
-      <button class="btn btn-ghost" aria-label={onBack ? 'Back' : 'Close'} onClick={onBack ?? closeModal}>
-        {onBack ? '‹ Back' : '✕'}
-      </button>
+      {!onBack && (
+        <button class="btn btn-ghost btn-icon" aria-label="Close" onClick={closeModal}>
+          <Icon name="close" />
+        </button>
+      )}
     </div>
   );
 }
@@ -47,17 +55,18 @@ export function MenuPanel() {
       <Header title="Menu" />
       <div class="screen-body menu-list">
         <button class="btn btn-primary" onClick={closeModal}>
-          Resume
+          <Icon name="play" /> Resume
         </button>
         <button class="btn" onClick={() => openModal({ kind: 'saves' })}>
-          Save / Load
+          <Icon name="save" /> Save / Load
         </button>
         <button class="btn" onClick={() => openModal({ kind: 'chronicle' })}>
-          Chronicle
+          <Icon name="chronicle" /> Chronicle
         </button>
         <button class="btn" onClick={() => openModal({ kind: 'settings' })}>
-          Settings
+          <Icon name="settings" /> Settings
         </button>
+        <MuteButton />
         <button
           class="btn"
           onClick={() =>
@@ -69,7 +78,7 @@ export function MenuPanel() {
             })
           }
         >
-          Quit to title
+          <Icon name="quit" /> Quit to title
         </button>
       </div>
     </div>
@@ -184,6 +193,34 @@ export function SavesPanel() {
   );
 }
 
+/** Sound on/off, persisted (settings.muted). Also reachable from Settings. */
+export function MuteButton() {
+  const muted = settings.value.muted;
+  return (
+    <button class="btn" aria-pressed={muted} onClick={() => patchSettings({ muted: !muted })}>
+      <Icon name={muted ? 'soundOff' : 'soundOn'} /> {muted ? 'Sound is off' : 'Sound is on'}
+    </button>
+  );
+}
+
+const Volume = ({ label, value, onInput, disabled }: { label: string; value: number; onInput: (v: number) => void; disabled: boolean }) => (
+  <div class="card row">
+    <span class="settings-label">{label}</span>
+    <input
+      class="grow"
+      type="range"
+      min={0}
+      max={100}
+      step={5}
+      value={value}
+      disabled={disabled}
+      aria-label={label}
+      onInput={(e) => onInput(Number((e.target as HTMLInputElement).value))}
+    />
+    <span class="chip">{value}%</span>
+  </div>
+);
+
 export function SettingsPanel() {
   const s = settings.value;
   const back = route.value === 'game' ? () => openModal({ kind: 'menu' }) : undefined;
@@ -207,6 +244,13 @@ export function SettingsPanel() {
             <span class="chip">{s.textScale}%</span>
           </div>
         </div>
+        <div class="section-title">Sound</div>
+        <label class="card row toggle">
+          <span class="grow">Mute all sound</span>
+          <input type="checkbox" aria-label="Mute all sound" checked={s.muted} onChange={(e) => patchSettings({ muted: (e.target as HTMLInputElement).checked })} />
+        </label>
+        <Volume label="Effects" value={s.sfxVolume} disabled={s.muted} onInput={(v) => patchSettings({ sfxVolume: v })} />
+        <Volume label="Ambience" value={s.musicVolume} disabled={s.muted} onInput={(v) => patchSettings({ musicVolume: v })} />
         <div class="section-title">Comfort</div>
         <label class="card row toggle">
           <span class="grow">Reduce motion</span>

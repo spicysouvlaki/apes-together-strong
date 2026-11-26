@@ -32,6 +32,8 @@ import { eventFlash, eventToToast, rankToasts, type EventNames, type FlashKindSp
 import { tileIndexOf } from './shell/hexutil';
 import { endTurnSent, idleConfirmedTurn, lastTap, loading, settings, skipped, updateReady } from './shell/shell-state';
 import { RESUME_SLOT } from './shell/saves-logic';
+import { audio } from '../audio';
+import { commandSound, initUiAudio } from './ui-audio';
 
 let flashHandler: ((hex: Hex, kind: FlashKindSpec) => void) | null = null;
 /** The map view registers the renderer's flash here. */
@@ -77,6 +79,7 @@ const onState = (state: GameState, events: SimEvent[]): void => {
   snapshotCount++;
   game.value = state;
   lastEvents.value = events;
+  audio.playEvents(events, me.value);
   thinking.value = null;
   loading.value = null;
   endTurnSent.value = false;
@@ -139,6 +142,7 @@ const onMessage = (msg: FromWorker): void => {
       loading.value = null;
       endTurnSent.value = false;
       lastError.value = msg.message;
+      audio.play('error');
       pushToast(msg.message, 'bad');
       return;
   }
@@ -196,7 +200,10 @@ export const initApp = (): void => {
   client = createSimClient();
   const c = client;
   bindClient({
-    command: (player, command) => c.command(player, command),
+    command: (player, command) => {
+      commandSound(command);
+      c.command(player, command);
+    },
     newGame: (setup) => c.newGame(setup),
     save: (slot) => c.save(slot),
     load: (slot) => c.load(slot),
@@ -206,6 +213,7 @@ export const initApp = (): void => {
   c.onMessage(onMessage);
   c.listSaves();
   applySettingsEffect();
+  initUiAudio();
 
   void registerServiceWorker({
     onUpdateReady: () => {

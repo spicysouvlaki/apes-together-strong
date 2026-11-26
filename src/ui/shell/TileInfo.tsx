@@ -5,7 +5,8 @@
 import type { Hex } from '@contracts/hex';
 import type { Yields } from '@contracts/content-schemas';
 import { closeModal, content, game, lookup, me, ownerName, q } from '../store';
-import { YIELD_GLYPH, YIELD_NAME, capitalize } from './format';
+import { YIELD_ICON, YIELD_NAME, capitalize } from './format';
+import { Icon } from '../art/Icon';
 import { settlementAt, tileIndexOf, unitsAt } from './hexutil';
 
 const yieldChips = (y: Yields) =>
@@ -13,7 +14,7 @@ const yieldChips = (y: Yields) =>
     .filter((k) => (y[k] ?? 0) !== 0)
     .map((k) => (
       <span class="chip" key={k} aria-label={`${YIELD_NAME[k]} ${y[k]}`}>
-        <span aria-hidden="true">{YIELD_GLYPH[k]}</span> {y[k]}
+        <Icon name={YIELD_ICON[k]} /> {y[k]}
       </span>
     ));
 
@@ -27,8 +28,8 @@ export function TileInfo({ hex }: { hex: Hex }) {
   const visible = idx !== null && q.visibleTiles(g, my, content).includes(idx);
 
   const close = (
-    <button class="btn btn-ghost" aria-label="Close tile info" onClick={closeModal}>
-      ✕
+    <button class="btn btn-ghost btn-icon" aria-label="Close tile info" onClick={closeModal}>
+      <Icon name="close" />
     </button>
   );
   if (!t || !explored) {
@@ -58,7 +59,11 @@ export function TileInfo({ hex }: { hex: Hex }) {
       </div>
       <div class="chips">
         {terrain && yieldChips(terrain.yields)}
-        {t.river && <span class="chip">≈ River</span>}
+        {t.river && (
+          <span class="chip">
+            <Icon name="river" size="sm" /> River
+          </span>
+        )}
         {terrain?.moveCost === null ? <span class="chip">Impassable</span> : <span class="chip">Move {terrain?.moveCost ?? 1}</span>}
         {(terrain?.defense ?? 0) !== 0 && <span class="chip">Defense {terrain?.defense}</span>}
       </div>
@@ -82,7 +87,7 @@ export function TileInfo({ hex }: { hex: Hex }) {
         <div class="card mt8" key={u.id}>
           {u.figure ? (lookup.figures[u.figure]?.name ?? 'Figure') : (lookup.units[u.type]?.name ?? u.type)}{' '}
           <span class="small muted">
-            {ownerName(u.owner)} · ♥ {u.hp}
+            {ownerName(u.owner)} · <Icon name="health" size="sm" /> {u.hp}
           </span>
         </div>
       ))}

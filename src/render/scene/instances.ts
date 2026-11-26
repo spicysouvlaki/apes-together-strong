@@ -29,8 +29,10 @@ export class Instances {
     private readonly parent: Object3D,
     readonly name: string,
     readonly renderOrder = 0,
-    /** Optional per-instance float attribute name (e.g. 'aPattern') for custom shaders. */
+    /** Optional per-instance attribute name (e.g. 'aInst') for custom shaders. */
     private readonly auxName: string | null = null,
+    /** Components of the aux attribute (1..4). */
+    private readonly auxSize = 1,
   ) {
     this.capacity = Math.max(1, capacity);
     this.mesh = this.makeMesh(this.capacity);
@@ -46,7 +48,20 @@ export class Instances {
   }
 
   /** Add an instance: translate (x,y,z), rotate about Y, scale (sx,sy,sz), sRGB color. */
-  push(x: number, y: number, z: number, sx: number, sy: number, sz: number, rotY: number, color: Rgb, aux = 0): void {
+  push(
+    x: number,
+    y: number,
+    z: number,
+    sx: number,
+    sy: number,
+    sz: number,
+    rotY: number,
+    color: Rgb,
+    a0 = 0,
+    a1 = 0,
+    a2 = 0,
+    a3 = 0,
+  ): void {
     if (this.n >= this.capacity) this.grow(this.capacity * 2);
     const i = this.n++;
     const m = this.mesh.instanceMatrix.array as Float32Array;
@@ -76,7 +91,15 @@ export class Instances {
       a[i * 3 + 1] = toLinear(color[1]);
       a[i * 3 + 2] = toLinear(color[2]);
     }
-    if (this.aux) (this.aux.array as Float32Array)[i] = aux;
+    if (this.aux) {
+      const a = this.aux.array as Float32Array;
+      const k = this.auxSize;
+      const o2 = i * k;
+      a[o2] = a0;
+      if (k > 1) a[o2 + 1] = a1;
+      if (k > 2) a[o2 + 2] = a2;
+      if (k > 3) a[o2 + 3] = a3;
+    }
   }
 
   end(): void {
@@ -114,9 +137,9 @@ export class Instances {
     if (this.auxName) {
       // The attribute lives on the shared geometry; one layer owns its geometry, so that's safe.
       const prev = this.aux;
-      const aux = new InstancedBufferAttribute(new Float32Array(capacity), 1);
+      const aux = new InstancedBufferAttribute(new Float32Array(capacity * this.auxSize), this.auxSize);
       aux.setUsage(DynamicDrawUsage);
-      if (prev) aux.array.set((prev.array as Float32Array).subarray(0, Math.min(prev.count, capacity)));
+      if (prev) aux.array.set((prev.array as Float32Array).subarray(0, Math.min(prev.count, capacity) * this.auxSize));
       this.geometry.setAttribute(this.auxName, aux);
       this.aux = aux;
     }

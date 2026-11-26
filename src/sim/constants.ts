@@ -3,7 +3,8 @@
  * "All numbers are first-pass tuning values"). Content-specific numbers live in content/*.json;
  * these are rule-level knobs that no single content entry owns.
  */
-import type { Age, Yields } from '@contracts/content-schemas';
+import type { Age, YieldType, Yields } from '@contracts/content-schemas';
+import type { Difficulty } from '@contracts/sim-api';
 
 // --- Settlements (GDD §7 "Settlements") -------------------------------------
 
@@ -169,3 +170,67 @@ export const AGE_INDEX: Record<Age, number> = { ancient: 0, classical: 1, explor
 export const UNREST_THRESHOLD = -10;
 /** Settlements make visible every tile within this distance. */
 export const SETTLEMENT_VISION = 3;
+
+// --- Settlement sites (settler hints and the AI's site choice) ---------------
+
+/**
+ * Weights of the one settlement-site score (src/sim/sites.ts). These are the neutral values
+ * shown to players; the AI overrides the yield, luxury and coast weights with its persona.
+ */
+export interface SiteWeights {
+  /** Value of one point of each yield on a tile the settlement would claim or work. */
+  yield: Record<YieldType, number>;
+  /** Per luxury kind in reach that the player does not own yet. */
+  newLuxury: number;
+  /** Per strategic resource tile in reach. */
+  strategic: number;
+  /** Fresh water: the center is on a river. */
+  river: number;
+  /** The center touches water (harbors, sea trade). */
+  coast: number;
+  /** The center is on hills (defense). */
+  hills: number;
+  /** Per tile in the first two rings already owned by anyone (shared or lost tiles). */
+  overlap: number;
+  /** Per point of closeness to a settlement of someone the player is at war with. */
+  rivalAtWar: number;
+}
+
+export const SITE_WEIGHTS: SiteWeights = {
+  yield: { food: 1.2, production: 1.2, gold: 0.8, science: 1, culture: 0.9, faith: 0.5, happiness: 0.8, influence: 0.6 },
+  newLuxury: 3.2,
+  strategic: 1,
+  river: 3,
+  coast: 1.5,
+  hills: 1.5,
+  overlap: 0.5,
+  rivalAtWar: 2,
+};
+/** Rings a new settlement is scored on (it claims ring 1 at once and grows into ring 2). */
+export const SITE_SCORE_RADIUS = 2;
+/** Share of a ring-2 tile's value (ring 1 counts fully). */
+export const SITE_OUTER_RING_SHARE = 0.6;
+/** Share of a water tile's value (workable, but weaker without harbors). */
+export const SITE_WATER_SHARE = 0.6;
+/** More water tiles than this in reach make a site cramped; each extra costs SITE_WATER_PENALTY. */
+export const SITE_MAX_WATER = 12;
+export const SITE_WATER_PENALTY = 1.5;
+/** Fewer land tiles than this make a site cramped; each missing one costs SITE_LAND_PENALTY. */
+export const SITE_MIN_LAND = 5;
+export const SITE_LAND_PENALTY = 2;
+/** Settlements of enemies at war within this distance lower a site's score. */
+export const SITE_WAR_RADIUS = 5;
+/** `queries.settleSites` looks this far from the settler and returns at most this many sites. */
+export const SETTLE_SITE_RANGE = 8;
+export const SETTLE_SITE_MAX = 30;
+
+// --- Difficulty (GDD §9: "yield bonuses and depth, never hidden information") ------
+
+/** Yields the difficulty level scales for non-human players. */
+export const DIFFICULTY_YIELDS: readonly YieldType[] = ['food', 'production', 'gold', 'science', 'culture'];
+/** Percent change to those yields for non-human players. 'normal' must stay 0 (today's game). */
+export const DIFFICULTY_RIVAL_YIELD_PERCENT: Record<Difficulty, number> = { easy: -20, normal: 0, hard: 25 };
+/** Percent change to unit and building costs for non-human players. */
+export const DIFFICULTY_RIVAL_COST_PERCENT: Record<Difficulty, number> = { easy: 0, normal: 0, hard: -15 };
+/** Happiness each human-owned settlement adds. */
+export const DIFFICULTY_HUMAN_SETTLEMENT_HAPPINESS: Record<Difficulty, number> = { easy: 1, normal: 0, hard: 0 };

@@ -13,7 +13,7 @@ import { queries } from '../sim/queries';
 import { exec, me, type AiCtx } from './ctx';
 import { buildingValue, figureOf } from './decisions';
 import { modifiersScore } from './persona';
-import { ownedLuxuries, siteLegal, siteScore } from './sites';
+import { aiSiteScorer, siteLegal } from './sites';
 import { aggression, pickWarTarget, warPreparation, type WarTarget } from './war';
 import { enemiesAtWar, hostilesNear, isMilitary, militaryPower, ownSettlements, ownUnits } from './world';
 
@@ -77,7 +77,7 @@ export const findSites = (ai: AiCtx): Site[] => {
   const own = ownSettlements(state, player);
   const origins = own.length > 0 ? own.map((s) => s.at) : ownUnits(state, player).map((u) => u.at);
   if (origins.length === 0) return [];
-  const lux = ownedLuxuries(state, player, content);
+  const scoreOf = aiSiteScorer(state, player, content, ai.persona);
   const explored = me(ai).explored;
   const out: Site[] = [];
   const n = state.map.tiles.length;
@@ -89,7 +89,7 @@ export const findSites = (ai: AiCtx): Site[] => {
     for (const o of origins) near = Math.min(near, hexDistance(o, tile));
     if (near > MAX_SITE_DISTANCE) continue;
     if (!siteLegal(state, player, i, content)) continue;
-    const score = siteScore(state, player, i, content, ai.persona, lux);
+    const score = scoreOf(i);
     if (score < MIN_SITE_SCORE) continue;
     // Prefer compact empires: distance beyond 5 costs a little.
     out.push({ idx: i, score: score - Math.max(0, near - 5) * 1.5 });

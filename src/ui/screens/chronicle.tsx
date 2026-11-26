@@ -3,6 +3,8 @@ import { useState } from 'preact/hooks';
 import { closeModal, content, game, me, modal, ownerName, route } from '../store';
 import type { ScreenProps } from './index';
 import { CultureChip, Empty, Portrait, Screen } from './shared/components';
+import { Icon } from '../art/Icon';
+import { CultureCrest, PlayerBanner } from '../art/game-art';
 import { ageLabel, KIND_LABEL } from './shared/describe';
 import { buildChronicle, type ChronicleAge } from './shared/chronicle';
 import type { FigureKind } from '@contracts/content-schemas';
@@ -52,29 +54,43 @@ export const ChronicleScreen = (_: ScreenProps<'chronicle'>) => {
         <Empty>No chronicle.</Empty>
       ) : (
         <>
-          <div
-            class="scr-chron-head"
-            style={{ background: `linear-gradient(160deg, ${view.colors.primary}, ${view.colors.secondary})` }}
-          >
+          <div class="scr-chron-head">
+            {g.players[shown] && (
+              <div class="scr-chron-banner">
+                <PlayerBanner player={g.players[shown]!} width={70} wave />
+              </div>
+            )}
+            <div class="scr-chron-eyebrow">The Chronicle of</div>
+            <h2>{view.civName}</h2>
             {view.dream && (
               <div class="scr-chron-motto" lang="und" aria-label={`Motto: ${view.dream.romanized}, ${view.dream.meaning}`}>
                 {view.dream.native}
               </div>
             )}
-            <h2>{view.civName}</h2>
-            <div class="small">
+            <div class="scr-chron-sub">
               Led by {view.leader}
-              {view.dream && ` · ${view.dream.romanized}: “${view.dream.meaning}” (${view.dream.language})`}
+              {view.dream && (
+                <>
+                  <br />
+                  <i>{view.dream.romanized}</i>: “{view.dream.meaning}” <span class="muted">({view.dream.language})</span>
+                </>
+              )}
+            </div>
+            <div class="fleuron" aria-hidden="true">
+              <Icon name="legend" size="sm" />
             </div>
           </div>
 
           {view.ages.length === 0 && <Empty>The story has not begun.</Empty>}
-          {view.ages.map((a) => (
-            <AgeSection age={a} />
+          {view.ages.map((a, i) => (
+            <AgeSection age={a} n={i} />
           ))}
 
           {g.result && (
-            <section class="card scr-result" style={{ marginTop: '16px' }}>
+            <section class={`card scr-result${view.result?.won ? ' won' : ''}`} style={{ marginTop: '16px' }}>
+              <div class="scr-result-seal" aria-hidden="true">
+                <Icon name={view.result?.won ? 'legend' : 'legacy'} />
+              </div>
               <div class="scr-tag">The end of the chronicle</div>
               <b>{winner} prevailed</b>
               <p class="small muted">{g.result.reason}</p>
@@ -96,20 +112,27 @@ export const ChronicleScreen = (_: ScreenProps<'chronicle'>) => {
   );
 };
 
-const AgeSection = ({ age: a }: { age: ChronicleAge }) => (
+const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI'];
+
+const AgeSection = ({ age: a, n }: { age: ChronicleAge; n: number }) => (
   <section class="scr-chron-age">
-    <h3>The {ageLabel(a.age)} age</h3>
-    {a.events.map((e) => (
-      <p class="scr-chron-line small muted">{e.text}</p>
-    ))}
+    <div class="scr-chron-book">Book {ROMAN[n] ?? n + 1}</div>
+    <h3>The {ageLabel(a.age)} Age</h3>
+    <div class="scr-chron-events">
+      {a.events.map((e, i) => (
+        <p class={`scr-chron-line${i === 0 ? ' scr-dropcap' : ''}`}>
+          {e.text} <span class="scr-chron-turn">· turn {e.turn}</span>
+        </p>
+      ))}
+    </div>
     {a.figures.length > 0 && (
       <>
         <div class="section-title">People</div>
         <ul class="scr-list">
           {a.figures.map((f) => (
-            <li class="card">
+            <li class="scr-chron-person">
               <div class="row">
-                <Portrait name={f.name} culture={f.culture} size="sm" legend={f.kind === 'legend'} />
+                <Portrait figure={f.id} size="sm" />
                 <div class="grow">
                   <div class="scr-fig-name">{f.name}</div>
                   <div class="scr-chips">
@@ -130,9 +153,14 @@ const AgeSection = ({ age: a }: { age: ChronicleAge }) => (
         <div class="section-title">Traditions</div>
         <ul class="scr-list">
           {[...a.hybrids, ...a.traditions].map((t) => (
-            <li class="card">
+            <li class="scr-chron-trad">
               <div class="scr-kv">
-                <span class="scr-fig-name">{t.name}</span>
+                <span class="scr-fig-name">
+                  {t.cultures.map((c) => (
+                    <CultureCrest culture={c} size={18} />
+                  ))}
+                  {t.name}
+                </span>
                 <span class="chip">{t.tier ? t.tier : 'hybrid'}</span>
               </div>
               <div class="scr-chips">
@@ -150,8 +178,11 @@ const AgeSection = ({ age: a }: { age: ChronicleAge }) => (
       <>
         <div class="section-title">Wonders</div>
         {a.wonders.map((w) => (
-          <p class="scr-chron-line">
-            <b>{w.name}.</b> {w.note}
+          <p class="scr-chron-line scr-chron-mark">
+            <Icon name="builder" size="sm" />
+            <span>
+              <b>{w.name}.</b> {w.note}
+            </span>
           </p>
         ))}
       </>
@@ -160,8 +191,9 @@ const AgeSection = ({ age: a }: { age: ChronicleAge }) => (
       <>
         <div class="section-title">Wars</div>
         {a.wars.map((w) => (
-          <p class="scr-chron-line">
-            Turn {w.turn}: {w.text}
+          <p class="scr-chron-line scr-chron-mark">
+            <Icon name="war" size="sm" />
+            {w.text} <span class="scr-chron-turn">· turn {w.turn}</span>
             {w.against && <span class="muted"> ({ownerName(w.against)})</span>}
           </p>
         ))}
@@ -171,7 +203,9 @@ const AgeSection = ({ age: a }: { age: ChronicleAge }) => (
       <>
         <div class="section-title">Hard times</div>
         {a.crises.map((c) => (
-          <p class="scr-chron-line">{c.text}</p>
+          <p class="scr-chron-line scr-chron-mark">
+            <Icon name="crisis" size="sm" /> {c.text}
+          </p>
         ))}
       </>
     )}

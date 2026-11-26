@@ -120,10 +120,10 @@ export const finishTransition = (ctx: SimCtx, player: PlayerId): string | null =
   const { state, content } = ctx;
   const t = state.transition;
   const recap = t?.recap[player];
-  if (state.phase !== 'transition' || !t || !recap) return 'Not in a transition';
-  if (recap.done) return 'Already finished';
+  if (state.phase !== 'transition' || !t || !recap) return 'There is no age transition under way.';
+  if (recap.done) return 'You have already finished this transition.';
   const p = state.players[player];
-  if (!p) return 'Unknown player';
+  if (!p) return 'That player is not in this game.';
 
   if (!p.civName) {
     const name = recap.nameOptions[0];
