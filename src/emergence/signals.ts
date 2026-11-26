@@ -5,6 +5,7 @@
  */
 import type { ContentBundle, Signal } from '@contracts/content-schemas';
 import type { CultureId, GameState, PlayerId } from '@contracts/sim-api';
+import { citable, numberedHint } from './reasons';
 import { isCoastal, ownSettlements, suzerainByCulture, tileAt, tradeRoutesByCulture } from './util';
 
 /** Everything the signal measures need, computed in one pass over the map. */
@@ -20,7 +21,7 @@ export interface PlayerMeasures {
   unitsOfClass: Record<string, number>;
   /** Military units: every unit that is neither civilian nor a commander (figure). */
   unitsTotal: number;
-  /** Scouting civilians: civilians that can neither found nor trade, plus explorer figures. */
+  /** Scouting civilians: civilians that can neither found nor trade, plus explorer figures (not lookouts). */
   scouts: number;
   tradeRoutes: number;
   tradeRoutesByCulture: Record<CultureId, number>;
@@ -66,7 +67,8 @@ export const measurePlayer = (state: GameState, player: PlayerId, content: Conte
     if (u.unitClass !== 'civilian' && u.unitClass !== 'commander') unitsTotal++;
     if (u.unitClass === 'civilian') {
       const def = content.units.find((d) => d.id === u.type);
-      if (def && !def.canFound && (!def.canTrade || def.figureKind === 'explorer')) scouts++;
+      // A scout keeping watch as a fortified lookout is not exploring (playtest 3).
+      if (def && !def.canFound && (!def.canTrade || def.figureKind === 'explorer') && !u.fortified) scouts++;
     }
   }
 
@@ -202,8 +204,8 @@ export const topSignal = (contributions: Contributions, culture: CultureId, cont
   return best;
 };
 
-/** The two signals adding the most to `culture` this turn, with their contributions (strongest first). */
-export const topTwoSignals = (
+/** Every signal adding to `culture` this turn, with its contribution (strongest first; ties keep content order). */
+export const topSignals = (
   contributions: Contributions,
   culture: CultureId,
   content: ContentBundle,
@@ -216,7 +218,38 @@ export const topTwoSignals = (
     if (v <= 0) continue;
     out.push({ signal: s, value: v });
   }
-  // Stable: ties keep content order.
   out.sort((a, b) => b.value - a.value);
-  return out.slice(0, 2);
+  return out;
 };
+
+/** The two signals adding the most to `culture` this turn, with their contributions (strongest first). */
+export const topTwoSignals = (
+  contributions: Contributions,
+  culture: CultureId,
+  content: ContentBundle,
+): { signal: Signal; value: number }[] => topSignals(contributions, culture, content).slice(0, 2);
+
+/**
+ * The (up to two) strongest signals for `culture` that may be cited as a reason, each with its
+ * number-aware hint: the measured amount (contribution / weight) must be one the player really
+ * has (reasons.ts `citable`), and plurals follow the count (playtest 3).
+ */
+export const citedSignals = (
+  state: GameState,
+  player: PlayerId,
+  contributions: Contributions,
+  culture: CultureId,
+  content: ContentBundle,
+): { signal: Signal; value: number; hint: string }[] => {
+  const settlements = ownSettlements(state, player).length;
+  const out: { signal: Signal; value: number; hint: string }[] = [];
+  for (const x of topSignals(contributions, culture, content)) {
+    const w = x.signal.weights[culture] ?? 0;
+    const amount = w > 0 ? x.value / w : 0;
+    if (!citable(x.signal.measure, amount)) continue;
+    out.push({ ...x, hint: numberedHint(x.signal.hint, x.signal.measure, amount, settlements) });
+    if (out.length === 2) break;
+  }
+  return out;
+};
+

@@ -71,3 +71,63 @@ export const signalReason = (state: GameState, figure: FigureId, measure: Signal
   const template = pickPhrase(state, figure, REASON_TEMPLATES[REASON_FAMILY[measure]]);
   return template.replace('{h}', second ? `${hint} and ${second}` : hint);
 };
+
+/** Measures that count things (tiles, towns, units, routes...), so their hint has a number. */
+const COUNT_MEASURES: ReadonlySet<SignalMeasure> = new Set<SignalMeasure>([
+  'ownedTerrain',
+  'ownedFeature',
+  'ownedResource',
+  'ownedClimate',
+  'coastalSettlements',
+  'riverSettlements',
+  'settlementCount',
+  'unitsOfClass',
+  'unitsTotal',
+  'battlesWonThisTurn',
+  'citiesCapturedThisTurn',
+  'tradeRoutes',
+  'tradeRoutesWithCulture',
+  'envoysSent',
+  'wondersBuilt',
+  'techsResearched',
+]);
+
+/** "towns" -> "town", "victories" -> "victory", "marshes" -> "marsh", "oases" -> "oasis". */
+export const singularWord = (w: string): string => {
+  if (/ases$/.test(w)) return `${w.slice(0, -4)}asis`;
+  if (/ies$/.test(w)) return `${w.slice(0, -3)}y`;
+  if (/(ch|sh|ss|x)es$/.test(w)) return w.slice(0, -2);
+  if (/[^s]s$/.test(w)) return w.slice(0, -1);
+  return w;
+};
+
+/** The hint with its last word made singular ("your hill towns" -> "your hill town"). */
+export const singularHint = (hint: string): string => {
+  const i = hint.lastIndexOf(' ');
+  return i < 0 ? singularWord(hint) : `${hint.slice(0, i + 1)}${singularWord(hint.slice(i + 1))}`;
+};
+
+/**
+ * May this signal be cited as a reason? (Playtest 3: reasons must never name something the
+ * player does not have.) Its measured amount must be positive; "your many towns" needs two
+ * towns or more; "your explorers" needs a real share of the world charted.
+ */
+export const REASON_MIN_EXPLORED_PERCENT = 15;
+export const citable = (measure: SignalMeasure, amount: number): boolean => {
+  if (!(amount > 0)) return false;
+  if (measure === 'settlementCount') return amount >= 2;
+  if (measure === 'exploredPercent') return amount >= REASON_MIN_EXPLORED_PERCENT;
+  return true;
+};
+
+/**
+ * Number-aware hint (playtest 3: "your hill towns" for a player with one town). A count
+ * measure of exactly one, or a hint about towns or cities when the player has a single
+ * settlement, reads in the singular.
+ */
+export const numberedHint = (hint: string, measure: SignalMeasure, amount: number, settlements: number): string => {
+  const last = hint.slice(hint.lastIndexOf(' ') + 1);
+  const aboutTowns = /^(towns|cities|harbors)$/.test(last);
+  if ((COUNT_MEASURES.has(measure) && amount < 1.5) || (aboutTowns && settlements <= 1)) return singularHint(hint);
+  return hint;
+};

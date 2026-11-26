@@ -72,7 +72,7 @@
   "strength": 20,
   "moves": 2,
   "cost": 50,
-  "siegeBonus": 15,
+  "siegeBonus": 22,
   "requiresTech": "masonry",
   "upgradesTo": "catapult"
  },
@@ -130,7 +130,7 @@
   "cost": 90,
   "rangedStrength": 30,
   "range": 2,
-  "siegeBonus": 20,
+  "siegeBonus": 26,
   "requiresTech": "engineering"
  },
  {

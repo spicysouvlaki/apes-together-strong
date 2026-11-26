@@ -15,7 +15,7 @@ import { GP_START_THRESHOLD } from './constants';
 import { addMissingSeats } from './cabinet';
 import { tickSeatedTurns } from './lifecycle';
 import { checkDeeds, createPointsOffers, dropOffer, maybeOfferLegend } from './offers';
-import { accrueGp, gpGain } from './points';
+import { accrueGp, devoteFaith, gpGain } from './points';
 import { measurePlayer, signalContributions } from './signals';
 import { homeSettlement } from './util';
 
@@ -66,6 +66,7 @@ export const emergenceTick = (ctx: SimCtx, player: PlayerId): void => {
   const contributions = signalContributions(state, player, content, measures);
   updateAffinity(ctx, player, contributions);
   accrueGp(state, player, gpGain(state, player, content, measures));
+  devoteFaith(state, player);
   // A player without a settlement cannot host a figure (`chooseOffer` needs a home), and an
   // offer it cannot accept would block `endTurn` forever. So: no offers or deeds while
   // homeless, and offers left over from before the last settlement fell are withdrawn

@@ -13,7 +13,8 @@ import type { ContentBundle } from '@contracts/content-schemas';
 import { hexNeighbors } from '@contracts/hex';
 import type { GameState, PlayerId, Settlement } from '@contracts/sim-api';
 import type { SimCtx } from './ctx';
-import { capitalOf, tileAt } from './lookup';
+import { capitalOf, tileAt, tileIndex } from './lookup';
+import { visibleTileSet } from './units';
 
 export type Posture = 'aggressor' | 'rival' | 'trader' | 'wary';
 
@@ -155,30 +156,74 @@ export const announceWonder = (ctx: SimCtx, s: Settlement, wonder: string): void
 
 // --- Contact and borders (one-time transitions) ------------------------------------
 
-/** Players whose land `player` has explored at least one tile of. */
+/**
+ * `TimedEffect.source` prefix remembering that a player has seen another player's units
+ * (modifier-free; lasts the whole game). Land contact needs no memory: explored tiles stay
+ * explored.
+ */
+export const MET_SOURCE = 'met:';
+/** Contact markers never lapse (the age-end sweep only drops effects with untilTurn −1). */
+const MET_UNTIL = Number.MAX_SAFE_INTEGER;
+
+/** Players whose land `player` has explored at least one tile of, or whose units they have seen. */
 export const contactsOf = (state: GameState, player: PlayerId): Record<PlayerId, true> => {
   const out: Record<PlayerId, true> = {};
-  const explored = state.players[player]?.explored;
-  if (!explored) return out;
+  const p = state.players[player];
+  const explored = p?.explored;
+  if (!p || !explored) return out;
   const tiles = state.map.tiles;
   for (let i = 0; i < tiles.length; i++) {
     const owner = tiles[i]?.owner;
     if (owner && owner !== player && explored[i] && state.players[owner]) out[owner] = true;
   }
+  for (const e of p.effects) {
+    if (!e.source.startsWith(MET_SOURCE)) continue;
+    const other = e.source.slice(MET_SOURCE.length);
+    if (state.players[other]) out[other] = true;
+  }
   return out;
 };
 
 /**
- * Call after `player` explored new tiles, with their contacts from before. First contact
- * between an AI and a human produces one message from the AI, unless the other side had
- * already found them (then the greeting was already sent).
+ * Other players with a unit or settlement on a tile `player` sees right now (playtest 3: two
+ * scouts could pass each other without a word, since contact needed explored land).
+ */
+export const sightings = (state: GameState, player: PlayerId, content: ContentBundle): Record<PlayerId, true> => {
+  const out: Record<PlayerId, true> = {};
+  const seen = new Set(visibleTileSet(state, player, content));
+  for (const id of Object.keys(state.units)) {
+    const u = state.units[id];
+    if (!u || u.owner === player || !state.players[u.owner]) continue;
+    if (seen.has(tileIndex(state.map, u.at))) out[u.owner] = true;
+  }
+  return out;
+};
+
+const remember = (state: GameState, player: PlayerId, other: PlayerId): void => {
+  const p = state.players[player];
+  if (!p || p.effects.some((e) => e.source === MET_SOURCE + other)) return;
+  p.effects.push({ source: MET_SOURCE + other, untilTurn: MET_UNTIL, modifiers: [] });
+};
+
+/**
+ * Call after `player` explored new tiles or moved units, with their contacts from before.
+ * First contact — by land or by sighting each other's units — between an AI and a human
+ * produces one message from the AI, unless the other side had already found them (then the
+ * greeting was already sent). A sighting is remembered by both sides.
  */
 export const greetNewContacts = (ctx: SimCtx, player: PlayerId, before: Record<PlayerId, true>): void => {
-  const { state } = ctx;
+  const { state, content } = ctx;
+  if (state.playerOrder.every((o) => o === player || before[o] || !state.players[o]?.alive)) return;
+  const seen = sightings(state, player, content);
   const after = contactsOf(state, player);
   for (const other of state.playerOrder) {
-    if (!after[other] || before[other]) continue;
-    if (contactsOf(state, other)[player]) continue;
+    if (other === player || before[other] || !(after[other] || seen[other])) continue;
+    const theyKnew = contactsOf(state, other)[player] === true;
+    if (seen[other]) {
+      remember(state, player, other);
+      remember(state, other, player);
+    }
+    if (theyKnew) continue;
     if (isHuman(state, player)) speak(ctx, other, player, 'contact');
     else speak(ctx, player, other, 'contact');
   }

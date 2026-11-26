@@ -5,7 +5,9 @@
  */
 import type { Age, ContentBundle } from '../../src/contracts/content-schemas';
 import type { GameSetup, GameState, PlayerId, Sim, SimEvent, SimQueries } from '../../src/contracts/sim-api';
-import { tileAt } from '../../src/sim/lookup';
+import { tileAt, tileIndex } from '../../src/sim/lookup';
+import { gpGain } from '../../src/emergence/points';
+import { measurePlayer } from '../../src/emergence/signals';
 import type { RunAiTurn } from './autoplay';
 
 const HUMAN: PlayerId = 'p1';
@@ -92,6 +94,29 @@ export interface AuditReport {
   hints: { player: string; culture: string; turn: number; rank: number }[];
   /** Human commands per turn by type (commands the sim accepted). */
   humanCommands: Record<number, Record<string, number>>;
+  /** Playtest 3: longest run of turns without a real decision in turns 15–40 (human). */
+  maxGapMid: number;
+  /** First turn the human seat saw a rival player's land or units (null = never). */
+  firstContactTurn: number | null;
+  /** Human offers by pool (source), and recruited figures by kind. */
+  offerSources: Record<string, number>;
+  recruitedKinds: Record<string, number>;
+  /** Figures offered to the human again after being passed over in the same age. */
+  repeatedCandidates: number;
+  /** Human-seat wins of contested figures (figureJoinedRival to a rival) vs losses. */
+  contestedWon: number;
+  contestedLost: number;
+  /** Human notices about the treasury and desertion. */
+  treasuryNotices: number;
+  desertions: number;
+  raiderWarnings: number;
+  /** Great-people points the human's pools gained, summed over the human's turns (before thresholds). */
+  gpGained: Record<string, number>;
+  /** Turns (15–40) on which a human research / production item completed. */
+  researchDoneTurns: number[];
+  buildDoneTurns: number[];
+  /** Human scouts alive at turn 30 with nothing left to explore by land (idle). */
+  idleScoutsT30: number;
 }
 
 const ageStart: Record<string, number> = {};
@@ -104,6 +129,8 @@ export const auditGame = (
   runAiTurn: RunAiTurn,
   queries: SimQueries,
   content: ContentBundle,
+  /** Scripted play on top of the AI for the human seat (playtest 3 personas). */
+  script?: (state: GameState, sim: Sim) => GameState,
 ): AuditReport => {
   const created = sim.createGame(setup, content);
   let state: GameState = created.state;
@@ -131,7 +158,12 @@ export const auditGame = (
     navalBuilt: {}, overseasSettlements: {}, capturesPvp: 0, capturesCs: 0, eliminations: [], wars: 0,
     crisisPop: [], wonders: 0, humanWonders: 0, voiceNotices: 0,
     perPlayer: {}, wonderLog: [], wonderRaces: 0, wonderStarts: [], crisisCost: [], hints: [], humanCommands: {},
+    maxGapMid: 0, firstContactTurn: null, offerSources: {}, recruitedKinds: {}, repeatedCandidates: 0,
+    contestedWon: 0, contestedLost: 0, treasuryNotices: 0, desertions: 0, raiderWarnings: 0, gpGained: {},
+    researchDoneTurns: [], buildDoneTurns: [], idleScoutsT30: 0,
   };
+  /** figure id -> age it was shown to the human (to count repeats within an age). */
+  const shownThisAge: Record<string, string> = {};
   const racedWonders = new Set<string>();
   const crisisStart: Record<string, { units: number; pop: number; gold: number; settlements: number }> = {};
   const crisisPillage: Record<string, number> = {};
@@ -252,6 +284,8 @@ export const auditGame = (
         if (duringHumanTurn && e.player === HUMAN) mark(state.turn, 'buy');
       }
       if (e.type === 'researchCompleted' && e.player === HUMAN && r.firstTechTurn === null) r.firstTechTurn = state.turn;
+      if (e.type === 'researchCompleted' && e.player === HUMAN && state.turn >= 15 && state.turn <= 40) r.researchDoneTurns.push(state.turn);
+      if (e.type === 'productionCompleted' && e.player === HUMAN && state.turn >= 15 && state.turn <= 40) r.buildDoneTurns.push(state.turn);
       if (e.type === 'offerCreated') {
         const o = state.offers.find((x) => x.id === e.offer);
         if (o && o.candidates[0] && (o.reasons[o.candidates[0]] ?? '').startsWith('come at last')) {
@@ -266,7 +300,10 @@ export const auditGame = (
           if (o.candidates.length > 1 && cultures.size === 1) r.offersSameCulture++;
           if (o.source !== 'deed' && o.source === lastOfferSource) r.offersSameKindAsLast++;
           if (o.source !== 'deed') lastOfferSource = o.source;
+          r.offerSources[o.source] = (r.offerSources[o.source] ?? 0) + 1;
           for (const c of o.candidates) {
+            if (shownThisAge[c] === state.age && !state.figures[c]) r.repeatedCandidates++;
+            shownThisAge[c] = state.age;
             const d = figDef.get(c);
             r.candidates++;
             if (d && d.uses.length === 1 && d.uses[0] === 'cabinet' && !seatAccepts(d.kind)) r.unusableCandidates++;
@@ -274,6 +311,19 @@ export const auditGame = (
             if (reason) reasons.add(reason);
           }
         }
+      }
+      if (e.type === 'figureRecruited' && e.player === HUMAN) {
+        const k = figDef.get(e.figure)?.kind ?? '?';
+        r.recruitedKinds[k] = (r.recruitedKinds[k] ?? 0) + 1;
+      }
+      if (e.type === 'figureJoinedRival') {
+        if (e.player === HUMAN) r.contestedLost++;
+        else if (e.rival === HUMAN) r.contestedWon++;
+      }
+      if (e.type === 'notice' && e.player === HUMAN) {
+        if (/treasury (is shrinking|will be empty)/i.test(e.text)) r.treasuryNotices++;
+        if (/desert/i.test(e.text)) r.desertions++;
+        if (/no one guards/i.test(e.text)) r.raiderWarnings++;
       }
       if (e.type === 'deedCompleted') r.deeds.push({ deed: e.deed, player: e.player, turn: state.turn, age: state.age, turnInAge: state.turn - (ageStart.current ?? 1) });
       if (e.type === 'cultureHint') {
@@ -361,6 +411,16 @@ export const auditGame = (
     const p = state.players[HUMAN];
     if (!p) return;
     const t = state.turn;
+    if (r.firstContactTurn === null) {
+      const vis = new Set(queries.visibleTiles(state, HUMAN, content));
+      const seesUnit = Object.values(state.units).some((u) => u.owner !== HUMAN && isPlayer(u.owner) && vis.has(tileIndex(state.map, u.at)));
+      const seesLand = state.map.tiles.some((tile, i) => tile.owner !== null && tile.owner !== HUMAN && isPlayer(tile.owner) && p.explored[i] === 1);
+      if (seesUnit || seesLand) r.firstContactTurn = t;
+    }
+    if (state.age === 'ancient') {
+      const g = gpGain(state, HUMAN, content, measurePlayer(state, HUMAN, content));
+      for (const [k, v] of Object.entries(g)) r.gpGained[k] = (r.gpGained[k] ?? 0) + v;
+    }
     if (state.offers.some((o) => o.player === HUMAN)) mark(t, 'offer');
     if (state.crisis?.awaiting.includes(HUMAN)) mark(t, 'crisis');
     const cities = Object.values(state.settlements).filter((s) => s.owner === HUMAN && s.kind === 'city');
@@ -413,6 +473,7 @@ export const auditGame = (
             }
           }
         }
+        if (human && script) state = script(state, recSim);
         const res = runAiTurn(state, player, content, recSim);
         // State during the human turn: evaluate per-event with the state after the turn.
         if (human) {
@@ -477,6 +538,14 @@ export const auditGame = (
     maxGap = Math.max(maxGap, gap);
   }
   r.maxGapEarly = maxGap;
+  gap = 0;
+  maxGap = 0;
+  for (let t = 15; t <= Math.min(40, humanTurns); t++) {
+    if (decisionTurns.has(t)) gap = 0;
+    else gap++;
+    maxGap = Math.max(maxGap, gap);
+  }
+  r.maxGapMid = maxGap;
   r.noDecisionShare = humanTurns ? (humanTurns - dt.length) / humanTurns : 0;
   if (state.turn >= 100) {
     let n = 0;
@@ -622,6 +691,59 @@ export const summarize = (rs: AuditReport[], content: ContentBundle): string => 
   const allKinds: Record<string, number> = {};
   for (const r of rs) for (const [t, row] of Object.entries(r.humanCommands ?? {})) if (Number(t) >= 80) for (const [k, v] of Object.entries(row)) allKinds[k] = (allKinds[k] ?? 0) + v;
   L.push(`8 late game t80–110: human commands/turn ${avg(late)}, distinct command types per 10 turns ${avg(kindsPer10)}; mix ${Object.entries(allKinds).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${(v / n).toFixed(1)}`).join(', ')}`);
+  // --- Playtest 3 metrics ---------------------------------------------------------------
+  const contact = rs.map((r) => r.firstContactTurn);
+  L.push(`P3 first contact (human): avg ${avg(nn(contact))}, median ${med(nn(contact))}, never ${contact.filter((x) => x === null).length}/${n}; max decision gap t15–40 avg ${avg(rs.map((r) => r.maxGapMid))}, worst ${Math.max(...rs.map((r) => r.maxGapMid))}`);
+  const srcs: Record<string, number> = {};
+  for (const r of rs) for (const [k, v] of Object.entries(r.offerSources)) srcs[k] = (srcs[k] ?? 0) + v;
+  const srcTotal = Object.values(srcs).reduce((a, b) => a + b, 0);
+  L.push(`P3 human offer pools: ${Object.entries(srcs).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${pct(v, srcTotal)}`).join(', ')}`);
+  const kinds2: Record<string, number> = {};
+  for (const r of rs) for (const [k, v] of Object.entries(r.recruitedKinds)) kinds2[k] = (kinds2[k] ?? 0) + v;
+  L.push(`P3 human recruits by kind: ${Object.entries(kinds2).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${(v / n).toFixed(1)}`).join(', ')}; repeated candidates/game ${avg(rs.map((r) => r.repeatedCandidates))}; contested won/lost per game ${avg(rs.map((r) => r.contestedWon))}/${avg(rs.map((r) => r.contestedLost))}; treasury notices ${avg(rs.map((r) => r.treasuryNotices))}, desertions ${avg(rs.map((r) => r.desertions))}, raider warnings ${avg(rs.map((r) => r.raiderWarnings))}`);
+  const gapOf = (turns: number[]): number => {
+    const t = [15, ...[...new Set(turns)].sort((a, b) => a - b), 40];
+    let g = 0;
+    for (let i = 1; i < t.length; i++) g = Math.max(g, (t[i] ?? 0) - (t[i - 1] ?? 0));
+    return g;
+  };
+  L.push(`P3 t15–40 longest wait between research completions avg ${avg(rs.map((r) => gapOf(r.researchDoneTurns)))} (worst ${Math.max(...rs.map((r) => gapOf(r.researchDoneTurns)))}), between finished builds avg ${avg(rs.map((r) => gapOf(r.buildDoneTurns)))} (worst ${Math.max(...rs.map((r) => gapOf(r.buildDoneTurns)))}); research done ${avg(rs.map((r) => r.researchDoneTurns.length))}, builds ${avg(rs.map((r) => r.buildDoneTurns.length))}`);
+  const gpg: Record<string, number> = {};
+  for (const r of rs) for (const [k, v] of Object.entries(r.gpGained ?? {})) gpg[k] = (gpg[k] ?? 0) + v;
+  const gpT = Object.values(gpg).reduce((a, b) => a + b, 0);
+  L.push(`P3 human ancient gp share by pool: ${Object.entries(gpg).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${pct(v, gpT)}`).join(', ')}`);
   void content;
   return L.join('\n');
+};
+
+/**
+ * Scripted warmonger (playtest 3, item 6): the AI's own warmonger rarely fights before turn
+ * 40, so the human seat declares war itself — on the nearest city-state from turn 14 and on the
+ * nearest rival from turn 24 — and the AI then fights those wars as it would its own.
+ */
+export const warmongerScript = (content: ContentBundle) => (state: GameState, sim: Sim): GameState => {
+  const me = HUMAN;
+  const cap = Object.values(state.settlements).find((s) => s.owner === me && s.isCapital);
+  if (!cap) return state;
+  const atWar = (other: string): boolean => Object.keys(state.wars).some((k) => k.split('|').includes(me) && k.split('|').includes(other));
+  const nearest = (owners: string[]): string | null => {
+    let best: string | null = null;
+    let bestD = Infinity;
+    for (const s of Object.values(state.settlements)) {
+      if (!owners.includes(s.owner) || atWar(s.owner)) continue;
+      const d = Math.abs(s.at.q - cap.at.q) + Math.abs(s.at.r - cap.at.r) + Math.abs(s.at.q + s.at.r - cap.at.q - cap.at.r);
+      if (d < bestD) {
+        bestD = d;
+        best = s.owner;
+      }
+    }
+    return best;
+  };
+  const wars = Object.keys(state.wars).filter((k) => k.split('|').includes(me)).length;
+  let target: string | null = null;
+  if (state.turn >= 14 && wars === 0) target = nearest(Object.keys(state.cityStates).filter((id) => state.cityStates[id]?.alive).map((id) => `cs:${id}`));
+  if (state.turn >= 24 && wars <= 1) target = nearest(state.playerOrder.filter((id) => id !== me && state.players[id]?.alive)) ?? target;
+  if (!target) return state;
+  const r = sim.applyCommand(state, me, { type: 'declareWar', target }, content);
+  return r.ok ? r.state : state;
 };

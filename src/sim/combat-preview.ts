@@ -100,6 +100,16 @@ export const combatPreview = (state: GameState, unitId: UnitId, target: Hex, con
     defenderHp = settlement?.hp ?? 0;
   }
   factors.sort((x, y) => Math.abs(y.value) - Math.abs(x.value));
+  if (kind === 'walls' && settlement && settlement.hp > 0 && toD.expected > 0) {
+    // Playtest 3 ("siege grind"): make the breach legible. Walls do not heal while an enemy
+    // stands within reach (src/sim/turn.ts `underSiege`), so attacks like this add up.
+    const left = Math.max(0, settlement.hp - toD.expected);
+    const attacks = Math.ceil(settlement.hp / toD.expected);
+    factors.push(
+      { label: 'Wall strength left after this attack', value: left, side: 'defender' },
+      { label: 'Attacks like this to breach the walls', value: attacks, side: 'defender' },
+    );
+  }
   return {
     kind,
     ranged,

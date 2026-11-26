@@ -65,8 +65,13 @@ export const OFFER_MIN_GAP_TURNS = 2;
 export const GP_BANK_MAX_THRESHOLDS = 2;
 /** Skipping an offer returns this share of the pool's (new) threshold as points. */
 export const SKIP_REFUND_SHARE = 0.25;
-/** Points every pool gets per turn while the player has a settlement (the court's renown). */
-export const GP_BASE_PER_POOL = 1.1;
+/**
+ * Points every pool gets per turn while the player has a settlement (the court's renown).
+ * Playtest 3 (an aggressive conqueror was offered mostly explorers and statesmen): at 1.1 this
+ * flat share outweighed what most play styles add, so every style saw the same mix. Lowered so
+ * what the player actually does decides the mix, while every pool still fills now and then.
+ */
+export const GP_BASE_PER_POOL = 0.7;
 /**
  * Global multiplier on the play-derived points below. Autoplay balance pass: at 1, AI
  * players saw 10–14 offers in a ~50-turn ancient age (target ~8, GDD §4) because real
@@ -80,21 +85,45 @@ export const GP_SCALE = 0.55;
  * Keeps every age near the same offer count.
  */
 export const GP_AGE_SCALE: Record<Age, number> = { ancient: 1, classical: 0.4, exploration: 0.3, modern: 0.25 };
-export const GP_MILITARY_PER_UNIT = 0.4;
-export const GP_MILITARY_PER_BATTLE_WON = 3;
-export const GP_MILITARY_PER_CITY_CAPTURED = 8;
-export const GP_STATESMAN_PER_SETTLEMENT = 0.45;
-export const GP_STATESMAN_PER_INFLUENCE = 0.4;
-export const GP_STATESMAN_PER_CULTURE = 0.15;
+/**
+ * What feeds each pool (GDD §4 "six pools fed by yields and actions"), retuned by playtest 3
+ * with the fun audit's scripted personas (scripts/fun-audit.ts --persona):
+ * military ← army, battles, captures and wars under way; statesman ← influence, trade
+ * routes, suzerainties and gold; thought ← science; faith ← faith; building ← production and
+ * buildings raised; exploration ← charting, scouts, ships and harbors.
+ */
+export const GP_MILITARY_PER_UNIT = 0.75;
+export const GP_MILITARY_PER_BATTLE_WON = 5;
+export const GP_MILITARY_PER_CITY_CAPTURED = 12;
+/** Per war under way (with a player or a city-state). */
+export const GP_MILITARY_PER_WAR = 1.2;
+export const GP_STATESMAN_PER_SETTLEMENT = 0.1;
+export const GP_STATESMAN_PER_INFLUENCE = 0.35;
+export const GP_STATESMAN_PER_CULTURE = 0.05;
+export const GP_STATESMAN_PER_TRADE_ROUTE = 1.2;
+export const GP_STATESMAN_PER_SUZERAINTY = 1.5;
+export const GP_STATESMAN_PER_GOLD = 0.08;
 export const GP_THOUGHT_PER_SCIENCE = 0.25;
-export const GP_FAITH_PER_FAITH = 0.45;
-export const GP_BUILDING_PER_PRODUCTION = 0.1;
+export const GP_FAITH_PER_FAITH = 0.6;
+export const GP_BUILDING_PER_PRODUCTION = 0.12;
+/** Per building standing in the player's settlements (wonders count through their `gp`). */
+export const GP_BUILDING_PER_BUILDING = 0.25;
+/**
+ * Faith's use (playtest 3: "faith has no use and piles up"). Each turn this share of the
+ * stored faith is given over to devotion: it becomes faith great-people points at
+ * FAITH_STOCK_TO_GP points per faith (scaled like other play-derived points), so a pious
+ * empire draws spiritual figures and the stock levels off instead of growing forever. Paused
+ * while the faith pool is banked full.
+ */
+export const FAITH_STOCK_DRAIN_SHARE = 0.2;
+export const FAITH_STOCK_TO_GP = 1;
 /** Multiplier on building/wonder `gp` values (they are already per-turn points). */
 export const GP_PER_BUILDING_POINT = 1;
 export const GP_EXPLORATION_PER_EXPLORED_PERCENT = 0.04;
-export const GP_EXPLORATION_PER_SCOUT = 0.8;
-export const GP_EXPLORATION_PER_TRADE_ROUTE = 1;
-export const GP_EXPLORATION_PER_COASTAL = 0.4;
+export const GP_EXPLORATION_PER_SCOUT = 1.2;
+export const GP_EXPLORATION_PER_SHIP = 1;
+export const GP_EXPLORATION_PER_TRADE_ROUTE = 0.3;
+export const GP_EXPLORATION_PER_COASTAL = 0.3;
 
 // --- Offers (GDD §4 "Offer generation") ---
 
@@ -104,6 +133,14 @@ export const OFFER_WEIGHT_BASE = 5;
 export const OFFER_WEIGHT_EXPONENT = 1.5;
 /** ×2 when the player is suzerain of, or trades with, a settlement of that culture. */
 export const PARTNER_WEIGHT_MULT = 2;
+/**
+ * Playtest 3: the same two figures were offered at turn 8 and again at turn 33. A figure the
+ * player was shown and passed over keeps this share of its draw weight for the rest of the
+ * age (remembered by a modifier-free timed effect, PASSED_OVER_SOURCE + figure id, that ends
+ * with the age). Still possible when little else is left, just rare.
+ */
+export const PASSED_OVER_WEIGHT_MULT = 0.08;
+export const PASSED_OVER_SOURCE = 'passed:';
 /** The draw guarantees one candidate from the player's top N affinity cultures. */
 export const TOP_CULTURES_GUARANTEED = 3;
 /** Points-offers (incl. legends) a player may have open at once; further points bank. */

@@ -3,7 +3,9 @@
  * per stage, and the sim-side pressure behaviors named by the crisis def. The crisis `pressure`
  * modifiers are applied by `playerModifiers` while `state.crisis` is set.
  */
-import type { Crisis, UnitDef } from '@contracts/content-schemas';
+import type { ContentBundle, Crisis, UnitDef, YieldType } from '@contracts/content-schemas';
+
+type CrisisOption = Crisis['stages'][number]['options'][number];
 import { axialToOffset, hexDistance, hexesInRange, hexEquals, type Hex } from '@contracts/hex';
 import { RAIDER_PLAYER, type GameState, type PlayerId } from '@contracts/sim-api';
 import type { SimCtx } from '../ctx';
@@ -137,7 +139,10 @@ const spawnRaiders = (ctx: SimCtx): void => {
       if (tiles.length === 0) break;
       if (spawnUnit(ctx, RAIDER_PLAYER, type.id, pick(state, tiles))) spawned++;
     }
-    if (spawned > 0) ctx.events.push({ type: 'notice', player: p.id, text: `Raiders gather near ${settlement.name}.` });
+    if (spawned > 0) {
+      const open = isUndefended(state, settlement) ? ', and no one guards it' : '';
+      ctx.events.push({ type: 'notice', player: p.id, text: `Raiders gather near ${settlement.name}${open}.` });
+    }
   }
 };
 
@@ -185,6 +190,54 @@ const unrest = (ctx: SimCtx): void => {
 
 // --- responses -----------------------------------------------------------------------------
 
+/** What a response costs beyond what the player holds, summed over its stock costs (0 = affordable). */
+export const crisisShortfall = (state: GameState, player: PlayerId, option: CrisisOption): number => {
+  const p = state.players[player];
+  let short = 0;
+  for (const key of Object.keys(option.stock) as YieldType[]) {
+    const delta = option.stock[key] ?? 0;
+    if (delta < 0) short += Math.max(0, -delta - (p?.stock[key] ?? 0));
+  }
+  return short;
+};
+
+/** Total stock an option takes (its negative deltas), to find the cheapest of two unaffordable ones. */
+const crisisPrice = (option: CrisisOption): number =>
+  (Object.values(option.stock) as (number | undefined)[]).reduce<number>((a, v) => a + Math.max(0, -(v ?? 0)), 0);
+
+const costText = (state: GameState, player: PlayerId, option: CrisisOption): string => {
+  const p = state.players[player];
+  const parts: string[] = [];
+  for (const key of Object.keys(option.stock) as YieldType[]) {
+    const delta = option.stock[key] ?? 0;
+    if (delta < 0 && (p?.stock[key] ?? 0) < -delta) parts.push(`${-delta} ${key}; you have ${Math.floor(p?.stock[key] ?? 0)}`);
+  }
+  return parts.join(', and ');
+};
+
+/**
+ * Can the player pick this response right now? (Playtest 3: "Pay tribute −40 gold" was taken
+ * with 18 gold in the treasury.) Rule: a response whose stock cost the player cannot pay is
+ * refused while another response of the stage is affordable. When none is, the cheapest one
+ * is allowed and takes whatever the player has (stocks never go below 0), so the crisis can
+ * always be answered. Pure; the AI and the UI can call it to enable or explain the choices.
+ * Returns a plain-words reason, or null when the response is allowed.
+ */
+export const crisisResponseBlocked = (state: GameState, player: PlayerId, optionId: string, content: ContentBundle): string | null => {
+  const def = state.crisis ? content.crises.find((c) => c.id === state.crisis?.id) : undefined;
+  const stage = def && state.crisis ? def.stages[state.crisis.stage - 1] : undefined;
+  const option = stage?.options.find((o) => o.id === optionId);
+  if (!stage || !option) return null;
+  if (crisisShortfall(state, player, option) === 0) return null;
+  const affordable = stage.options.filter((o) => crisisShortfall(state, player, o) === 0);
+  if (affordable.length > 0) return `${option.label} costs ${costText(state, player, option)}. Choose another response.`;
+  // Nothing is affordable: the cheapest response (first in content order on a tie) is allowed.
+  let cheapest = stage.options[0];
+  for (const o of stage.options) if (cheapest && crisisPrice(o) < crisisPrice(cheapest)) cheapest = o;
+  if (cheapest?.id === option.id) return null;
+  return `${option.label} costs ${costText(state, player, option)}. You can afford neither response; ${cheapest?.label ?? 'the other'} takes what you have.`;
+};
+
 export const chooseCrisisResponse = (ctx: SimCtx, player: PlayerId, optionId: string): string | null => {
   const { state } = ctx;
   if (state.phase !== 'playing') return 'Crisis responses are chosen during play, not at an age transition.';
@@ -197,6 +250,8 @@ export const chooseCrisisResponse = (ctx: SimCtx, player: PlayerId, optionId: st
   if (!option) return 'That is not an option at this stage of the crisis.';
   const p = state.players[player];
   if (!p) return 'That player is not in this game.';
+  const blocked = crisisResponseBlocked(state, player, optionId, ctx.content);
+  if (blocked) return blocked;
   for (const key of Object.keys(option.stock) as (keyof typeof option.stock)[]) {
     const delta = option.stock[key] ?? 0;
     p.stock[key] = Math.max(0, (p.stock[key] ?? 0) + delta);

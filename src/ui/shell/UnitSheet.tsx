@@ -358,7 +358,8 @@ export function UnitSheet() {
               {tradeTargets.length === 1 ? `Trade route to ${g.settlements[tradeTargets[0] ?? '']?.name ?? 'here'}` : 'Trade route…'}
             </button>
           )}
-          {military && !u.fortified && (
+          {/* Scouts fortify as lookouts (+2 vision) once the map is charted. */}
+          {(military || explorer) && !u.fortified && (
             <button
               class="btn"
               disabled={!canAct}
@@ -368,7 +369,7 @@ export function UnitSheet() {
                 advance();
               }}
             >
-              <Icon name="fortify" /> Fortify
+              <Icon name="fortify" /> {military ? 'Fortify' : 'Keep watch'}
             </button>
           )}
           <button
@@ -449,7 +450,7 @@ export function UnitSheet() {
               onClick={() =>
                 askConfirm({
                   title: `Disband ${name}?`,
-                  body: 'The unit is gone for good.',
+                  body: 'The unit is gone for good. Inside your own borders, a quarter of its cost comes back as gold.',
                   confirmLabel: 'Disband',
                   danger: true,
                   onConfirm: () => {

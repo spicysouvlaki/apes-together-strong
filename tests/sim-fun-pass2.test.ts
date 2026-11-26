@@ -65,8 +65,10 @@ describe('crisis raiders (src/sim/raids.ts)', () => {
     const raider = addUnit(state, RAIDER_PLAYER, 'warrior', at(6, 5), content);
     expect(pillageTarget(state, raider)).toBeNull();
     moveRaiders(ctx);
-    expect(town.population).toBe(3); // it fought the garrison instead
-    expect(ctx.events.some((e) => e.type === 'combat')).toBe(true);
+    expect(town.population).toBe(3);
+    // Playtest 3: raiders no longer storm a guarded settlement (the garrison used to fall to
+    // wave after wave, and the town was then pillaged every turn).
+    expect(ctx.events.some((e) => e.type === 'combat')).toBe(false);
     expect(ctx.events.some((e) => e.type === 'notice' && /pillaged/.test(e.text))).toBe(false);
   });
 

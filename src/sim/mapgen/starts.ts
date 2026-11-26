@@ -150,7 +150,29 @@ const minDistTo = (g: Grid, i: number, set: readonly number[]): number => {
  * the set with the best (min pairwise distance, distinct climates, quality) wins.
  * Returns `count` starts followed by up to `extra` more, best first.
  */
-export const chooseStarts = (g: Grid, cands: readonly Cand[], count: number, extra: number): number[] => {
+/**
+ * Playtest 3 ("never met a rival in 43 turns on the small map"): starts used to be pushed as
+ * far apart as the map allowed (20–40 tiles on a 48-wide map) and, on every seed tried, onto
+ * different landmasses. Separation beyond `cap` now earns nothing, and each pair of starts
+ * sharing a landmass earns SHARED_LAND_BONUS, so rivals live within reach of a scout.
+ */
+export interface StartOptions {
+  /** Separation beyond this counts no more (default 24, the old behaviour). */
+  cap?: number;
+  /** Landmass id per tile; when given, starts sharing one are preferred. */
+  continent?: Int32Array;
+}
+const SHARED_LAND_BONUS = 9;
+
+export const chooseStarts = (g: Grid, cands: readonly Cand[], count: number, extra: number, opts: StartOptions = {}): number[] => {
+  const cap = opts.cap ?? 24;
+  const land = (i: number): number => opts.continent?.[i] ?? 0;
+  const sharedPairs = (set: readonly Cand[]): number => {
+    if (!opts.continent) return 0;
+    let n = 0;
+    for (let a = 0; a < set.length; a++) for (let b = a + 1; b < set.length; b++) if (land((set[a] as Cand).i) === land((set[b] as Cand).i)) n++;
+    return n;
+  };
   if (cands.length === 0) return [];
   const qMax = Math.max(...cands.map((c) => c.q));
   const qMin = Math.min(...cands.map((c) => c.q));
@@ -169,7 +191,8 @@ export const chooseStarts = (g: Grid, cands: readonly Cand[], count: number, ext
           chosen.map((x) => x.i),
         );
         if (d < 4) continue;
-        const score = Math.min(d, 30) + 6 * qn(c) + (!c.diverse || climates.has(c.climate) ? 0 : 5);
+        const sameLand = opts.continent ? chosen.filter((x) => land(x.i) === land(c.i)).length : 0;
+        const score = Math.min(d, cap + 6) + 6 * qn(c) + (!c.diverse || climates.has(c.climate) ? 0 : 5) + 3 * sameLand;
         if (score > bestScore) {
           bestScore = score;
           best = c;
@@ -194,7 +217,7 @@ export const chooseStarts = (g: Grid, cands: readonly Cand[], count: number, ext
     if (set.length < 2) minD = 30;
     const climates = new Set(set.filter((c) => c.diverse).map((c) => c.climate)).size;
     const quality = set.reduce((acc, c) => acc + qn(c), 0) / Math.max(1, set.length);
-    const value = set.length * 1000 + Math.min(minD, 24) * 2 + climates * 4 + quality * 3;
+    const value = set.length * 1000 + Math.min(minD, cap) * 2 + climates * 4 + quality * 3 + SHARED_LAND_BONUS * sharedPairs(set);
     if (value > bestValue) {
       bestValue = value;
       bestSet = set;

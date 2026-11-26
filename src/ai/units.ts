@@ -163,9 +163,11 @@ export const moveScouts = (ai: AiCtx): void => {
       continue;
     }
     if (field && (field[idxOf(ai, s.at)] ?? UNREACHABLE) < UNREACHABLE && moveAlong(ai, s.id, field)) continue;
-    // Nothing left to explore by land: go home and stay alive.
+    // Nothing left to explore by land: go home and keep watch as a lookout (playtest 3; a
+    // fortified scout sees farther). Disbanding would only make the economy build another.
     const t = ai.state.map.tiles[idxOf(ai, s.at)];
     if (t?.owner !== ai.player) moveAlong(ai, s.id, ownSettlementField(ai));
+    else if (!s.fortified) exec(ai, { type: 'fortify', unit: s.id }, true);
   }
 };
 

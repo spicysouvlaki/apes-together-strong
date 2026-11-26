@@ -11,7 +11,7 @@ import {
   type UnitDef,
 } from '@contracts/content-schemas';
 import { hexDistance, hexesInRange } from '@contracts/hex';
-import type { Command, FigureId, FigureState, GameState, PlayerId, Settlement, SettlementId } from '@contracts/sim-api';
+import type { Command, FigureId, FigureState, GameState, Offer, PlayerId, Settlement, SettlementId } from '@contracts/sim-api';
 import type { SimCtx } from '../sim/ctx';
 import { addAgeProgress } from '../sim/ages';
 import { costPercent, applyCostPercent, playerModifiers } from '../sim/modifiers';
@@ -20,7 +20,7 @@ import { speak } from '../sim/voice';
 import { cultureWeights } from './queries';
 import { baseAtHome, slotAccepts, slotIdOfKey, vacateSeat } from './cabinet';
 import * as K from './constants';
-import { dropOffer } from './offers';
+import { dropOffer, markPassedOver } from './offers';
 import { figureDef, getPlayer, homeSettlement, ownSettlementAt, ownSettlements, tileIndex } from './util';
 
 type FigureCommand = Extract<
@@ -254,6 +254,7 @@ const chooseOffer = (ctx: SimCtx, player: PlayerId, offerId: string, figureId: F
     if (offer.source !== 'deed' && offer.source !== 'legend') {
       p.gp[offer.source] += K.SKIP_REFUND_SHARE * p.gpThreshold[offer.source];
     }
+    markPassedOver(state, player, offer.candidates);
     dropOffer(state, offer.id, false);
     return null;
   }
@@ -274,6 +275,31 @@ const chooseOffer = (ctx: SimCtx, player: PlayerId, offerId: string, figureId: F
 
   const home = homeSettlement(state, player);
   if (!home) return 'You have no city to host them.';
+
+  // Fair contests (playtest 3: the first seat acted first and won every contested figure).
+  // A figure invited by two courts answers the earlier invitation: offers are kept in creation
+  // order, and the start-of-turn order rotates every turn (src/sim/turn.ts beginNextTurn), so
+  // which seat invited first varies. Choosing them from the later offer sends them to the
+  // earlier court ("joined a rival"); the later offer stays open for another choice.
+  const mine = state.offers.indexOf(offer);
+  const prior = state.offers.find(
+    (o, i) => i < mine && o.player !== player && o.candidates.includes(figureId) && homeSettlement(state, o.player) !== null,
+  );
+  if (prior) {
+    // The later offer loses them (and is refunded if they were its last candidate).
+    recruit(ctx, prior.player, prior, figureId, def);
+    return null;
+  }
+  recruit(ctx, player, offer, figureId, def);
+  return null;
+};
+
+/** `player` recruits `figureId` from `offer`: the figure joins, every other offer loses them. */
+const recruit = (ctx: SimCtx, player: PlayerId, offer: Offer, figureId: FigureId, def: Figure): void => {
+  const { state, content } = ctx;
+  const p = getPlayer(state, player);
+  const home = homeSettlement(state, player);
+  if (!home) return;
   const reason = offer.reasons[figureId] ?? '';
   state.figures[figureId] = {
     id: figureId,
@@ -299,6 +325,7 @@ const chooseOffer = (ctx: SimCtx, player: PlayerId, offerId: string, figureId: F
         ? `${def.name} joined the court, ${annalVoice(reason)}.`
         : `${def.name} joined the court.`,
   });
+  markPassedOver(state, player, offer.candidates.filter((c) => c !== figureId));
   dropOffer(state, offer.id, false);
   ctx.events.push({ type: 'figureRecruited', figure: figureId, player });
   addAgeProgress(ctx, K.RECRUIT_AGE_PROGRESS);
@@ -313,7 +340,6 @@ const chooseOffer = (ctx: SimCtx, player: PlayerId, offerId: string, figureId: F
     if (heaviestCultureOf(state, other.player, content) === def.culture) speak(ctx, other.player, player, 'figureWanted', { f: def.name });
     if (other.candidates.length === 0) dropOffer(state, other.id, true);
   }
-  return null;
 };
 
 const seat = (ctx: SimCtx, player: PlayerId, id: FigureId, key: string): string | null => {

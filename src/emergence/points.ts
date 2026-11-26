@@ -46,22 +46,34 @@ export const gpGain = (
     for (const k of GP_KINDS) fromBuildings[k] += w.gp[k] ?? 0;
   }
 
+  let buildings = 0;
+  for (const s of ownSettlements(state, player)) buildings += s.buildings.length;
+  let wars = 0;
+  for (const key of Object.keys(state.wars)) if (key.split('|').includes(player)) wars++;
+  let suzerainties = 0;
+  for (const id of Object.keys(state.cityStates)) if (state.cityStates[id]?.suzerain === player) suzerainties++;
+
   const base = m.settlementCount > 0 ? K.GP_BASE_PER_POOL : 0;
   const play: Record<GpKind, number> = {
     military:
       K.GP_MILITARY_PER_UNIT * m.unitsTotal +
       K.GP_MILITARY_PER_BATTLE_WON * p.stats.battlesWonThisTurn +
-      K.GP_MILITARY_PER_CITY_CAPTURED * p.stats.citiesCapturedThisTurn,
+      K.GP_MILITARY_PER_CITY_CAPTURED * p.stats.citiesCapturedThisTurn +
+      K.GP_MILITARY_PER_WAR * wars,
     statesman:
       K.GP_STATESMAN_PER_SETTLEMENT * m.settlementCount +
       K.GP_STATESMAN_PER_INFLUENCE * pos(inc.influence) +
-      K.GP_STATESMAN_PER_CULTURE * pos(inc.culture),
+      K.GP_STATESMAN_PER_CULTURE * pos(inc.culture) +
+      K.GP_STATESMAN_PER_TRADE_ROUTE * m.tradeRoutes +
+      K.GP_STATESMAN_PER_SUZERAINTY * suzerainties +
+      K.GP_STATESMAN_PER_GOLD * pos(inc.gold),
     thought: K.GP_THOUGHT_PER_SCIENCE * pos(inc.science),
     faith: K.GP_FAITH_PER_FAITH * pos(inc.faith),
-    building: K.GP_BUILDING_PER_PRODUCTION * pos(inc.production),
+    building: K.GP_BUILDING_PER_PRODUCTION * pos(inc.production) + K.GP_BUILDING_PER_BUILDING * buildings,
     exploration:
       K.GP_EXPLORATION_PER_EXPLORED_PERCENT * m.exploredPercent +
       K.GP_EXPLORATION_PER_SCOUT * m.scouts +
+      K.GP_EXPLORATION_PER_SHIP * (m.unitsOfClass.naval ?? 0) +
       K.GP_EXPLORATION_PER_TRADE_ROUTE * m.tradeRoutes +
       K.GP_EXPLORATION_PER_COASTAL * m.coastalSettlements,
   };
@@ -83,4 +95,21 @@ export const accrueGp = (state: GameState, player: PlayerId, gains: Record<GpKin
     const before = p.gp[k] ?? 0;
     p.gp[k] = before >= cap ? before : Math.min(cap, before + gains[k]);
   }
+};
+
+/**
+ * Stored faith turns into faith great-people points (FAITH_STOCK_DRAIN_SHARE per turn), the
+ * stock's one sink without a new command. Skipped while the faith pool is banked full, so no
+ * faith is wasted.
+ */
+export const devoteFaith = (state: GameState, player: PlayerId): void => {
+  const p = state.players[player];
+  if (!p || p.stock.faith <= 0) return;
+  const cap = K.GP_BANK_MAX_THRESHOLDS * p.gpThreshold.faith;
+  if (p.gp.faith >= cap) return;
+  const spent = Math.round(p.stock.faith * K.FAITH_STOCK_DRAIN_SHARE * 100) / 100;
+  if (spent <= 0) return;
+  p.stock.faith = Math.round((p.stock.faith - spent) * 100) / 100;
+  const points = spent * K.FAITH_STOCK_TO_GP * K.GP_SCALE * K.GP_AGE_SCALE[state.age];
+  p.gp.faith = Math.min(cap, p.gp.faith + points);
 };

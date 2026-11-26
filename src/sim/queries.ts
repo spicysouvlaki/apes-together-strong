@@ -112,3 +112,12 @@ export const queries: SimQueries = {
   },
 };
 
+
+/**
+ * Not (yet) part of SimQueries (src/contracts is frozen): why a crisis response cannot be
+ * chosen right now, or null (playtest 3: unaffordable responses). The UI may import it from
+ * here to disable and explain the response buttons with the same rule the command applies.
+ */
+export { crisisResponseBlocked } from './ages/crisis';
+/** Gold a unit returns when disbanded where it stands now (0 outside its owner's borders). */
+export { disbandRefund } from './units';

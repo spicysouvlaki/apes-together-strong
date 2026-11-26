@@ -8,7 +8,7 @@ import type { CultureId, PlayerId } from '@contracts/sim-api';
 import type { SimCtx } from '../sim/ctx';
 import { affinityPercent, playerModifiers } from '../sim/modifiers';
 import { AFFINITY_DECAY, AFFINITY_DECAY_DORMANT, AFFINITY_SCALE, HINT_COOLDOWN_SOURCE, HINT_COOLDOWN_TURNS, HINT_THRESHOLDS, HINT_TOP_N } from './constants';
-import { topSignal, type Contributions } from './signals';
+import { citedSignals, type Contributions } from './signals';
 import { getPlayer, isDormantCulture } from './util';
 
 const gainMultiplier = (percent: number): number => Math.max(0, 1 + percent / 100);
@@ -81,7 +81,7 @@ const fireHints = (ctx: SimCtx, player: PlayerId, contributions: Contributions):
     const crossed = HINT_THRESHOLDS.filter((t) => a >= t && shown < t);
     const threshold = crossed[crossed.length - 1];
     if (threshold === undefined) continue;
-    const hint = topSignal(contributions, c.id, content)?.hint ?? FALLBACK_HINT;
+    const hint = citedSignals(state, player, contributions, c.id, content)[0]?.hint ?? FALLBACK_HINT;
     const dormant = isDormantCulture(content, c.id, state.age);
     ctx.events.push({ type: 'cultureHint', player, culture: c.id, text: hintText(c, hint, threshold, dormant) });
     p.hintsShown[c.id] = threshold;

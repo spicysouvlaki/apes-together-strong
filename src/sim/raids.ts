@@ -77,3 +77,28 @@ export const pillage = (ctx: SimCtx, raider: Unit, s: Settlement): void => {
   ctx.events.push({ type: 'notice', player: victim, text: `Raiders pillaged ${s.name}: ${what}. A garrison or walls would keep them out.` });
   if (raider.owner === RAIDER_PLAYER) removeUnit(ctx, raider.id);
 };
+
+/** Raiders within this many tiles of an undefended settlement trigger a warning (two turns' march). */
+export const RAIDER_WARNING_RANGE = 4;
+
+/**
+ * Playtest 3: a player lost both towns to raiders without a word of warning. At the end of
+ * each world phase, every undefended player settlement with raiders within
+ * RAIDER_WARNING_RANGE gets one notice naming how close they are ("Raiders are two days from
+ * Waset, and no one guards it."), unless the "gather near" notice already named it this phase.
+ */
+export const warnOfRaiders = (ctx: SimCtx): void => {
+  const { state } = ctx;
+  const raiders = Object.values(state.units).filter((u) => u.owner === RAIDER_PLAYER);
+  if (raiders.length === 0) return;
+  for (const id of Object.keys(state.settlements).sort()) {
+    const s = state.settlements[id];
+    if (!s || !state.players[s.owner]?.alive || !isUndefended(state, s)) continue;
+    let d = Infinity;
+    for (const r of raiders) d = Math.min(d, hexDistance(r.at, s.at));
+    if (d > RAIDER_WARNING_RANGE) continue;
+    if (ctx.events.some((e) => e.type === 'notice' && e.player === s.owner && e.text.includes(`near ${s.name}`))) continue;
+    const when = d <= 2 ? 'a day' : 'two days';
+    ctx.events.push({ type: 'notice', player: s.owner, text: `Raiders are ${when} from ${s.name}, and no one guards it.` });
+  }
+};

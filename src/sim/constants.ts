@@ -142,6 +142,8 @@ export const HEAL_RESTING = 5;
 /** Settlement walls (GDD §7: "A city falls when walls hit 0 and a melee unit enters"). */
 export const WALL_BASE_HP = 100;
 export const WALL_HEAL_PER_TURN = 15;
+/** Walls do not heal while an enemy military unit is within this distance (siege range). */
+export const WALL_SIEGE_RADIUS = 2;
 /** Settlement defense strength = base by age + perPop·pop + walls' extra HP / divisor. */
 export const SETTLEMENT_STRENGTH_BY_AGE: Record<Age, number> = { ancient: 18, classical: 28, exploration: 42, modern: 60 };
 export const SETTLEMENT_STRENGTH_PER_POP = 1;
@@ -153,6 +155,14 @@ export const SETTLEMENT_STRENGTH_WALL_DIVISOR = 10;
  */
 export const UNIT_GOLD_UPKEEP = 1;
 export const FREE_MILITARY_UNITS = 2;
+/**
+ * Playtest 3 ("scouts running out of map by turn 27"): a scout's work does not end with the
+ * map. A scout may fortify as a lookout (+LOOKOUT_VISION sight while it holds), and any
+ * non-figure unit disbanded inside its owner's borders returns DISBAND_REFUND_SHARE of its
+ * production cost as gold.
+ */
+export const LOOKOUT_VISION = 2;
+export const DISBAND_REFUND_SHARE = 0.25;
 /** Gold raiders carry off when they pillage a settlement (src/sim/raids.ts). */
 export const RAIDER_PILLAGE_GOLD = 25;
 /** Raiders go for an undefended settlement within this distance before anything else. */

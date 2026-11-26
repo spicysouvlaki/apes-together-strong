@@ -1,5 +1,6 @@
 /** End-of-age crisis card (GDD §5): sober and factual; one of two responses per stage. */
-import { closeModal, dispatch, game, lookup, me, myTurn } from '../store';
+import { closeModal, content, dispatch, game, lookup, me, myTurn } from '../store';
+import { crisisResponseBlocked } from '../../sim/queries';
 import type { ScreenProps } from './index';
 import { Empty, Screen, Section } from './shared/components';
 import { describeModifiers, YIELD_LABEL } from './shared/describe';
@@ -40,10 +41,13 @@ export const CrisisScreen = (_: ScreenProps<'crisis'>) => {
           <>
             {stage.options.map((o) => {
               const effects = [...stockText(o.stock), ...describeModifiers(o.modifiers, lookup)];
+              // The sim decides whether a response can be afforded; show its reason, not our guess.
+              const blocked =
+                game.value && me.value ? crisisResponseBlocked(game.value, me.value, o.id, content) : null;
               return (
                 <button
                   class="btn btn-wide scr-response"
-                  disabled={!myTurn.value}
+                  disabled={!myTurn.value || blocked !== null}
                   onClick={() => {
                     dispatch({ type: 'chooseCrisisResponse', option: o.id });
                     closeModal();
@@ -53,7 +57,7 @@ export const CrisisScreen = (_: ScreenProps<'crisis'>) => {
                   <span class="grow">
                     <b>{o.label}</b>
                     <br />
-                    <span class="small scr-response-fx">{effects.length ? effects.join('; ') : o.description}</span>
+                    <span class="small scr-response-fx">{blocked ?? (effects.length ? effects.join('; ') : o.description)}</span>
                   </span>
                 </button>
               );

@@ -26,14 +26,26 @@ export interface Persona {
 
 const isAgenda = (s: string): s is Agenda => (AGENDAS as readonly string[]).includes(s);
 
+/**
+ * Tooling only (scripts/fun-audit.ts `--persona`): force a seat's agendas to measure how one
+ * play style feels. Keyed by player id; never set by the game, so play stays as designed.
+ * Deterministic: the same overrides give the same games.
+ */
+const personaOverrides: Record<string, Agenda[]> = {};
+export const setPersonaOverride = (player: PlayerId, agendas: readonly string[] | null): void => {
+  if (agendas === null) delete personaOverrides[player];
+  else personaOverrides[player] = agendas.filter(isAgenda);
+};
+
 export const makePersona = (state: GameState, player: PlayerId, content: ContentBundle): Persona => {
   const p = state.players[player];
   const leader = content.leaders.find((l) => l.id === p?.leader);
-  const agendas: Agenda[] = (leader?.aiAgendaBias ?? []).filter(isAgenda);
+  const forced = personaOverrides[player];
+  const agendas: Agenda[] = forced ? [...forced] : (leader?.aiAgendaBias ?? []).filter(isAgenda);
   // Two more agendas from the seed and the player id, distinct from each other (they may
   // repeat a leader agenda, which then counts double).
   const derived: Agenda[] = [];
-  for (let i = 0; derived.length < 2 && i < 16; i++) {
+  for (let i = 0; !forced && derived.length < 2 && i < 16; i++) {
     const a = AGENDAS[hashStr(`${state.seed}|${player}|agenda|${i}`) % AGENDAS.length] as Agenda;
     if (!derived.includes(a)) derived.push(a);
   }

@@ -268,6 +268,8 @@ export const captureSettlement = (ctx: SimCtx, s: Settlement, to: PlayerId, atta
     const cs = state.cityStates[from.slice(CITY_STATE_PREFIX.length)];
     if (cs) {
       cs.alive = false;
+      // A fallen city-state is at war with no one (playtest 3: the entry outlived the city).
+      for (const key of Object.keys(state.wars)) if (key.split('|').includes(from)) delete state.wars[key];
       if (cs.suzerain !== null) {
         cs.suzerain = null;
         ctx.events.push({ type: 'suzerainChanged', cityState: cs.id, suzerain: null });

@@ -58,7 +58,9 @@ describe('great-people points', () => {
     expect(g.thought).toBeCloseTo(2 * (K.GP_BASE_PER_POOL + K.GP_SCALE * K.GP_THOUGHT_PER_SCIENCE * 10), 10);
     expect(g.faith).toBeCloseTo(K.GP_BASE_PER_POOL + K.GP_SCALE * K.GP_FAITH_PER_FAITH * 5, 10);
     expect(g.military).toBeCloseTo(K.GP_BASE_PER_POOL + K.GP_SCALE * (K.GP_MILITARY_PER_UNIT + K.GP_MILITARY_PER_BATTLE_WON), 10);
-    expect(g.building).toBeCloseTo(K.GP_BASE_PER_POOL + 1, 10);
+    // The monument's own gp, plus the per-building share of the building pool (playtest 3).
+    const buildings = state.settlements.cap1!.buildings.length;
+    expect(g.building).toBeCloseTo(K.GP_BASE_PER_POOL + 1 + K.GP_SCALE * K.GP_BUILDING_PER_BUILDING * buildings, 10);
   });
 
   it('a pool at threshold creates an offer, spends the threshold and grows it ×1.4', () => {

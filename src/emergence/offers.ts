@@ -8,7 +8,7 @@ import { weightedIndex } from '../sim/rng';
 import { statValue } from '../sim/stats';
 import * as K from './constants';
 import { PARTNER_REASONS, REASON_FAMILY, TALES_REASONS, WANDERER_REASONS, pickPhrase, signalReason } from './reasons';
-import { signalContributions, topSignal, topTwoSignals, type Contributions } from './signals';
+import { citedSignals, signalContributions, type Contributions } from './signals';
 import { culturesWithFiguresIn, figureDef, getPlayer, kindsForGp, suzerainByCulture, tradeRoutesByCulture } from './util';
 
 /** Cultures the player has a city-state suzerainty or trade route with (×2 offer weight). */
@@ -58,16 +58,16 @@ export const offerReason = (
 ): string => {
   const a = getPlayer(state, player).affinity[culture] ?? 0;
   if (a < K.REASON_MIN_AFFINITY) return figure ? pickPhrase(state, figure, WANDERER_REASONS) : WANDERER_REASONS[0];
-  const [first, second] = topTwoSignals(contributions, culture, content);
+  const [first, second] = citedSignals(state, player, contributions, culture, content);
   if (first) {
     const secondHint =
       second &&
-      second.signal.hint !== first.signal.hint &&
+      second.hint !== first.hint &&
       REASON_FAMILY[second.signal.measure] === REASON_FAMILY[first.signal.measure] &&
       second.value >= K.REASON_SECOND_SIGNAL_SHARE * first.value
-        ? second.signal.hint
+        ? second.hint
         : null;
-    return figure ? signalReason(state, figure, first.signal.measure, first.signal.hint, secondHint) : `drawn by ${first.signal.hint}`;
+    return figure ? signalReason(state, figure, first.signal.measure, first.hint, secondHint) : `drawn by ${first.hint}`;
   }
   if (partnerCultures(state, player, content)[culture]) return figure ? pickPhrase(state, figure, PARTNER_REASONS) : PARTNER_REASONS[0];
   return figure ? pickPhrase(state, figure, TALES_REASONS) : TALES_REASONS[0];
@@ -107,12 +107,35 @@ export const figureUsable = (state: GameState, player: PlayerId, f: Figure, cont
   return false;
 };
 
+/** Figures this player was shown and passed over during the current age. */
+export const passedOver = (state: GameState, player: PlayerId): Record<FigureId, true> => {
+  const out: Record<FigureId, true> = {};
+  for (const e of state.players[player]?.effects ?? []) {
+    if (e.source.startsWith(K.PASSED_OVER_SOURCE)) out[e.source.slice(K.PASSED_OVER_SOURCE.length)] = true;
+  }
+  return out;
+};
+
+/** Remember that the player passed over these figures (until the age ends; no modifiers). */
+export const markPassedOver = (state: GameState, player: PlayerId, figures: readonly FigureId[]): void => {
+  const p = state.players[player];
+  if (!p) return;
+  const known = passedOver(state, player);
+  for (const f of figures) {
+    if (known[f] || state.figures[f]) continue;
+    p.effects.push({ source: K.PASSED_OVER_SOURCE + f, untilTurn: -1, modifiers: [] });
+    known[f] = true;
+  }
+};
+
 export const drawCandidates = (state: GameState, player: PlayerId, pool: readonly Figure[], content: ContentBundle): Figure[] => {
   const p = getPlayer(state, player);
   const partners = partnerCultures(state, player, content);
+  const passed = passedOver(state, player);
   const weightOf = (f: Figure): number =>
     offerWeight(p.affinity[f.culture] ?? 0, partners[f.culture] === true) *
-    (figureUsable(state, player, f, content) ? 1 : K.UNSEATABLE_WEIGHT_MULT);
+    (figureUsable(state, player, f, content) ? 1 : K.UNSEATABLE_WEIGHT_MULT) *
+    (passed[f.id] ? K.PASSED_OVER_WEIGHT_MULT : 1);
 
   const remaining = pool.slice();
   const drawn: Figure[] = [];
@@ -368,7 +391,7 @@ export const offerAgeOpening = (ctx: SimCtx, player: PlayerId): boolean => {
   const first = drawn[0];
   if (!first || first.kind === 'legend') return false;
   const contributions = signalContributions(state, player, content);
-  const hint = topSignal(contributions, culture, content)?.hint ?? 'your people';
+  const hint = citedSignals(state, player, contributions, culture, content)[0]?.hint ?? 'your people';
   const reasons: Record<FigureId, string> = {};
   for (const f of drawn) reasons[f.id] = `come at last, drawn by the old tales of ${hint}`;
   pushOffer(ctx, player, FIGURE_KIND_TO_GP[first.kind], drawn, reasons, null);

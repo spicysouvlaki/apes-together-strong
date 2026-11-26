@@ -9,7 +9,7 @@ import {
   RAIDER_CAP_PER_PLAYER,
   RAIDER_SPAWN_INTERVAL,
 } from '../src/sim/ages/constants';
-import { raiderSpawnTiles, raiderUnitType } from '../src/sim/ages/crisis';
+import { crisisResponseBlocked, raiderSpawnTiles, raiderUnitType } from '../src/sim/ages/crisis';
 import {
   addSettlement,
   eventsOf,
@@ -116,9 +116,9 @@ describe('crisis', () => {
       return { state, ctx };
     };
 
-    it('applies stock deltas (not below 0), records the choice, leaves awaiting, writes the chronicle', () => {
+    it('applies stock deltas, records the choice, leaves awaiting, writes the chronicle', () => {
       const { state, ctx } = atStage1();
-      player(state, 'p1').stock.gold = 20;
+      player(state, 'p1').stock.gold = 30;
       expect(handleAgesCommand(ctx, 'p1', { type: 'chooseCrisisResponse', option: 'collapse_a1' })).toBeNull();
       const p = player(state, 'p1');
       expect(p.stock.gold).toBe(0);
@@ -126,6 +126,35 @@ describe('crisis', () => {
       expect(p.effects).toEqual([]);
       expect(state.crisis?.awaiting).toEqual(['p2', 'p3']);
       expect(p.chronicle.at(-1)?.kind).toBe('crisis');
+    });
+
+    // Playtest 3: "Pay tribute −40 gold" was accepted with 18 gold in the treasury.
+    it('refuses a response the player cannot pay while another is affordable, in plain words', () => {
+      const { state, ctx } = atStage1();
+      player(state, 'p1').stock.gold = 18;
+      expect(crisisResponseBlocked(state, 'p1', 'collapse_a1', ctx.content)).toBe('collapse_a1 costs 30 gold; you have 18. Choose another response.');
+      expect(crisisResponseBlocked(state, 'p1', 'collapse_b1', ctx.content)).toBeNull();
+      const err = handleAgesCommand(ctx, 'p1', { type: 'chooseCrisisResponse', option: 'collapse_a1' });
+      expect(err).toMatch(/costs 30 gold; you have 18/);
+      expect(player(state, 'p1').stock.gold).toBe(18);
+      expect(state.crisis?.awaiting).toContain('p1');
+      expect(handleAgesCommand(ctx, 'p1', { type: 'chooseCrisisResponse', option: 'collapse_b1' })).toBeNull();
+    });
+
+    it('when neither response is affordable, only the cheaper one is allowed and takes what the player has', () => {
+      const content = fixtureContent();
+      const stage = content.crises[0]?.stages[0];
+      const b1 = stage?.options[1];
+      if (!b1) throw new Error('fixture');
+      b1.stock = { gold: -50 };
+      const state = makeState(undefined, { ageProgress: 69 });
+      const ctx = makeCtx(state, content);
+      agesWorldPhase(ctx);
+      player(state, 'p1').stock.gold = 10;
+      expect(crisisResponseBlocked(state, 'p1', 'collapse_b1', content)).toMatch(/afford neither response; collapse_a1 takes what you have/);
+      expect(handleAgesCommand(ctx, 'p1', { type: 'chooseCrisisResponse', option: 'collapse_b1' })).not.toBeNull();
+      expect(handleAgesCommand(ctx, 'p1', { type: 'chooseCrisisResponse', option: 'collapse_a1' })).toBeNull();
+      expect(player(state, 'p1').stock.gold).toBe(0);
     });
 
     it('adds the option modifiers as a TimedEffect lasting until the age ends', () => {

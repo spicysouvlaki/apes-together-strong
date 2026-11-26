@@ -6,6 +6,7 @@
  * Figure commands go to src/emergence, crisis/refinement/transition commands to src/sim/ages.
  */
 import { AGES, type ContentBundle, type UnitDef } from '@contracts/content-schemas';
+import type { Hex } from '@contracts/hex';
 import {
   CITY_STATE_PREFIX,
   type Command,
@@ -20,13 +21,14 @@ import { attack } from './combat';
 import { CITY_STATE_START_POP } from './constants';
 import type { SimCtx } from './ctx';
 import { declareWar, makePeace, openTradeRoute, sendEnvoy } from './diplomacy';
+import { tileAt } from './lookup';
 import { generateMap, MAP_DIMENSIONS } from './mapgen';
 import { newPlayer } from './players';
 import { setGovernment, setResearch } from './research';
 import { seedRng, shuffle } from './rng';
 import { buyItem, createSettlement, foundSettlement, setProduction, upgradeSettlement } from './settlements';
-import { endTurn, beginNextTurn, refreshIncome, startOfTurnForPlayer } from './turn';
-import { moveUnit, removeUnit, spawnUnit } from './units';
+import { endTurn, beginNextTurn, refreshIncome, startOfTurnForPlayer, treasuryNotices } from './turn';
+import { disbandRefund, isLookout, moveUnit, removeUnit, spawnUnit } from './units';
 
 const FIGURE_COMMANDS: ReadonlySet<Command['type']> = new Set([
   'chooseOffer',
@@ -99,7 +101,7 @@ const createGame: Sim['createGame'] = (setup: GameSetup, content: ContentBundle)
   // Seats draw their start by lot. Mapgen lists the best-quality start first, and handing it
   // to the first seat (always the human in a real game) was a hidden asymmetry: fun audit
   // pass 2 found seat 1 on the same kind of start in over half of all maps.
-  const starts = shuffle(state, gen.starts.slice(0, setup.players.length));
+  const starts = shareLandWithHumans(state, setup, shuffle(state, gen.starts.slice(0, setup.players.length)));
   setup.players.forEach((ps, i) => {
     const start = starts[i];
     if (!start) return;
@@ -128,8 +130,32 @@ const createGame: Sim['createGame'] = (setup: GameSetup, content: ContentBundle)
   return { state, events: ctx.events };
 };
 
+/**
+ * Playtest 3 ("never met a rival in 43 turns"): maps have 2–4 landmasses, so with three
+ * players someone usually starts alone, and when that was the human there was no contact,
+ * no rival voice and no diplomacy for most of an age. After the lot is drawn, a human whose
+ * start shares no landmass with any other start swaps with an AI seat whose start does.
+ * No random draw, so the lot itself stays as fair as before.
+ */
+const shareLandWithHumans = (state: GameState, setup: GameSetup, starts: Hex[]): Hex[] => {
+  const out = starts.slice();
+  const land = (h: Hex | undefined): number => (h ? (tileAt(state.map, h)?.continent ?? 0) : 0);
+  const alone = (i: number): boolean => !out.some((h, j) => j !== i && land(h) === land(out[i]));
+  setup.players.forEach((ps, i) => {
+    if (!ps.isHuman || !alone(i)) return;
+    const j = setup.players.findIndex((o, k) => k !== i && !o.isHuman && !alone(k));
+    if (j < 0) return;
+    const a = out[i];
+    const b = out[j];
+    if (!a || !b) return;
+    out[i] = b;
+    out[j] = a;
+  });
+  return out;
+};
+
 const dispatch = (ctx: SimCtx, player: PlayerId, command: Command): string | null => {
-  const { state } = ctx;
+  const { state, content } = ctx;
   if (state.phase === 'ended') return 'The game is over.';
   const p = state.players[player];
   if (!p) return 'That player is not in this game.';
@@ -157,7 +183,9 @@ const dispatch = (ctx: SimCtx, player: PlayerId, command: Command): string | nul
     case 'fortify': {
       const u = state.units[command.unit];
       if (!u || u.owner !== player) return 'That unit is not yours.';
-      if (u.unitClass === 'civilian') return 'Civilian units cannot fortify.';
+      const def = content.units.find((d) => d.id === u.type);
+      // Scouts fortify as lookouts (+vision while they hold; src/sim/units.ts visionRadius).
+      if (u.unitClass === 'civilian' && !(def && isLookout(def))) return 'Civilian units cannot fortify.';
       u.fortified = true;
       u.movesLeft = 0;
       return null;
@@ -166,7 +194,14 @@ const dispatch = (ctx: SimCtx, player: PlayerId, command: Command): string | nul
       const u = state.units[command.unit];
       if (!u || u.owner !== player) return 'That unit is not yours.';
       if (u.figure) return 'A figure cannot be disbanded; recall them to a settlement instead.';
+      const refund = disbandRefund(state, u, content);
+      const name = content.units.find((d) => d.id === u.type)?.name ?? 'The unit';
       removeUnit(ctx, u.id);
+      if (refund > 0) {
+        const p = state.players[player];
+        if (p) p.stock.gold += refund;
+        ctx.events.push({ type: 'notice', player, text: `${name} disbanded; ${refund} gold returned to the treasury.` });
+      }
       return null;
     }
     case 'foundSettlement':
@@ -283,7 +318,13 @@ const applyCommand: Sim['applyCommand'] = (state, player, command, content) => {
     if (YIELD_COMMANDS.has(command.type) && ctx.state.phase !== 'ended') {
       // Captures, wars and routes touch the other side too: refresh every living player then.
       const all = command.type === 'attack' || command.type === 'declareWar' || command.type === 'makePeace' || command.type === 'openTradeRoute';
-      for (const pid of all ? ctx.state.playerOrder : [player]) refreshIncome(ctx.state, pid, content);
+      for (const pid of all ? ctx.state.playerOrder : [player]) {
+        const p = ctx.state.players[pid];
+        const before = { stock: p?.stock.gold ?? 0, income: p?.income.gold ?? 0 };
+        refreshIncome(ctx.state, pid, content);
+        // A purchase or a new war can tip the treasury into the red: say so at once.
+        if (p?.alive) treasuryNotices(ctx, pid, before, { stock: p.stock.gold, income: p.income.gold });
+      }
     }
     return { ok: true, state: ctx.state, events: ctx.events };
   } catch (err) {

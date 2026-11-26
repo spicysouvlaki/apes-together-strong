@@ -196,6 +196,25 @@ export const closeRoutesOverCapacity = (ctx: SimCtx): void => {
   }
 };
 
+/** Is this war party still around: a living player, or a city-state that still stands? */
+const warPartyAlive = (state: GameState, id: PlayerId): boolean => {
+  if (isCityStateOwner(id)) return state.cityStates[id.slice(CITY_STATE_PREFIX.length)]?.alive === true;
+  return state.players[id]?.alive === true;
+};
+
+/**
+ * Remove every war entry with a party that no longer exists (a captured city-state, an
+ * eliminated player). Playtest 3: after Ugarit fell, `wars["cs:ugarit|p1"]` stayed forever,
+ * so the player kept paying war weariness against a city that was theirs. Capture and
+ * elimination clear their own entries; this sweep (every turn start) catches anything else.
+ */
+export const pruneWars = (state: GameState): void => {
+  for (const key of Object.keys(state.wars)) {
+    const [a, b] = key.split('|');
+    if (a === undefined || b === undefined || !warPartyAlive(state, a) || !warPartyAlive(state, b)) delete state.wars[key];
+  }
+};
+
 /** Drop routes whose ends changed hands or whose parties went to war. */
 export const pruneTradeRoutes = (state: GameState): void => {
   state.tradeRoutes = state.tradeRoutes.filter((r) => {

@@ -40,6 +40,11 @@ export const MAP_DIMENSIONS: Record<MapSize, { width: number; height: number; ci
   large: { width: 80, height: 50, cityStates: 8 },
 };
 
+/**
+ * Starts spread to at most this multiple of the required distance (playtest 3: rivals on the
+ * small map were 20–40 tiles apart and never met in 43 turns); see chooseStarts.
+ */
+const START_SEPARATION_CAP = 1.4;
 /** Extra start tiles returned beyond `players`, as fallbacks for the sim. */
 const EXTRA_STARTS = 2;
 const EXTRA_CITY_STATE_SITES = 2;
@@ -99,7 +104,10 @@ const generateOnce = (
     barren: (i: number) => ls.terrain[i] === roles.snow || ls.terrain[i] === roles.mountain,
     content,
   };
-  const starts = chooseStarts(g, startCandidates(siteInput), players, EXTRA_STARTS);
+  const starts = chooseStarts(g, startCandidates(siteInput), players, EXTRA_STARTS, {
+    cap: Math.round(requiredStartDistance(size, players) * START_SEPARATION_CAP),
+    continent: ls.continent,
+  });
   const csWant = MAP_DIMENSIONS[size].cityStates + EXTRA_CITY_STATE_SITES;
   let sites = chooseCityStateSites(siteInput, starts, csWant);
   // Spare starts should not crowd out city-states; fall back to spacing from real starts only.

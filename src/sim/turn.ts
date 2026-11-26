@@ -9,21 +9,36 @@ import { RAIDER_PLAYER, isCityStateOwner, type GameState, type PlayerId, type Un
 import { emergenceTick } from '../emergence';
 import { agesWorldPhase, updateMilestones } from './ages';
 import { attackTargetsOf, checkEliminations, isHostile, planAttack, resolveAttack } from './combat';
-import { WALL_HEAL_PER_TURN } from './constants';
+import { WALL_HEAL_PER_TURN, WALL_SIEGE_RADIUS } from './constants';
 import type { SimCtx } from './ctx';
-import { closeRoutesOverCapacity, pruneTradeRoutes } from './diplomacy';
-import { ci, hexOfIndex, playerSettlements, settlementAt, unitsAt } from './lookup';
-import { isUndefended, pillage, pillageTarget, raiderGoal } from './raids';
+import { closeRoutesOverCapacity, pruneTradeRoutes, pruneWars } from './diplomacy';
+import { ci, hexOfIndex, playerSettlements, settlementAt, tileAt, unitsAt } from './lookup';
+import { isUndefended, pillage, pillageTarget, raiderGoal, warnOfRaiders } from './raids';
 import { empireModifiers } from './modifiers';
 import { advanceResearch } from './research';
 import { growSettlement, produceInSettlement } from './settlements';
 import { findPaths, refreshUnitsOf, removeUnit, unitUpkeep, updateExplored } from './units';
 import { contactsOf, greetNewContacts, hasHuman } from './voice';
-import { STOCK_YIELDS, computeEmpire, computeHappiness } from './yields';
+import { STOCK_YIELDS, computeEmpire, computeHappiness, militaryUpkeep } from './yields';
 
 const hostileAdjacent = (state: GameState, owner: PlayerId, at: { q: number; r: number }): boolean => {
   for (const n of hexNeighbors(at)) {
     for (const u of unitsAt(state, n)) if (u.unitClass !== 'civilian' && isHostile(state, owner, u.owner)) return true;
+  }
+  return false;
+};
+
+/**
+ * Walls are not repaired while an enemy military unit stands within WALL_SIEGE_RADIUS
+ * (playtest 3 "siege grind": archers and catapults bombard from two tiles away, so with an
+ * adjacency-only rule the walls healed every turn of a siege and a capture took 3+ turns of
+ * the same attacks).
+ */
+export const underSiege = (state: GameState, owner: PlayerId, at: { q: number; r: number }): boolean => {
+  for (const id of Object.keys(state.units)) {
+    const u = state.units[id];
+    if (!u || u.unitClass === 'civilian' || !isHostile(state, owner, u.owner)) continue;
+    if (hexDistance(u.at, at) <= WALL_SIEGE_RADIUS) return true;
   }
   return false;
 };
@@ -49,8 +64,61 @@ export const desertForUpkeep = (ctx: SimCtx, player: PlayerId): void => {
     }
   }
   if (!pick) return;
+  const name = ci(content).units[pick.type]?.name ?? 'A unit';
+  const tile = tileAt(state.map, pick.at);
+  const where = tile?.settlement ? state.settlements[tile.settlement]?.name : undefined;
   removeUnit(ctx, pick.id);
-  ctx.events.push({ type: 'notice', player, text: 'Unpaid soldiers deserted: the treasury is empty.' });
+  // Never silent (playtest 3): say who left and why, so the player can act.
+  ctx.events.push({
+    type: 'notice',
+    player,
+    text: `${name}${where ? ` in ${where}` : ''} deserted: the treasury is empty and the soldiers went unpaid. Disband units or raise more gold.`,
+  });
+};
+
+/** Gold warnings look this many turns ahead (playtest 3: the treasury ran dry without a word). */
+export const TREASURY_WARNING_TURNS = 3;
+/** The "shrinking" warning repeats at most this often (income can hover around zero). */
+export const TREASURY_SHRINK_COOLDOWN = 12;
+/** ...and only when the stock would not cover this many turns of the loss anyway. */
+export const TREASURY_SHRINK_HORIZON = 15;
+/** Modifier-free `TimedEffect` marking a recent "shrinking" warning. */
+export const TREASURY_WARNED_SOURCE = 'treasury-warned';
+
+/**
+ * Warn the player as their treasury turns: when gold income is negative and the stock no
+ * longer covers TREASURY_SHRINK_HORIZON turns of it (at most once per
+ * TREASURY_SHRINK_COOLDOWN turns), and once when the stock will run out within
+ * TREASURY_WARNING_TURNS turns. Both compare with the previous income and stock, so each fires
+ * once per downturn.
+ */
+export const treasuryNotices = (ctx: SimCtx, player: PlayerId, before: { stock: number; income: number }, now: { stock: number; income: number }): void => {
+  const { state } = ctx;
+  const p = state.players[player];
+  if (!p) return;
+  const soldiers = Object.values(state.units).filter((u) => u.owner === player && u.unitClass !== 'civilian' && !u.figure).length;
+  const warnedLately = p.effects.some((e) => e.source === TREASURY_WARNED_SOURCE && e.untilTurn >= state.turn);
+  const shrinking = (stock: number, income: number): boolean => income < 0 && stock + TREASURY_SHRINK_HORIZON * income < 0;
+  if (shrinking(now.stock, now.income) && !shrinking(before.stock, before.income) && !warnedLately) {
+    p.effects.push({ source: TREASURY_WARNED_SOURCE, untilTurn: state.turn + TREASURY_SHRINK_COOLDOWN - 1, modifiers: [] });
+    ctx.events.push({
+      type: 'notice',
+      player,
+      text:
+        militaryUpkeep(state, player) > 0
+          ? `Your treasury is shrinking: ${soldiers} soldiers cost more than your towns earn.`
+          : 'Your treasury is shrinking: you spend more gold than you earn.',
+    });
+  }
+  const runsOut = (stock: number, income: number): boolean => income < 0 && stock > 0 && stock + TREASURY_WARNING_TURNS * income <= 0;
+  if (runsOut(now.stock, now.income) && !runsOut(before.stock, before.income)) {
+    const turns = Math.max(1, Math.ceil(now.stock / -now.income));
+    ctx.events.push({
+      type: 'notice',
+      player,
+      text: `The treasury will be empty in ${turns === 1 ? 'one turn' : `${turns} turns`}; then unpaid soldiers start to desert.`,
+    });
+  }
 };
 
 /** Start-of-turn sim for one player (GDD §5 "start-of-turn sim"). */
@@ -66,8 +134,10 @@ export const startOfTurnForPlayer = (ctx: SimCtx, player: PlayerId): void => {
 
   p.happiness = computeHappiness(state, player, content, emp);
   const { income, perSettlement } = computeEmpire(state, player, content, emp);
+  const goldBefore = { stock: p.stock.gold, income: p.income.gold };
   for (const y of STOCK_YIELDS) p.stock[y] = Math.round((p.stock[y] + income[y]) * 100) / 100;
   if (p.stock.gold < 0) desertForUpkeep(ctx, player);
+  else treasuryNotices(ctx, player, goldBefore, { stock: p.stock.gold, income: income.gold });
   const nextIncome = {} as typeof income;
   for (const y of YIELDS) nextIncome[y] = income[y];
   p.income = nextIncome;
@@ -91,7 +161,7 @@ export const startOfTurnForPlayer = (ctx: SimCtx, player: PlayerId): void => {
     } else {
       s.siegeTurns = 0;
     }
-    if (!besieged) s.hp = Math.min(s.maxHp, s.hp + WALL_HEAL_PER_TURN);
+    if (!underSiege(state, player, s.at)) s.hp = Math.min(s.maxHp, s.hp + WALL_HEAL_PER_TURN);
   }
 
   const voiced = hasHuman(state);
@@ -119,13 +189,28 @@ export const refreshIncome = (state: GameState, player: PlayerId, content: Conte
 export const firstAlive = (state: GameState): PlayerId | undefined =>
   state.playerOrder.find((pid) => state.players[pid]?.alive);
 
+/**
+ * The order of the start-of-turn sims: `playerOrder` rotated by the turn number. Offers are
+ * drawn in this order, and a figure invited by two courts answers the earlier invitation
+ * (src/emergence/figures.ts), so the rotation keeps any seat from always inviting first.
+ * Playtest 3: with a fixed order, the first seat won every contested figure.
+ */
+export const startOfTurnOrder = (state: GameState): PlayerId[] => {
+  const order = state.playerOrder;
+  const n = order.length;
+  if (n === 0) return [];
+  const shift = ((state.turn % n) + n) % n;
+  return [...order.slice(shift), ...order.slice(0, shift)];
+};
+
 /** Advance to the next turn: turn++, then every living player's start-of-turn. */
 export const beginNextTurn = (ctx: SimCtx): void => {
   const { state } = ctx;
   state.turn++;
+  pruneWars(state);
   pruneTradeRoutes(state);
   closeRoutesOverCapacity(ctx);
-  for (const pid of state.playerOrder) startOfTurnForPlayer(ctx, pid);
+  for (const pid of startOfTurnOrder(state)) startOfTurnForPlayer(ctx, pid);
   state.currentPlayer = firstAlive(state) ?? state.currentPlayer;
   ctx.events.push({ type: 'turnStarted', turn: state.turn });
 };
@@ -148,8 +233,19 @@ const nearestUnit = (state: GameState, u: Unit): { q: number; r: number } | null
   return best;
 };
 
+/**
+ * Raiders do not storm a player's settlement: a garrison or walls keep them out, as the
+ * pillage notice promises (playtest 3: following the guide, one warrior per settlement, a
+ * player still lost the garrison to wave after wave and then saw the town pillaged every turn).
+ * They fight units in the open and pillage what nobody guards. City-states keep their old rule.
+ */
+const raiderMayStrike = (state: GameState, h: { q: number; r: number }): boolean => {
+  const s = settlementAt(state, h);
+  return !s || !state.players[s.owner];
+};
+
 const raiderAttack = (ctx: SimCtx, u: Unit, goal: { q: number; r: number }): boolean => {
-  const targets = attackTargetsOf(ctx.state, u, ctx.content);
+  const targets = attackTargetsOf(ctx.state, u, ctx.content).filter((t) => raiderMayStrike(ctx.state, t));
   if (targets.length === 0) return false;
   let pick = targets[0];
   let bestD = Infinity;
@@ -215,12 +311,12 @@ export const moveRaiders = (ctx: SimCtx): void => {
   checkEliminations(ctx, null);
 };
 
-/** City-state walls heal when no hostile unit is adjacent. */
+/** City-state walls heal when no hostile military unit is near (see `underSiege`). */
 const healCityStates = (state: GameState): void => {
   for (const sid of Object.keys(state.settlements)) {
     const s = state.settlements[sid];
     if (!s || !isCityStateOwner(s.owner)) continue;
-    if (!hostileAdjacent(state, s.owner, s.at)) s.hp = Math.min(s.maxHp, s.hp + WALL_HEAL_PER_TURN);
+    if (!underSiege(state, s.owner, s.at)) s.hp = Math.min(s.maxHp, s.hp + WALL_HEAL_PER_TURN);
   }
 };
 
@@ -228,6 +324,7 @@ export const worldPhase = (ctx: SimCtx): void => {
   moveRaiders(ctx);
   healCityStates(ctx.state);
   agesWorldPhase(ctx);
+  warnOfRaiders(ctx);
 };
 
 /**

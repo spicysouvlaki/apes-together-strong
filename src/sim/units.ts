@@ -16,6 +16,8 @@ import {
   HEAL_RESTING,
   SETTLEMENT_VISION,
   UNIT_MAX_HP,
+  DISBAND_REFUND_SHARE,
+  LOOKOUT_VISION,
 } from './constants';
 import { mintId, type SimCtx } from './ctx';
 import { contactsOf, greetNewContacts, hasHuman } from './voice';
@@ -156,7 +158,18 @@ export const maxMoves = (state: GameState, unit: Unit, content: ContentBundle, e
 export const visionRadius = (state: GameState, unit: Unit, content: ContentBundle, empire?: readonly Modifier[]): number => {
   const def = ci(content).units[unit.type];
   if (!def) return 1;
-  return Math.max(1, def.vision + unitAdd(unitModifiers(state, unit, content, empire), 'vision', unitEnv(state, unit, content)));
+  const lookout = unit.fortified && isLookout(def) ? LOOKOUT_VISION : 0;
+  return Math.max(1, def.vision + lookout + unitAdd(unitModifiers(state, unit, content, empire), 'vision', unitEnv(state, unit, content)));
+};
+
+/** A scout: a civilian that can neither found nor trade nor is a figure. It may fortify as a lookout. */
+export const isLookout = (def: UnitDef): boolean => def.unitClass === 'civilian' && !def.canFound && !def.canTrade && !def.figureKind;
+
+/** Gold returned when `u` is disbanded now: a share of its cost inside its owner's borders, else 0. */
+export const disbandRefund = (state: GameState, u: Unit, content: ContentBundle): number => {
+  const def = ci(content).units[u.type];
+  if (!def || u.figure || tileAt(state.map, u.at)?.owner !== u.owner) return 0;
+  return Math.floor(def.cost * DISBAND_REFUND_SHARE);
 };
 
 // --- Movement ---------------------------------------------------------------
