@@ -27,6 +27,11 @@ export interface PlanOptions {
   settlementOwner?: (id: SettlementId) => PlayerId | null | undefined;
   maxSounds?: number;
   maxSpanMs?: number;
+  /**
+   * The sound that just played (the previous batch's last). If this batch would open with the
+   * same sound, the next one goes first, so the player never hears the same sound twice in a row.
+   */
+  avoidFirst?: Sfx;
 }
 
 /** A sound an event asks for. `prio`: lower = more important. */
@@ -99,10 +104,17 @@ export const EVENT_CUES: { [K in EventType]: Handler<K> } = {
   notice: () => null,
 };
 
-export const DEFAULT_MAX_SOUNDS = 6;
+/** A busy turn start is a short phrase: at most 5 sounds, done in about 3 s. */
+export const DEFAULT_MAX_SOUNDS = 5;
 export const DEFAULT_MAX_SPAN_MS = 3000;
 export const MIN_GAP_MS = 120;
 export const MAX_GAP_MS = 250;
+/** Room after a big or fanfare sound (offer, war, wonder…) so the next one does not smear it. */
+export const BIG_GAP_MS = 400;
+/** The new age's chord gets this long on its own before anything else in the batch. */
+export const AFTER_CADENCE_MS = 1000;
+/** No sound may start so late that it rings past the span by more than this (cadence excepted). */
+export const TAIL_ALLOWANCE_MS = 600;
 /** ageEnd's G chord rings this long before ageStart answers on D. */
 export const CADENCE_GAP_MS = 1100;
 
@@ -113,8 +125,12 @@ const cuesFor = (ev: SimEvent, me: PlayerId | null, o: PlanOptions): Cue[] => {
 };
 
 /** Gap after a sound: longer sounds earn a bit more room before the next one. */
-export const gapAfter = (sfx: Sfx): number =>
-  Math.round(Math.min(MAX_GAP_MS, Math.max(MIN_GAP_MS, RECIPES[sfx].dur * 1000 * 0.3)));
+export const gapAfter = (sfx: Sfx): number => {
+  const r = RECIPES[sfx];
+  if (sfx === 'ageStart') return AFTER_CADENCE_MS;
+  if (r.tier === 'big' || r.tier === 'fanfare') return BIG_GAP_MS;
+  return Math.round(Math.min(MAX_GAP_MS, Math.max(MIN_GAP_MS, r.dur * 1000 * 0.3)));
+};
 
 export const planEvents = (events: readonly SimEvent[], viewer: PlayerId | null, o: PlanOptions = {}): PlannedSound[] => {
   // Collapse duplicates: one entry per sfx, most important prio, loudest gain (+ a little
@@ -147,6 +163,16 @@ export const planEvents = (events: readonly SimEvent[], viewer: PlayerId | null,
     if (start) ranked.splice(ranked.findIndex((m) => m.cue.sfx === 'ageEnd') + 1, 0, start);
   }
 
+  // Never open with the sound that just ended the previous batch.
+  if (o.avoidFirst && ranked.length > 1 && ranked[0]?.cue.sfx === o.avoidFirst) {
+    const second = ranked[1];
+    // Keep the cadence pair together: ageEnd is never displaced from before ageStart.
+    if (second && second.cue.sfx !== 'ageStart') {
+      ranked[1] = ranked[0];
+      ranked[0] = second;
+    }
+  }
+
   const maxSounds = o.maxSounds ?? DEFAULT_MAX_SOUNDS;
   const maxSpan = o.maxSpanMs ?? DEFAULT_MAX_SPAN_MS;
   const out: PlannedSound[] = [];
@@ -154,8 +180,12 @@ export const planEvents = (events: readonly SimEvent[], viewer: PlayerId | null,
   for (const { cue: c } of ranked) {
     if (out.length >= maxSounds) break;
     const prev = out[out.length - 1];
-    if (prev) t += prev.sfx === 'ageEnd' && c.sfx === 'ageStart' ? CADENCE_GAP_MS : gapAfter(prev.sfx);
-    if (t > maxSpan) break;
+    const cadence = prev?.sfx === 'ageEnd' && c.sfx === 'ageStart';
+    const at = prev ? t + (cadence ? CADENCE_GAP_MS : gapAfter(prev.sfx)) : 0;
+    if (at > maxSpan) break;
+    // A long sound late in the phrase would ring on well past it: leave it out.
+    if (prev && !cadence && at + RECIPES[c.sfx].dur * 1000 > maxSpan + TAIL_ALLOWANCE_MS) continue;
+    t = at;
     out.push({ sfx: c.sfx, delayMs: t, gain: c.gain, distant: c.distant ?? false });
   }
   return out;

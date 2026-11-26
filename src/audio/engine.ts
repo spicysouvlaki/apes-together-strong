@@ -6,10 +6,20 @@
  * - iOS Safari: handles `webkitAudioContext`, the 'interrupted' state (calls, Siri), resume on
  *   tab return, and asks for the 'ambient' audio session so the ring/silent switch is honoured.
  * - Voices: at most MAX_SFX_VOICES one-shots (oldest stolen with a 10 ms fade), per-sound
- *   minimum gaps so spammy events never stack; every node is disconnected when its voice ends.
+ *   minimum gaps so spammy events never stack; every node is disconnected when its voice ends,
+ *   and a voice leaves the accounting only then (not when its nominal end time passes).
+ * - One scheduler: a single interval (never two, whatever the suspend/resume order) runs while
+ *   music is audible or while the ambience still has something to free; muted or music at 0 it
+ *   stops scheduling notes entirely.
+ * - Accounting: every node the context creates is counted (accounting.ts), so `stats()` can
+ *   prove that live nodes return to the idle baseline.
+ * - Stalled clock: a context can report 'running' while its clock does not advance (no output
+ *   device, some iOS interruptions). Nothing would play, so new sounds are not queued (they
+ *   would all fire at once later); the next tap suspends and resumes the context to restart it.
  */
 import cultures from '@content/cultures.json';
 import type { PlayerId, SimEvent } from '@contracts/sim-api';
+import { bufferBytes, instrumentContext, NodeLedger, type LedgerSnapshot } from './accounting';
 import { AmbiencePlayer, type PlayerScene } from './ambience';
 import { CULTURE_THRESHOLD, instrumentForStem, type Instrument } from './composer';
 import { buildGraph, type Graph } from './graph';
@@ -48,38 +58,123 @@ export const toPlayerScene = (scene: AmbienceScene): PlayerScene | null => {
   return { age: scene.age, crisis: !!scene.crisis, cultures: list.slice(0, 4) };
 };
 
-const PUMP_MS = 100;
+/** Scheduler period (ms) and look-ahead (s). */
+export const PUMP_MS = 100;
+export const LOOKAHEAD = 0.5;
+/** A 'running' clock that has not moved for this long (wall ms) is stalled. */
+export const STALL_MS = 1200;
+/** The same Sfx at the start of a batch right after it ended the previous one is moved back. */
+export const REPEAT_WINDOW = 1.5;
+
+/** Wall clock and timers, injectable so tests can drive the engine with a fake clock. */
+export interface EngineHost {
+  now(): number;
+  setInterval(fn: () => void, ms: number): unknown;
+  clearInterval(id: unknown): void;
+}
+
+const defaultHost = (): EngineHost => ({
+  now: () => (typeof performance !== 'undefined' ? performance.now() : Date.now()),
+  setInterval: (fn, ms) => setInterval(fn, ms),
+  clearInterval: (id) => clearInterval(id as ReturnType<typeof setInterval>),
+});
+
+export interface EngineStats extends LedgerSnapshot {
+  state: string;
+  /** Context clock (s). */
+  now: number;
+  /** True when the context says 'running' but its clock has not advanced for STALL_MS. */
+  clockStalled: boolean;
+  /** SFX voices still holding nodes (sounding, queued or in their last few ms). */
+  sfxVoices: number;
+  sfxSounding: number;
+  /** Ambience notes holding nodes, and of those sounding now / scheduled ahead. */
+  ambienceVoices: number;
+  ambienceSounding: number;
+  ambienceQueued: number;
+  /** Composer notes waiting for the look-ahead window (hold no nodes). */
+  ambiencePending: number;
+  drones: number;
+  ambienceBuses: number;
+  plucksCached: number;
+  pluckBytes: number;
+  /** All cached sample data: plucks, noise, reverb impulse. */
+  bufferBytes: number;
+  /** Live nodes right after the graph and ambience player were built (the idle floor). */
+  baselineNodes: number;
+  /** Bus gains now and the values they are heading to (mute and slider check). */
+  gains: { sfx: number; music: number; sfxTarget: number; musicTarget: number };
+  scheduler: { running: boolean; starts: number; ticks: number };
+}
 
 export class WebAudioEngine implements AudioEngine {
-  private ctx: AudioContext | null = null;
+  private ctx: BaseAudioContext | null = null;
+  /** The live context (null for an attached offline one): only it can suspend/resume. */
+  private live: AudioContext | null = null;
   private graph: Graph | null = null;
   private settings: AudioSettings = { ...DEFAULT_AUDIO_SETTINGS };
   private userSuspended = false;
-  private voices: SfxVoice[] = [];
+  private readonly voices = new Set<SfxVoice>();
   private readonly lastStart = new Map<Sfx, number>();
+  private lastSfx: { sfx: Sfx; at: number } | null = null;
   private scene: AmbienceScene = { age: null };
   private ambience: AmbiencePlayer | null = null;
-  private timer: ReturnType<typeof setInterval> | null = null;
+  private timer: unknown = null;
+  private timerStarts = 0;
+  private ticks = 0;
   private planOptions: PlanOptions = {};
   private listening = false;
+  private clockSeen = { t: -1, wall: 0 };
+  private stalled = false;
+  private irBytes = 0;
+  readonly ledger = new NodeLedger();
+  private baseline = 0;
+
+  constructor(private readonly host: EngineHost = defaultHost()) {}
 
   /** For the UI to give the planner a settlement-owner lookup (enables growth ticks). */
   setPlanOptions(o: PlanOptions): void {
     this.planOptions = o;
   }
 
-  get context(): AudioContext | null {
+  get context(): BaseAudioContext | null {
     return this.ctx;
   }
 
-  /** Live counts for the demo page / debugging. */
-  stats(): { state: string; sfxVoices: number; ambienceVoices: number; plucksCached: number } {
-    const now = this.ctx?.currentTime ?? 0;
+  /** Live counts for the demo page, the soak test and playtests. */
+  stats(): EngineStats {
+    const ctx = this.ctx;
+    const now = ctx?.currentTime ?? 0;
+    let sfxSounding = 0;
+    for (const v of this.voices) if (!v.stolen && v.start <= now && v.end > now) sfxSounding += 1;
+    const amb = this.ambience?.voiceCounts(now) ?? { sounding: 0, queued: 0, latestEnd: 0 };
+    const g = this.graph;
+    const target = busGains(this.settings);
+    const noise = g ? bufferBytes(Object.values(g.noise)) : 0;
     return {
-      state: this.ctx?.state ?? 'locked',
-      sfxVoices: this.voices.filter((v) => v.end > now).length,
+      ...this.ledger.snapshot(),
+      state: ctx?.state ?? 'locked',
+      now,
+      clockStalled: this.stalled,
+      sfxVoices: this.voices.size,
+      sfxSounding,
       ambienceVoices: this.ambience?.activeVoices ?? 0,
-      plucksCached: this.graph?.plucks.size ?? 0,
+      ambienceSounding: amb.sounding,
+      ambienceQueued: amb.queued,
+      ambiencePending: this.ambience?.pendingNotes ?? 0,
+      drones: this.ambience?.droneCount ?? 0,
+      ambienceBuses: this.ambience?.busCount ?? 0,
+      plucksCached: g?.plucks.size ?? 0,
+      pluckBytes: g?.plucks.bytes ?? 0,
+      bufferBytes: (g?.plucks.bytes ?? 0) + noise + this.irBytes,
+      baselineNodes: this.baseline,
+      gains: {
+        sfx: g?.sfxDry.gain.value ?? 0,
+        music: g?.ambDry.gain.value ?? 0,
+        sfxTarget: g ? target.sfx : 0,
+        musicTarget: g ? target.music : 0,
+      },
+      scheduler: { running: this.timer !== null, starts: this.timerStarts, ticks: this.ticks },
     };
   }
 
@@ -97,22 +192,44 @@ export class WebAudioEngine implements AudioEngine {
         } catch {
           ctx = new C();
         }
-        this.ctx = ctx;
-        this.graph = buildGraph(ctx);
-        this.applySettings(0);
+        this.live = ctx;
+        this.setup(ctx);
         // Old iOS only unlocks once a buffer has played inside the gesture.
         const b = ctx.createBufferSource();
         b.buffer = ctx.createBuffer(1, 1, ctx.sampleRate);
         b.connect(ctx.destination);
+        b.onended = () => b.disconnect();
         b.start(0);
         ctx.onstatechange = () => this.onStateChange();
         this.listen();
         this.refreshAmbience();
       }
-      if (!this.userSuspended && this.ctx.state !== 'running') void this.ctx.resume().catch(() => {});
+      this.kick();
     } catch {
       // No sound is better than a crash.
     }
+  }
+
+  /**
+   * Run the engine on a context you created (an OfflineAudioContext for the soak test and the
+   * mix review, or a fake one in unit tests). No listeners; drive the scheduler with `tick()`.
+   */
+  attach(ctx: BaseAudioContext): void {
+    if (this.ctx) throw new Error('engine already has a context');
+    this.setup(ctx);
+    this.refreshAmbience();
+  }
+
+  private setup(ctx: BaseAudioContext): void {
+    this.ctx = ctx;
+    instrumentContext(ctx, this.ledger);
+    const g = buildGraph(ctx);
+    this.graph = g;
+    // The ambience player is permanent (one compressor); creating it now keeps it in the baseline.
+    this.ambience = new AmbiencePlayer(g, g.ambDry, g.ambWet, liveRand);
+    this.irBytes = 2 * Math.ceil(1.8 * ctx.sampleRate) * 4;
+    this.baseline = this.ledger.liveNodes;
+    this.applySettings(0);
   }
 
   play(sfx: Sfx): void {
@@ -121,7 +238,10 @@ export class WebAudioEngine implements AudioEngine {
 
   playEvents(events: readonly SimEvent[], viewer: PlayerId | null): void {
     if (!this.audible('sfx')) return;
-    for (const p of planEvents(events, viewer, this.planOptions)) this.playAt(p.sfx, p.delayMs / 1000, p.gain, p.distant);
+    const now = this.ctx?.currentTime ?? 0;
+    const recent = this.lastSfx && now - this.lastSfx.at < REPEAT_WINDOW ? this.lastSfx.sfx : undefined;
+    const plan = planEvents(events, viewer, { ...this.planOptions, ...(recent ? { avoidFirst: recent } : {}) });
+    for (const p of plan) this.playAt(p.sfx, p.delayMs / 1000, p.gain, p.distant);
   }
 
   setAmbience(scene: AmbienceScene): void {
@@ -138,13 +258,28 @@ export class WebAudioEngine implements AudioEngine {
   suspend(): void {
     this.userSuspended = true;
     this.stopTimer();
-    if (this.ctx && this.ctx.state === 'running') void this.ctx.suspend().catch(() => {});
+    if (this.live && this.live.state === 'running') void this.live.suspend().catch(() => {});
   }
 
   resume(): void {
     this.userSuspended = false;
-    if (this.ctx && this.ctx.state !== 'running') void this.ctx.resume().catch(() => {});
+    this.kick();
     this.refreshAmbience();
+  }
+
+  /**
+   * One scheduler step: pump the ambience and free what it no longer needs. Called by the
+   * interval; tests and offline renders call it directly.
+   */
+  tick(): void {
+    const ctx = this.ctx;
+    const amb = this.ambience;
+    if (!ctx || !amb) return;
+    this.ticks += 1;
+    if (!this.clockUsable()) return;
+    amb.pump(ctx.currentTime, LOOKAHEAD);
+    // Nothing left to schedule or free: the interval stops (CPU) until something needs it.
+    if (!amb.busy) this.stopTimer();
   }
 
   // --- internals --------------------------------------------------------------------------------
@@ -152,6 +287,27 @@ export class WebAudioEngine implements AudioEngine {
   private audible(kind: 'sfx' | 'music'): boolean {
     const g = busGains(this.settings);
     return !!this.ctx && !!this.graph && (kind === 'sfx' ? g.sfx : g.music) > 0;
+  }
+
+  /**
+   * True when the context clock can be trusted to play what we schedule now. An offline
+   * context is suspended between render steps and is fine; a live one must be running (or
+   * still resuming from unlock while visible) and its clock must be moving.
+   */
+  private clockUsable(): boolean {
+    const ctx = this.ctx;
+    if (!ctx) return false;
+    if (!this.live) return true;
+    if (ctx.state !== 'running') {
+      this.clockSeen = { t: -1, wall: 0 };
+      return ctx.state === 'suspended' && !this.userSuspended && this.visible();
+    }
+    const wall = this.host.now();
+    if (ctx.currentTime !== this.clockSeen.t) {
+      this.clockSeen = { t: ctx.currentTime, wall };
+      this.stalled = false;
+    } else if (wall - this.clockSeen.wall > STALL_MS) this.stalled = true;
+    return !this.stalled;
   }
 
   private applySettings(ramp: number): void {
@@ -171,27 +327,31 @@ export class WebAudioEngine implements AudioEngine {
     const ctx = this.ctx;
     const g = this.graph;
     if (!ctx || !g || !this.audible('sfx')) return;
-    // A context still resuming from unlock() will play this as soon as it runs; a hidden,
-    // user-suspended or interrupted one must not queue up a pile of sounds.
-    const resuming = ctx.state === 'suspended' && !this.userSuspended && this.visible();
-    if (ctx.state !== 'running' && !resuming) return;
+    // A context still resuming from unlock() plays this as soon as it runs; a hidden,
+    // user-suspended, interrupted or stalled one must not queue up a pile of sounds.
+    if (!this.clockUsable()) return;
     try {
       const recipe = RECIPES[sfx];
       const start = ctx.currentTime + 0.005 + Math.max(0, delay);
       const last = this.lastStart.get(sfx);
       if (last !== undefined && Math.abs(start - last) * 1000 < recipe.minGapMs) return;
       this.lastStart.set(sfx, start);
+      if (!this.lastSfx || start >= this.lastSfx.at) this.lastSfx = { sfx, at: start };
 
       const now = ctx.currentTime;
-      this.voices = this.voices.filter((v) => v.end > now);
-      while (this.voices.length >= MAX_SFX_VOICES) {
-        const oldest = this.voices.shift();
-        if (oldest) stealVoice(oldest, oldest.gain, now);
+      // Cap what is sounding or queued; voices already stolen are on their way out.
+      const active = [...this.voices].filter((v) => v.end > now && !v.stolen).sort((a, b) => a.start - b.start);
+      for (let i = 0; i <= active.length - MAX_SFX_VOICES; i++) {
+        const oldest = active[i];
+        if (!oldest) continue;
+        oldest.stolen = true;
+        stealVoice(oldest, oldest.gain, now);
+        oldest.end = Math.min(oldest.end, now + 0.05);
       }
 
       const voice = spawnSfx(g, sfx, recipe.build(liveRand), start, gain, distant);
-      this.voices.push(voice);
-      finalizeVoice(voice);
+      this.voices.add(voice);
+      finalizeVoice(voice, () => this.voices.delete(voice));
     } catch {
       // A failed sound must never break the game.
     }
@@ -199,39 +359,48 @@ export class WebAudioEngine implements AudioEngine {
 
   private refreshAmbience(): void {
     const ctx = this.ctx;
-    const g = this.graph;
-    if (!ctx || !g) return;
+    const amb = this.ambience;
+    if (!ctx || !amb) return;
     const scene = toPlayerScene(this.scene);
     const now = ctx.currentTime;
-    if (!scene || !this.audible('music')) {
-      this.ambience?.stop(now);
-      this.stopTimer();
-      return;
-    }
-    if (!this.ambience) this.ambience = new AmbiencePlayer(g, g.ambDry, g.ambWet, liveRand);
-    this.ambience.setScene(scene, now);
-    if (!this.userSuspended) this.startTimer();
+    if (!scene || !this.audible('music')) amb.stop(now);
+    else amb.setScene(scene, now);
+    // The interval keeps running only while there is music to schedule or a fade to clean up.
+    if (amb.busy && !this.userSuspended) this.startTimer();
+    else if (!amb.busy) this.stopTimer();
   }
 
   private startTimer(): void {
-    if (this.timer !== null || typeof setInterval === 'undefined') return;
-    this.timer = setInterval(() => {
-      const ctx = this.ctx;
-      if (!ctx || ctx.state !== 'running' || !this.ambience) return;
-      this.ambience.pump(ctx.currentTime, 0.5);
-    }, PUMP_MS);
+    if (this.timer !== null || !this.live) return;
+    this.timerStarts += 1;
+    this.timer = this.host.setInterval(() => this.tick(), PUMP_MS);
   }
 
   private stopTimer(): void {
-    if (this.timer !== null) clearInterval(this.timer);
+    if (this.timer !== null) this.host.clearInterval(this.timer);
     this.timer = null;
   }
 
+  /** Try to (re)start a live context: after unlock, a tab return, an interruption or a stall. */
+  private kick(): void {
+    const ctx = this.live;
+    if (!ctx || this.userSuspended || !this.visible()) return;
+    if (ctx.state === 'running' && this.stalled) {
+      // A stuck clock: a suspend/resume pair from a gesture restarts the audio device.
+      this.stalled = false;
+      this.clockSeen = { t: -1, wall: 0 };
+      void ctx.suspend().then(() => ctx.resume()).catch(() => {});
+      return;
+    }
+    if (ctx.state !== 'running') void ctx.resume().catch(() => {});
+  }
+
   private onStateChange(): void {
-    const ctx = this.ctx;
+    const ctx = this.live;
     if (!ctx) return;
+    this.clockSeen = { t: -1, wall: 0 };
     // iOS 'interrupted' (a call, Siri) or a system suspend: try to come back when we may.
-    if (ctx.state !== 'running' && !this.userSuspended && this.visible()) void ctx.resume().catch(() => {});
+    if (ctx.state !== 'running') this.kick();
   }
 
   private visible(): boolean {
@@ -242,20 +411,18 @@ export class WebAudioEngine implements AudioEngine {
     if (this.listening || typeof document === 'undefined') return;
     this.listening = true;
     document.addEventListener('visibilitychange', () => {
-      const ctx = this.ctx;
+      const ctx = this.live;
       if (!ctx) return;
       if (!this.visible()) {
         this.stopTimer();
         if (ctx.state === 'running') void ctx.suspend().catch(() => {});
       } else if (!this.userSuspended) {
-        void ctx.resume().catch(() => {});
+        this.kick();
         this.refreshAmbience();
       }
     });
     // iOS may refuse a resume outside a gesture after an interruption; the next tap fixes it.
-    const kick = (): void => {
-      if (this.ctx && this.ctx.state !== 'running' && !this.userSuspended) void this.ctx.resume().catch(() => {});
-    };
+    const kick = (): void => this.kick();
     document.addEventListener('pointerdown', kick, { passive: true });
     document.addEventListener('touchend', kick, { passive: true });
   }

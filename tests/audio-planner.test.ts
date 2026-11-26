@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { SimEvent } from '@contracts/sim-api';
-import { CADENCE_GAP_MS, DEFAULT_MAX_SPAN_MS, EVENT_CUES, MAX_GAP_MS, MIN_GAP_MS, planEvents } from '../src/audio/planner';
+import { BIG_GAP_MS, CADENCE_GAP_MS, DEFAULT_MAX_SOUNDS, DEFAULT_MAX_SPAN_MS, EVENT_CUES, MAX_GAP_MS, MIN_GAP_MS, TAIL_ALLOWANCE_MS, planEvents } from '../src/audio/planner';
+import { TURN_LOG } from '../src/audio/turnlog';
 import { RECIPES } from '../src/audio/recipes';
 
 const ME = 'p1';
@@ -157,12 +158,14 @@ describe('event planner: batching', () => {
     const p = planEvents(batch, ME, { settlementOwner: owner });
     expect(p[0]?.sfx).toBe('war');
     expect(p[1]?.sfx).toBe('offer');
-    expect(p.length).toBeLessThanOrEqual(6);
+    expect(p.length).toBeLessThanOrEqual(5);
     expect(p.map((s) => s.sfx)).not.toContain('tap'); // least important dropped first
     for (let i = 1; i < p.length; i++) {
       const gap = p[i]!.delayMs - p[i - 1]!.delayMs;
+      const tier = RECIPES[p[i - 1]!.sfx].tier;
       expect(gap).toBeGreaterThanOrEqual(MIN_GAP_MS);
-      expect(gap).toBeLessThanOrEqual(MAX_GAP_MS);
+      // Big sounds get more room so the next one does not smear them.
+      expect(gap).toBeLessThanOrEqual(tier === 'big' || tier === 'fanfare' ? BIG_GAP_MS : MAX_GAP_MS);
     }
     expect(p[p.length - 1]!.delayMs).toBeLessThanOrEqual(DEFAULT_MAX_SPAN_MS);
     expect(new Set(p.map((s) => s.sfx)).size).toBe(p.length);
@@ -187,5 +190,40 @@ describe('event planner: batching', () => {
   it('is pure: same input, same plan', () => {
     const all = Object.values(SAMPLES) as SimEvent[];
     expect(planEvents(all, ME, { settlementOwner: owner })).toEqual(planEvents(all, ME, { settlementOwner: owner }));
+  });
+});
+
+describe('event planner on real turn starts (autoplay logs, src/audio/turnlog.ts)', () => {
+  const plans = TURN_LOG.map((b) => planEvents(b.events, ME, { settlementOwner: () => ME }));
+  it('a busy turn start is a short phrase: at most 5 sounds, done in about 3 s', () => {
+    expect(plans.some((p) => p.length === DEFAULT_MAX_SOUNDS)).toBe(true); // the log has busy turns
+    for (const p of plans) {
+      expect(p.length).toBeLessThanOrEqual(5);
+      const end = Math.max(0, ...p.map((s) => s.delayMs + RECIPES[s.sfx].dur * 1000));
+      const cadence = p.some((s) => s.sfx === 'ageStart');
+      expect(end).toBeLessThanOrEqual(cadence ? 3600 : DEFAULT_MAX_SPAN_MS + TAIL_ALLOWANCE_MS);
+    }
+  });
+
+  it('never plays the same sound twice in a row, within a batch or into the next', () => {
+    let prev: string | undefined;
+    for (const b of TURN_LOG) {
+      const p = planEvents(b.events, ME, { settlementOwner: () => ME, ...(prev ? { avoidFirst: prev as never } : {}) });
+      const seq = p.map((s) => s.sfx);
+      for (let i = 1; i < seq.length; i++) expect(seq[i]).not.toBe(seq[i - 1]);
+      if (prev && seq.length > 1 && seq[0] !== 'ageEnd') expect(seq[0]).not.toBe(prev);
+      prev = seq[seq.length - 1] ?? prev;
+    }
+  });
+
+  it('avoidFirst swaps the opening sound but keeps the age cadence intact', () => {
+    const batch = [SAMPLES.researchCompleted, SAMPLES.productionCompleted];
+    const first = planEvents(batch, ME)[0]?.sfx;
+    expect(first).toBeDefined();
+    const swapped = planEvents(batch, ME, { avoidFirst: first! }).map((s) => s.sfx);
+    expect(swapped[0]).not.toBe(first);
+    expect(swapped).toContain(first);
+    const age = planEvents([SAMPLES.ageEnded, SAMPLES.ageStarted], ME, { avoidFirst: 'ageEnd' });
+    expect(age.map((s) => s.sfx)).toEqual(['ageEnd', 'ageStart']);
   });
 });

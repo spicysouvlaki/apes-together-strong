@@ -17,7 +17,7 @@ import { chance, jitter, pick, range, type Rand } from './random';
 export type Tier = 'ui' | 'small' | 'event' | 'big' | 'fanfare';
 
 /** Relative loudness: UI taps quiet, events louder, fanfares loudest (still under the limiter). */
-export const TIER_GAIN: Record<Tier, number> = { ui: 0.4, small: 0.6, event: 0.75, big: 0.9, fanfare: 1 };
+export const TIER_GAIN: Record<Tier, number> = { ui: 0.4, small: 0.6, event: 0.75, big: 0.8, fanfare: 0.8 };
 
 export interface Recipe {
   tier: Tier;
@@ -29,6 +29,12 @@ export interface Recipe {
   wet: number;
   /** The same sound is not retriggered closer than this. */
   minGapMs: number;
+  /**
+   * Level trim in dB on top of the tier (the per-recipe gain knob). Set from the offline mix
+   * review (mixreview.ts) so every effect sits clearly over the music at default volumes:
+   * short, dry sounds need more than their layer gains suggest.
+   */
+  trimDb?: number;
   build(r: Rand): Layer[];
 }
 
@@ -89,21 +95,21 @@ const h = (r: Rand, t: number, amt = 0.008): number => Math.max(0, t + jitter(r,
 export const RECIPES: Record<Sfx, Recipe> = {
   // UI: a wooden piece set down on felt.
   tap: {
-    tier: 'ui', dur: 0.12, band: [400, 3500], wet: 0.04, minGapMs: 35,
+    tier: 'ui', dur: 0.12, band: [400, 3500], wet: 0.04, minGapMs: 35, trimDb: 7,
     build: (r) => [
       wood(r, 0, pick(r, [N.A4, N.D5, N.E5]), { gain: 0.7, dur: 0.07 }),
       noise(r, 0, { color: 'pink', filter: { type: 'bandpass', freq: range(r, 2200, 3000), q: 0.8 }, dur: 0.025, gain: 0.2, env: { kind: 'perc', attack: 0.0008, curve: 7 } }),
     ],
   },
   select: {
-    tier: 'ui', dur: 0.24, band: [500, 4000], wet: 0.08, minGapMs: 40,
+    tier: 'ui', dur: 0.24, band: [500, 4000], wet: 0.08, minGapMs: 40, trimDb: 8,
     build: (r) => [
       wood(r, 0, pick(r, [N.D5, N.E5]), { gain: 0.6, dur: 0.07 }),
       pluck(r, h(r, 0.015, 0.004), pick(r, [N.A5, N.D6]), { gain: 0.32, bright: 0.6, decay: 0.3, dur: 0.2 }),
     ],
   },
   deselect: {
-    tier: 'ui', dur: 0.16, band: [350, 3000], wet: 0.05, minGapMs: 40,
+    tier: 'ui', dur: 0.16, band: [350, 3000], wet: 0.05, minGapMs: 40, trimDb: 8,
     build: (r) => [
       wood(r, 0, N.D5, { gain: 0.55, dur: 0.06 }),
       wood(r, h(r, 0.05, 0.006), N.A4, { gain: 0.45, dur: 0.08 }),
@@ -111,7 +117,7 @@ export const RECIPES: Record<Sfx, Recipe> = {
   },
   // A sheet of parchment slid open / folded shut.
   open: {
-    tier: 'small', dur: 0.36, band: [900, 6000], wet: 0.12, minGapMs: 80,
+    tier: 'small', dur: 0.36, band: [900, 6000], wet: 0.12, minGapMs: 80, trimDb: 9.5,
     build: (r) => [
       noise(r, 0, {
         color: 'pink', filter: { type: 'bandpass', freq: range(r, 1200, 1600), q: 0.9, to: range(r, 3400, 4200) },
@@ -122,7 +128,7 @@ export const RECIPES: Record<Sfx, Recipe> = {
     ],
   },
   close: {
-    tier: 'small', dur: 0.34, band: [700, 5000], wet: 0.1, minGapMs: 80,
+    tier: 'small', dur: 0.34, band: [700, 5000], wet: 0.1, minGapMs: 80, trimDb: 3,
     build: (r) => [
       noise(r, 0, {
         color: 'pink', filter: { type: 'bandpass', freq: range(r, 3400, 4000), q: 0.9, to: range(r, 1100, 1400) },
@@ -134,25 +140,25 @@ export const RECIPES: Record<Sfx, Recipe> = {
   },
   // A soft, low "nuh-uh": two dull wooden knocks falling a third.
   error: {
-    tier: 'ui', dur: 0.34, band: [200, 2000], wet: 0.06, minGapMs: 150,
+    tier: 'ui', dur: 0.34, band: [200, 2000], wet: 0.06, minGapMs: 150, trimDb: 3,
     build: (r) => [
       wood(r, 0, N.F4, { gain: 0.6, dur: 0.1 }),
       wood(r, 0.11, N.D4, { gain: 0.6, dur: 0.14 }),
-      tone(r, 0, [N.D3], { wave: 'triangle', voices: 1, dur: 0.28, gain: 0.25, filter: { type: 'lowpass', freq: 700 }, env: { kind: 'adsr', attack: 0.01, decay: 0.08, sustain: 0.5, release: 0.12 } }),
+      tone(r, 0, [N.D4], { wave: 'triangle', voices: 1, dur: 0.28, gain: 0.22, filter: { type: 'lowpass', freq: 1400 }, env: { kind: 'adsr', attack: 0.01, decay: 0.08, sustain: 0.5, release: 0.12 } }),
     ],
   },
   // Footsteps on packed earth.
   move: {
-    tier: 'small', dur: 0.5, band: [150, 1500], wet: 0.06, minGapMs: 120,
+    tier: 'small', dur: 0.5, band: [300, 2400], wet: 0.06, minGapMs: 120, trimDb: 9,
     build: (r) => {
       const steps = pick(r, [3, 3, 4]);
       const out: Layer[] = [];
       for (let i = 0; i < steps; i++) {
         const at = h(r, i * 0.11, 0.015);
         out.push(
-          noise(r, at, { color: 'brown', filter: { type: 'lowpass', freq: range(r, 600, 900), q: 0.7 }, dur: 0.07, gain: i === steps - 1 ? 0.55 : 0.45, env: { kind: 'perc', attack: 0.003, curve: 5 } }),
-          noise(r, at, { color: 'pink', filter: { type: 'bandpass', freq: range(r, 1500, 2200), q: 1.2 }, dur: 0.03, gain: 0.08, env: { kind: 'perc', attack: 0.002, curve: 6 } }),
-          wood(r, at, pick(r, [N.D3, N.A3]), { gain: 0.25, dur: 0.06 }),
+          noise(r, at, { color: 'pink', filter: { type: 'bandpass', freq: range(r, 800, 1100), q: 0.9 }, dur: 0.07, gain: i === steps - 1 ? 0.5 : 0.4, env: { kind: 'perc', attack: 0.003, curve: 5 } }),
+          noise(r, at, { color: 'pink', filter: { type: 'bandpass', freq: range(r, 1500, 2200), q: 1.2 }, dur: 0.03, gain: 0.16, env: { kind: 'perc', attack: 0.002, curve: 6 } }),
+          wood(r, at, pick(r, [N.A4, N.D5]), { gain: 0.2, dur: 0.05 }),
         );
       }
       return out;
@@ -209,17 +215,17 @@ export const RECIPES: Record<Sfx, Recipe> = {
   },
   // Thud, clack and a faint ring of metal.
   attack: {
-    tier: 'event', dur: 0.4, band: [200, 2500], wet: 0.12, minGapMs: 90,
+    tier: 'event', dur: 0.4, band: [200, 2500], wet: 0.12, minGapMs: 90, trimDb: 9.5,
     build: (r) => [
-      drum(r, 0, N.D3, { drop: 5, dur: 0.22, gain: 0.55, snap: 0.5 }),
-      wood(r, 0.005, N.F4, { gain: 0.4, dur: 0.06 }),
-      fm(r, 0.01, N.A4, { gain: 0.1, dur: 0.2, ratio: 1.41, index: 3, indexEnd: 0.2 }),
-      noise(r, 0, { color: 'pink', filter: { type: 'bandpass', freq: range(r, 1500, 2200), q: 1 }, dur: 0.06, gain: 0.18, env: { kind: 'perc', attack: 0.001, curve: 6 } }),
+      drum(r, 0, N.D3, { drop: 5, dur: 0.32, gain: 0.4, snap: 0.25 }),
+      wood(r, 0.012, N.F4, { gain: 0.28, dur: 0.06 }),
+      fm(r, 0.02, N.A4, { gain: 0.16, dur: 0.3, ratio: 1.41, index: 3, indexEnd: 0.2 }),
+      noise(r, 0.01, { color: 'pink', filter: { type: 'bandpass', freq: range(r, 1500, 2200), q: 1 }, dur: 0.16, gain: 0.42, env: { kind: 'perc', attack: 0.004, curve: 5 } }),
     ],
   },
   // An arrow swish, then a soft thunk.
   ranged: {
-    tier: 'event', dur: 0.48, band: [600, 6000], wet: 0.1, minGapMs: 90,
+    tier: 'event', dur: 0.48, band: [600, 6000], wet: 0.1, minGapMs: 90, trimDb: 4.5,
     build: (r) => [
       noise(r, 0, { color: 'white', filter: { type: 'bandpass', freq: range(r, 1600, 2000), q: 2, to: range(r, 4800, 5600) }, dur: 0.28, gain: 0.3, env: { kind: 'adsr', attack: 0.12, decay: 0.05, sustain: 0.5, release: 0.1 } }),
       wood(r, 0.3, N.D4, { gain: 0.42, dur: 0.09 }),
@@ -228,9 +234,9 @@ export const RECIPES: Record<Sfx, Recipe> = {
   },
   // A bowed fifth sagging a step, over a muffled drum.
   unitLost: {
-    tier: 'event', dur: 1.0, band: [120, 1200], wet: 0.35, minGapMs: 250,
+    tier: 'event', dur: 1.0, band: [120, 1200], wet: 0.35, minGapMs: 250, trimDb: 1,
     build: (r) => [
-      tone(r, 0, [N.D3, N.A3], { voices: 2, spread: 10, dur: 0.95, gain: 0.26, glide: 2, glideTime: 0.6, filter: { type: 'lowpass', freq: 900, to: 400 }, env: { kind: 'adsr', attack: 0.08, decay: 0.3, sustain: 0.5, release: 0.4 } }),
+      tone(r, 0, [N.A3, N.D4, N.A4], { voices: 2, spread: 10, dur: 0.95, gain: 0.26, glide: 2, glideTime: 0.6, filter: { type: 'lowpass', freq: 1600, to: 750 }, env: { kind: 'adsr', attack: 0.08, decay: 0.3, sustain: 0.5, release: 0.4 } }),
       drum(r, 0, N.D3, { drop: 3, dur: 0.4, gain: 0.35, snap: 0 }),
     ],
   },
@@ -272,16 +278,16 @@ export const RECIPES: Record<Sfx, Recipe> = {
   },
   // A wax seal pressed: soft low thump, squish, a low string.
   seat: {
-    tier: 'small', dur: 0.5, band: [100, 1200], wet: 0.15, minGapMs: 200,
+    tier: 'small', dur: 0.5, band: [300, 2200], wet: 0.15, minGapMs: 200, trimDb: 13.6,
     build: (r) => [
-      drum(r, 0, N.A2, { drop: 4, dur: 0.25, gain: 0.5, snap: 0 }),
-      noise(r, 0, { color: 'brown', filter: { type: 'lowpass', freq: range(r, 500, 650) }, dur: 0.1, gain: 0.35, env: { kind: 'perc', attack: 0.004 } }),
-      pluck(r, 0.01, N.D3, { gain: 0.28, bright: 0.15, decay: 0.6, dur: 0.45 }),
+      drum(r, 0, N.D3, { drop: 4, dur: 0.25, gain: 0.44, snap: 0.15 }),
+      noise(r, 0, { color: 'pink', filter: { type: 'lowpass', freq: range(r, 1100, 1400) }, dur: 0.1, gain: 0.3, env: { kind: 'perc', attack: 0.004 } }),
+      pluck(r, 0.01, N.D3, { gain: 0.28, bright: 0.35, decay: 0.6, dur: 0.45 }),
     ],
   },
   // A rising bowed fifth with a bell: someone acts.
   activate: {
-    tier: 'event', dur: 1.0, band: [300, 3000], wet: 0.4, minGapMs: 400,
+    tier: 'event', dur: 1.0, band: [300, 3000], wet: 0.4, minGapMs: 400, trimDb: 1,
     build: (r) => [
       tone(r, 0, [N.D4], { dur: 0.42, gain: 0.16, filter: { type: 'lowpass', freq: 1600 }, env: { kind: 'adsr', attack: 0.12, decay: 0.1, sustain: 0.7, release: 0.15 } }),
       tone(r, 0.3, [N.A4], { dur: 0.65, gain: 0.16, filter: { type: 'lowpass', freq: 1700 }, env: { kind: 'adsr', attack: 0.08, decay: 0.15, sustain: 0.7, release: 0.3 }, vibrato: { rate: 5.5, cents: 6, delay: 0.15 } }),
@@ -301,7 +307,7 @@ export const RECIPES: Record<Sfx, Recipe> = {
   },
   // Two or three coins dropping onto each other.
   coin: {
-    tier: 'small', dur: 0.45, band: [1500, 9000], wet: 0.2, minGapMs: 120,
+    tier: 'small', dur: 0.45, band: [1500, 9000], wet: 0.2, minGapMs: 120, trimDb: 4,
     build: (r) => {
       const out: Layer[] = [
         bell(r, 0, N.A6, { gain: 0.26, dur: 0.22, partials: 'coin' }),
@@ -313,7 +319,7 @@ export const RECIPES: Record<Sfx, Recipe> = {
   },
   // A messenger's reed call, A up to D, and a letter rustle.
   envoy: {
-    tier: 'event', dur: 0.8, band: [300, 2600], wet: 0.3, minGapMs: 300,
+    tier: 'event', dur: 0.8, band: [300, 2600], wet: 0.3, minGapMs: 300, trimDb: 2.5,
     build: (r) => [
       tone(r, 0, [N.A4], { wave: 'square', voices: 1, dur: 0.22, gain: 0.1, filter: { type: 'lowpass', freq: 2000, q: 0.7 }, env: { kind: 'adsr', attack: 0.04, decay: 0.1, sustain: 0.7, release: 0.08 } }),
       tone(r, 0.2, [N.D5], { wave: 'square', voices: 1, dur: 0.48, gain: 0.1, filter: { type: 'lowpass', freq: 2000, q: 0.7 }, env: { kind: 'adsr', attack: 0.04, decay: 0.1, sustain: 0.7, release: 0.2 }, vibrato: { rate: 5.5, cents: 8, delay: 0.1 } }),
@@ -327,8 +333,8 @@ export const RECIPES: Record<Sfx, Recipe> = {
     build: (r) => [
       drum(r, 0, N.D3, { drop: 5, dur: 0.5, gain: 0.6, snap: 0.4 }),
       drum(r, h(r, 0.26, 0.01), N.D3, { drop: 5, dur: 0.45, gain: 0.45, snap: 0.3 }),
-      drum(r, h(r, 0.52, 0.01), N.A2, { drop: 6, dur: 0.6, gain: 0.6, snap: 0.3 }),
-      tone(r, 0, [N.D3, N.F3, N.A3], { voices: 2, spread: 12, dur: 1.5, gain: 0.22, filter: { type: 'lowpass', freq: 500, to: 1100 }, env: { kind: 'adsr', attack: 0.35, decay: 0.3, sustain: 0.6, release: 0.4 }, tremolo: { rate: 7, depth: 0.25 } }),
+      drum(r, h(r, 0.52, 0.01), N.D3, { drop: 8, dur: 0.6, gain: 0.6, snap: 0.3 }),
+      tone(r, 0, [N.A3, N.D4, N.F4], { voices: 2, spread: 12, dur: 1.5, gain: 0.22, filter: { type: 'lowpass', freq: 900, to: 1800 }, env: { kind: 'adsr', attack: 0.35, decay: 0.3, sustain: 0.6, release: 0.4 }, tremolo: { rate: 7, depth: 0.25 } }),
     ],
   },
   // Two singing-bowl tones over a soft open pad.
@@ -345,8 +351,8 @@ export const RECIPES: Record<Sfx, Recipe> = {
     tier: 'big', dur: 1.7, band: [100, 1300], wet: 0.45, minGapMs: 800,
     build: (r) => [
       drum(r, 0, N.D3, { drop: 6, snap: 0.25, dur: 0.7, gain: 0.6 }),
-      tone(r, 0, [N.D3, N.F3, N.C4], { voices: 2, spread: 14, dur: 1.6, gain: 0.22, filter: { type: 'lowpass', freq: 400, to: 900 }, env: { kind: 'adsr', attack: 0.4, decay: 0.3, sustain: 0.6, release: 0.5 }, tremolo: { rate: 5, depth: 0.2 } }),
-      bell(r, 0.35, N.F4, { gain: 0.12, dur: 1.1, partials: 'bowl' }),
+      tone(r, 0, [N.D3, N.F3, N.C4], { voices: 2, spread: 14, dur: 1.6, gain: 0.22, filter: { type: 'lowpass', freq: 800, to: 1500 }, env: { kind: 'adsr', attack: 0.4, decay: 0.3, sustain: 0.6, release: 0.5 }, tremolo: { rate: 5, depth: 0.2 } }),
+      bell(r, 0.35, N.F4, { gain: 0.2, dur: 1.1, partials: 'bowl' }),
     ],
   },
   milestone: {
@@ -361,7 +367,7 @@ export const RECIPES: Record<Sfx, Recipe> = {
   },
   // A wax seal, then a slow strum on the open D chord.
   adopt: {
-    tier: 'event', dur: 1.0, band: [200, 2500], wet: 0.35, minGapMs: 400,
+    tier: 'event', dur: 1.0, band: [200, 2500], wet: 0.35, minGapMs: 400, trimDb: 1,
     build: (r) => [
       drum(r, 0, N.A2, { drop: 4, dur: 0.25, gain: 0.4, snap: 0 }),
       noise(r, 0, { color: 'brown', filter: { type: 'lowpass', freq: 900 }, dur: 0.1, gain: 0.25, env: { kind: 'perc', attack: 0.004 } }),
@@ -392,15 +398,15 @@ export const RECIPES: Record<Sfx, Recipe> = {
   },
   // A page turned and a low string: "your move is done".
   endTurn: {
-    tier: 'small', dur: 0.45, band: [200, 2500], wet: 0.15, minGapMs: 300,
+    tier: 'small', dur: 0.45, band: [200, 3200], wet: 0.15, minGapMs: 300, trimDb: 9,
     build: (r) => [
-      wood(r, 0, N.G4, { gain: 0.45, dur: 0.08 }),
-      pluck(r, 0.03, N.D3, { gain: 0.32, bright: 0.35, decay: 0.7, dur: 0.4 }),
+      wood(r, 0, N.G4, { gain: 0.3, dur: 0.08 }),
+      pluck(r, 0.03, N.D3, { gain: 0.45, bright: 0.45, decay: 0.7, dur: 0.4 }),
       noise(r, 0, { color: 'pink', filter: { type: 'bandpass', freq: 2500, q: 0.9 }, dur: 0.12, gain: 0.1, env: { kind: 'adsr', attack: 0.02, decay: 0.02, sustain: 0.6, release: 0.05 }, grains: grains(r, 2, 0.02, 0.09) }),
     ],
   },
   turnStart: {
-    tier: 'small', dur: 0.7, band: [400, 4000], wet: 0.4, minGapMs: 500,
+    tier: 'small', dur: 0.7, band: [400, 4000], wet: 0.4, minGapMs: 500, trimDb: 6.5,
     build: (r) => [
       bell(r, 0, N.A5, { gain: 0.2, dur: 0.6, partials: 'bowl' }),
       pluck(r, 0.05, N.D5, { gain: 0.2, bright: 0.5, decay: 0.6, dur: 0.5 }),
@@ -410,7 +416,7 @@ export const RECIPES: Record<Sfx, Recipe> = {
   defeat: {
     tier: 'fanfare', dur: 2.5, band: [100, 1500], wet: 0.55, minGapMs: 2000,
     build: (r) => [
-      tone(r, 0, [N.D3, N.A3], { voices: 2, spread: 10, dur: 2.4, gain: 0.22, filter: { type: 'lowpass', freq: 700, to: 350 }, env: { kind: 'adsr', attack: 0.5, decay: 0.5, sustain: 0.6, release: 0.9 } }),
+      tone(r, 0, [N.D3, N.A3], { voices: 2, spread: 10, dur: 2.4, gain: 0.22, filter: { type: 'lowpass', freq: 1300, to: 650 }, env: { kind: 'adsr', attack: 0.5, decay: 0.5, sustain: 0.6, release: 0.9 } }),
       ...[N.A4, N.F4, N.E4, N.D4].map((m, i) => pluck(r, i * 0.35, m, { gain: 0.3, bright: 0.35, decay: 1.5, dur: i === 3 ? 1.4 : 1.0 })),
       drum(r, 0, N.D3, { gain: 0.5, snap: 0.1, dur: 0.9, drop: 3 }),
       drum(r, 1.05, N.D3, { gain: 0.4, snap: 0.05, dur: 0.9, drop: 3 }),

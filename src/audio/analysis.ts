@@ -164,3 +164,95 @@ export const loudnessCurve = (x: Float32Array, sampleRate: number, seconds = 0.4
   for (let s = 0; s + w <= x.length; s += w) out.push(dbfs(rms([x], s, s + w)));
   return out;
 };
+
+// --- loudness (ITU-R BS.1770 / EBU R128) ------------------------------------------------------
+
+type Biquad = [b0: number, b1: number, b2: number, a1: number, a2: number];
+
+/** The two K-weighting stages for any sample rate (RBJ forms of the BS.1770 filters). */
+export const kWeightingCoeffs = (sr: number): [Biquad, Biquad] => {
+  // Stage 1: high shelf, +4 dB above ~1.7 kHz (head acoustics).
+  const G = 3.999843853973347;
+  const Q = 0.7071752369554196;
+  const fc = 1681.974450955533;
+  const A = Math.pow(10, G / 40);
+  let w0 = (2 * Math.PI * fc) / sr;
+  let cos = Math.cos(w0);
+  let alpha = Math.sin(w0) / (2 * Q);
+  const sa = 2 * Math.sqrt(A) * alpha;
+  const a0s = A + 1 - (A - 1) * cos + sa;
+  const shelf: Biquad = [
+    (A * (A + 1 + (A - 1) * cos + sa)) / a0s,
+    (-2 * A * (A - 1 + (A + 1) * cos)) / a0s,
+    (A * (A + 1 + (A - 1) * cos - sa)) / a0s,
+    (2 * (A - 1 - (A + 1) * cos)) / a0s,
+    (A + 1 - (A - 1) * cos - sa) / a0s,
+  ];
+  // Stage 2: RLB high-pass at ~38 Hz.
+  w0 = (2 * Math.PI * 38.13547087602444) / sr;
+  cos = Math.cos(w0);
+  alpha = Math.sin(w0) / (2 * 0.5003270373238773);
+  const a0h = 1 + alpha;
+  const hp: Biquad = [(1 + cos) / 2 / a0h, -(1 + cos) / a0h, (1 + cos) / 2 / a0h, (-2 * cos) / a0h, (1 - alpha) / a0h];
+  return [shelf, hp];
+};
+
+const biquad = (x: Float32Array, [b0, b1, b2, a1, a2]: Biquad): Float32Array => {
+  const y = new Float32Array(x.length);
+  let x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+  for (let i = 0; i < x.length; i++) {
+    const xi = x[i] ?? 0;
+    const yi = b0 * xi + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2;
+    x2 = x1; x1 = xi; y2 = y1; y1 = yi;
+    y[i] = yi;
+  }
+  return y;
+};
+
+export const kWeight = (x: Float32Array, sr: number): Float32Array => {
+  const [shelf, hp] = kWeightingCoeffs(sr);
+  return biquad(biquad(x, shelf), hp);
+};
+
+/** Loudness (LUFS) of K-weighted blocks of `win` s every `hop` s, channels summed (L/R weight 1). */
+export const blockLoudness = (chans: readonly Float32Array[], sr: number, win = 0.4, hop = 0.1): number[] => {
+  const k = chans.map((c) => kWeight(c, sr));
+  const w = Math.max(1, Math.round(win * sr));
+  const h = Math.max(1, Math.round(hop * sr));
+  const len = k[0]?.length ?? 0;
+  const out: number[] = [];
+  for (let s = 0; s + w <= len; s += h) {
+    let sum = 0;
+    for (const c of k) {
+      let e = 0;
+      for (let i = s; i < s + w; i++) e += (c[i] ?? 0) * (c[i] ?? 0);
+      sum += e / w;
+    }
+    out.push(sum > 0 ? -0.691 + 10 * Math.log10(sum) : -Infinity);
+  }
+  return out;
+};
+
+/** Gated integrated loudness (LUFS): absolute gate -70, relative gate -10 LU. */
+export const integratedLoudness = (chans: readonly Float32Array[], sr: number): number => {
+  const blocks = blockLoudness(chans, sr, 0.4, 0.1).filter((l) => l > -70);
+  if (!blocks.length) return -Infinity;
+  const mean = (ls: number[]): number => -0.691 + 10 * Math.log10(ls.reduce((s, l) => s + Math.pow(10, (l + 0.691) / 10), 0) / ls.length);
+  const rel = mean(blocks) - 10;
+  const gated = blocks.filter((l) => l > rel);
+  return gated.length ? mean(gated) : -Infinity;
+};
+
+/** Share (0..1) of a magnitude spectrum's energy between lo and hi Hz. */
+export const bandShare = (mags: Float64Array, sr: number, lo: number, hi = sr / 2): number => {
+  const n = mags.length;
+  let band = 0;
+  let total = 0;
+  for (let k = 1; k < n; k++) {
+    const f = (k * sr) / (2 * n);
+    const e = (mags[k] ?? 0) * (mags[k] ?? 0);
+    total += e;
+    if (f >= lo && f < hi) band += e;
+  }
+  return total > 0 ? band / total : 0;
+};

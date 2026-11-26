@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CameraMotion, FOCUS_MS } from '../src/render/camera-motion';
-import { FADED_ALPHA, LabelLayout } from '../src/render/label-layout';
+import { AVOID_LIFTS, FADED_ALPHA, LabelLayout, MAX_LIFT } from '../src/render/label-layout';
 import { labelKey, sealSpec } from '../src/render/labels';
 import { SKIN_TONES as RENDER_SKIN_TONES } from '../src/render/palette';
 import { SKIN_TONES as UI_SKIN_TONES } from '../src/ui/shell/setup-logic';
@@ -189,5 +189,71 @@ describe('render skin tones', () => {
   it("the renderer's copy matches the setup screen's swatches exactly", () => {
     // The renderer may not import the UI (architecture rule 1), so it keeps a copy.
     expect([...RENDER_SKIN_TONES]).toEqual([...UI_SKIN_TONES]);
+  });
+});
+
+describe('render label lift over units (playtest 3)', () => {
+  const one = (): LabelLayout => {
+    const L = new LabelLayout(4);
+    L.x[0] = 100;
+    L.y[0] = 200;
+    L.w[0] = 80;
+    L.h[0] = 20;
+    L.priority[0] = 1;
+    L.tag[0] = 7;
+    L.count = 1;
+    return L;
+  };
+
+  it('a unit on (or in front of) its own settlement lifts the cartouche clear and keeps it opaque', () => {
+    const L = one();
+    // Unit top at y 190 (inside the box 180..200), tagged with the label's settlement tile.
+    L.liftOver(new Float32Array([105]), new Float32Array([190]), new Float32Array([10]), new Int32Array([7]), 1, 3);
+    expect(L.lift[0]).toBeCloseTo((200 - (190 - 3)) / 20, 5);
+    L.solve(0);
+    const top = L.top[0] ?? 0;
+    // Box bottom is now above the unit top: the unit's top/middle points do not fade it.
+    expect(top + 20).toBeLessThanOrEqual(187 + 1e-3);
+    L.fade(new Float32Array([105, 105]), new Float32Array([190, 205]), 2);
+    expect(L.alpha[0]).toBe(1);
+  });
+
+  it('a unit of another tile (behind) does not lift it but fades it', () => {
+    const L = one();
+    L.liftOver(new Float32Array([105]), new Float32Array([190]), new Float32Array([10]), new Int32Array([3]), 1);
+    expect(L.lift[0]).toBe(0);
+    L.solve(0);
+    L.fade(new Float32Array([105]), new Float32Array([190]), 1);
+    expect(L.alpha[0]).toBeCloseTo(FADED_ALPHA, 5);
+  });
+
+  it('given the unit points, a label stretches its leader past a unit behind it instead of fading', () => {
+    const L = one();
+    const px = new Float32Array([105]);
+    const py = new Float32Array([190]);
+    L.liftOver(px, py, new Float32Array([10]), new Int32Array([3]), 1);
+    L.solve(0, -Infinity, Infinity, -Infinity, Infinity, px, py, 1);
+    expect(L.lift[0]).toBeCloseTo(AVOID_LIFTS[0] ?? 0, 5);
+    L.fade(px, py, 1);
+    expect(L.alpha[0]).toBe(1);
+    // Blocked above by the HUD band: it keeps its slot and fades.
+    const M = one();
+    M.solve(0, 175, Infinity, -Infinity, Infinity, px, py, 1);
+    expect(M.lift[0]).toBe(0);
+    M.fade(px, py, 1);
+    expect(M.alpha[0]).toBeCloseTo(FADED_ALPHA, 5);
+  });
+
+  it('a unit beside the box (no horizontal overlap) or far below it changes nothing', () => {
+    const L = one();
+    L.liftOver(new Float32Array([200, 100]), new Float32Array([190, 260]), new Float32Array([10, 10]), new Int32Array([7, 7]), 2);
+    expect(L.lift[0]).toBe(0);
+  });
+
+  it('a lift beyond MAX_LIFT is dropped (the label fades instead of flying off)', () => {
+    const L = one();
+    L.liftOver(new Float32Array([100]), new Float32Array([40]), new Float32Array([10]), new Int32Array([7]), 1);
+    expect(L.lift[0]).toBe(0);
+    expect(MAX_LIFT).toBeGreaterThan(1);
   });
 });

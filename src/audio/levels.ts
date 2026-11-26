@@ -5,15 +5,17 @@
 import type { AudioSettings } from './types';
 
 /**
- * Music bus level at slider 100. At the default 50 (-12 dB) the bed sits around -32 dBFS RMS:
- * clearly audible, ~10 dB under event sounds.
+ * Music bus level at slider 100. At the default 50 (-12 dB) the bed sits around -32 LUFS
+ * short-term (mix review, mixreview.ts): clearly there, with every effect at least 8 dB over it
+ * (interface clicks at least 4 dB). Too loud or too quiet overall: change this first.
  */
-export const AMBIENCE_LEVEL = 0.9;
-export const SFX_LEVEL = 1;
+export const AMBIENCE_LEVEL = 0.4;
+/** Effects bus level at slider 100 (default 80 = 0.8). Per-sound balance: `trimDb` in recipes.ts. */
+export const SFX_LEVEL = 1.25;
 /** Seconds for setSettings ramps (a slider drag never zips). */
 export const SETTINGS_RAMP = 0.08;
-/** Max simultaneous SFX voices; the oldest is stolen beyond this. */
-export const MAX_SFX_VOICES = 12;
+/** Max simultaneous SFX voices; the oldest is stolen beyond this. A planned batch is at most 5, plus taps; 8 keeps the worst-case SFX source count near 150 (CPU). */
+export const MAX_SFX_VOICES = 8;
 
 export const volumeToGain = (v: number): number => {
   if (!Number.isFinite(v)) return 0;

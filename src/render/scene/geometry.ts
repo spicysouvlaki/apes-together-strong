@@ -202,13 +202,6 @@ export const baseRingGeometry = (radius: number, tube: number): BufferGeometry =
   return g;
 };
 
-/** Label quad: 1 x 1, anchored at its bottom center (the billboard pivot). */
-export const labelQuadGeometry = (): BufferGeometry => {
-  const g = new PlaneGeometry(1, 1);
-  g.translate(0, 0.5, 0);
-  return g;
-};
-
 /** Flat ribbon of unit length along +x from x = 0, `width` wide (river segments). */
 export const ribbonGeometry = (width: number): BufferGeometry => {
   const pos: number[] = [];

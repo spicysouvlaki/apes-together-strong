@@ -50,7 +50,7 @@ const ROPE = lin('#b79a6a');
 
 /** Height of the figure's top (for hp pips and the ready gem), at scale 1. */
 export const LOOK_TOP: Record<Look, number> = {
-  warband: 0.36,
+  warband: 0.46,
   spearman: 0.5,
   slinger: 0.44,
   archer: 0.4,
@@ -172,6 +172,8 @@ interface PersonOpts {
   /** Raise the arm sideways (rad) e.g. a sling over the head. */
   armRUp?: number;
   hair?: boolean;
+  /** Eyes and brow on the front of the head (default on). */
+  face?: boolean;
 }
 
 /** Toy person (top of head ≈ 0.33): stubby legs, tunic, sash, arms, a big round head. */
@@ -198,12 +200,20 @@ const person = (o: PersonOpts = {}): BufferGeometry[] => {
   arm(-1, o.armL ?? 0.25, 0);
   arm(1, o.armR ?? 0.25, o.armRUp ?? 0);
   parts.push(paint(cyl(0.026, 0.03, 0.025, 0, sh, 0, 6), SKIN_SHADE));
-  parts.push(paint(ball(0.058, 0, sh + 0.075, 0), SKIN));
+  const hy = sh + 0.075;
+  parts.push(paint(ball(0.058, 0, hy, 0), SKIN));
+  if (o.face !== false) {
+    // Minimal face (playtest 3: faceless heads read as helmets): two small ink eyes on the
+    // front (−z) of the head, well apart (a brow line merged with them into a mask at phone
+    // zoom); figures turn their face to the viewer at rest.
+    for (const ex of [-0.024, 0.024]) parts.push(paint(box(0.011, 0.015, 0.012, ex, hy - 0.002, -0.05), DARK));
+  }
   if (o.hair !== false) {
-    // Hair cap (back and top of the head): a darker crown keeps the face readable.
-    const hair = new SphereGeometry(0.061, 8, 4, 0, Math.PI * 2, 0, Math.PI * 0.42);
-    hair.rotateX(0.35);
-    hair.translate(0, sh + 0.078, 0.004);
+    // Hair swept back from a high hairline: crown, back and sides, never the brow, so it reads
+    // as hair over a face (the old cap sat level across the forehead and read as a hat).
+    const hair = new SphereGeometry(0.063, 9, 5, 0, Math.PI * 2, 0, Math.PI * 0.5);
+    hair.rotateX(0.78);
+    hair.translate(0, hy + 0.004, 0.006);
     parts.push(paint(hair, HAIR));
   }
   return parts;
@@ -248,30 +258,45 @@ const beast = (color: Rgb, s: number, kind: 'horse' | 'ox' | 'camel' | 'donkey' 
 
 // --- looks ----------------------------------------------------------------------------------------
 
-const warrior = (weapon: 'club' | 'axe', s: number, x: number, z: number): BufferGeometry[] => {
+const warrior = (s: number, x: number, z: number): BufferGeometry[] => {
   const p = person({ tunic: team(1), legs: HIDE, armR: 1.2, armL: 0.9 });
-  // Fur/hide cap.
-  p.push(paint(cyl(0.05, 0.064, 0.035, 0, HEAD_Y + 0.02, 0, 7), HIDE));
-  // Weapon raised over the right shoulder.
-  p.push(paint(rod([0.075, 0.2, -0.06], [0.09, 0.42, 0.02], 0.012, 4), WOOD));
-  if (weapon === 'club') p.push(paint(ball(0.032, 0.09, 0.42, 0.02, 0), WOOD_D));
-  else p.push(paint(box(0.012, 0.06, 0.05, 0.09, 0.37, 0.0), METAL));
-  // Small hide-and-wicker shield on the left arm.
-  p.push(...roundShield(0.07, -0.085, 0.17, -0.05, 0.35));
+  // Hide band around the hair (not a cap: the face and hair stay readable).
+  p.push(paint(cyl(0.056, 0.058, 0.015, 0, HEAD_Y + 0.024, 0.004, 9), HIDE));
+  // A big club raised over the right shoulder.
+  p.push(paint(rod([0.075, 0.2, -0.06], [0.095, 0.44, 0.02], 0.014, 5), WOOD));
+  p.push(paint(ball(0.04, 0.095, 0.44, 0.02, 0), WOOD_D));
+  // Hide-and-wicker shield on the left arm.
+  p.push(...roundShield(0.078, -0.09, 0.17, -0.05, 0.35));
+  return place(p, x, 0, z, s);
+};
+
+/**
+ * The warband's second member as a plain dark silhouette a step behind (a spear, no shield, no
+ * paint detail): the leader carries the read, the shadow says "a band", not two busy figures.
+ */
+const companion = (s: number, x: number, z: number): BufferGeometry[] => {
+  const shade = team(0.5);
+  const p = person({ tunic: shade, belt: shade, legs: DARK, armR: 0.2, armL: 0.3, face: false });
+  p.push(paint(rod([0.08, 0.02, -0.02], [0.08, 0.5, -0.02], 0.01, 4), WOOD_D));
+  const tip = new ConeGeometry(0.018, 0.05, 4);
+  tip.translate(0.08, 0.52, -0.02);
+  p.push(paint(tip, DARK));
   return place(p, x, 0, z, s);
 };
 
 const lookGeometry = (look: Look): BufferGeometry[] => {
   switch (look) {
     case 'warband': {
-      // A band, not a soldier: a leader with a club and a second with an axe behind him.
-      return [...warrior('club', 1, -0.05, -0.02), ...warrior('axe', 0.84, 0.1, 0.1)];
+      // Playtest 3: two fully painted warriors read busy beside a civilian. One bold warrior in
+      // front, a dark companion silhouette behind his shoulder.
+      return [...companion(0.86, 0.1, 0.11), ...warrior(1.14, -0.03, -0.03)];
     }
     case 'spearman': {
       const p = person({ tunic: team(1), legs: DARK, armR: 0.2, armL: 1.1 });
       // Bronze crested helmet with a tall secondary-colored crest (classical hoplite).
-      const helm = new SphereGeometry(0.064, 8, 5, 0, Math.PI * 2, 0, Math.PI * 0.55);
-      helm.translate(0, HEAD_Y - 0.002, 0);
+      // Brim above the eyes so the face shows under the helmet.
+      const helm = new SphereGeometry(0.064, 8, 5, 0, Math.PI * 2, 0, Math.PI * 0.5);
+      helm.translate(0, HEAD_Y + 0.012, 0);
       p.push(paint(helm, BRONZE));
       p.push(paint(box(0.018, 0.07, 0.13, 0, HEAD_Y + 0.045, 0.01), second(1)));
       // Long spear upright in the right hand.
@@ -286,7 +311,7 @@ const lookGeometry = (look: Look): BufferGeometry[] => {
     case 'slinger': {
       const p = person({ tunic: team(1), legs: HIDE, armRUp: 2.5, armL: 0.5 });
       // Headband, pouch, and a sling loop whirling over the head.
-      p.push(paint(cyl(0.06, 0.06, 0.016, 0, HEAD_Y + 0.005, 0, 8), second(1)));
+      p.push(paint(cyl(0.055, 0.057, 0.016, 0, HEAD_Y + 0.024, 0.004, 8), second(1)));
       p.push(paint(box(0.05, 0.05, 0.035, -0.06, 0.1, 0.03), LEATHER));
       // The raised hand is at about (0.16, 0.29); the cord whirls in a flat loop just above it.
       const loop = new TorusGeometry(0.06, 0.006, 3, 14);
@@ -429,15 +454,23 @@ const lookGeometry = (look: Look): BufferGeometry[] => {
       p.push(paint(rod([0, 0.08, -0.01], [0, 0.58, -0.01], 0.012), WOOD_D));
       p.push(paint(rod([-0.17, 0.5, -0.01], [0.17, 0.5, -0.01], 0.008, 4), WOOD_D));
       // Sail in three bands (team / secondary stripe / team), bellied and fluttering together.
+      // Playtest 3: ships rest broadside-on, so a sail square to the keel showed its edge to the
+      // camera. The sail is bigger and leans back ~40° about the yard (its face tilts up toward
+      // the elevated camera from either side), with the yard braced a little.
+      const SAIL_TILT = 0.7;
+      const SAIL_BRACE = 0.3;
       for (const [y0, h, c] of [
-        [0.4, 0.09, team(1)],
-        [0.345, 0.055, second(1)],
-        [0.22, 0.125, team(0.92)],
+        [0.4, 0.1, team(1)],
+        [0.34, 0.06, second(1)],
+        [0.2, 0.14, team(0.92)],
       ] as const) {
-        const band = new BoxGeometry(0.32, h, 0.012, 6, 1, 1);
-        band.translate(0, y0 + h / 2, -0.01);
+        const band = new BoxGeometry(0.38, h, 0.012, 6, 1, 1);
+        band.translate(0, y0 + h / 2 - 0.5, 0);
         const bp = band.getAttribute('position');
-        for (let i = 0; i < bp.count; i++) bp.setZ(i, bp.getZ(i) - (1 - (bp.getX(i) / 0.16) ** 2) * 0.04);
+        for (let i = 0; i < bp.count; i++) bp.setZ(i, bp.getZ(i) - (1 - (bp.getX(i) / 0.19) ** 2) * 0.04);
+        band.rotateX(SAIL_TILT);
+        band.rotateY(SAIL_BRACE);
+        band.translate(0, 0.5, -0.01);
         p.push(flutter(band, c, 0, 0.5));
       }
       return p;
@@ -497,8 +530,8 @@ const lookGeometry = (look: Look): BufferGeometry[] => {
       cape.rotateX(-0.12);
       cape.translate(0, 0.16, 0.06);
       p.push(paint(cape, second(0.9)));
-      const helm = new SphereGeometry(0.072, 8, 5, 0, Math.PI * 2, 0, Math.PI * 0.55);
-      helm.translate(0, HEAD_Y * 1.15, 0);
+      const helm = new SphereGeometry(0.072, 8, 5, 0, Math.PI * 2, 0, Math.PI * 0.5);
+      helm.translate(0, HEAD_Y * 1.15 + 0.014, 0);
       p.push(paint(helm, GOLD));
       p.push(paint(box(0.02, 0.09, 0.12, 0, HEAD_Y * 1.15 + 0.05, 0.01), team(0.75)));
       const px = 0.11;
@@ -613,6 +646,27 @@ export const pennonGeometry = (): BufferGeometry => {
   tail.translate(0.08, 0.3, 0);
   p.push(flutter(tail, team(1), 0, 0.16));
   p.push(paint(ball(0.014, 0, 0.345, 0, 0), BRONZE));
+  return assemble(p);
+};
+
+/**
+ * At-war marker (playtest 3: rivals and enemies looked alike in a war): a short pole with a
+ * pennant in the instance color (war red) under a pair of crossed swords, set behind the base on
+ * the side away from the raiders' pennon. Faces the camera (instance yaw = view yaw).
+ */
+export const warMarkGeometry = (): BufferGeometry => {
+  const p: BufferGeometry[] = [paint(rod([0, 0, 0], [0, 0.31, 0], 0.009, 4), WOOD_D)];
+  const flag = new BoxGeometry(0.13, 0.085, 0.008, 4, 1, 1);
+  flag.translate(0.067, 0.235, 0);
+  p.push(flutter(flag, team(1), 0, 0.13));
+  for (const sgn of [-1, 1]) {
+    const parts = [paint(new BoxGeometry(0.016, 0.15, 0.008).translate(0, 0.05, 0), METAL), paint(new BoxGeometry(0.06, 0.014, 0.012).translate(0, -0.03, 0), BRONZE), paint(new BoxGeometry(0.014, 0.04, 0.012).translate(0, -0.055, 0), DARK)];
+    for (const g of parts) {
+      g.rotateZ(sgn * 0.62);
+      g.translate(0, 0.39, -0.004);
+    }
+    p.push(...parts);
+  }
   return assemble(p);
 };
 

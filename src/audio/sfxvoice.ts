@@ -12,13 +12,15 @@ import type { Sfx } from './types';
 export interface SfxVoice extends Voice {
   sfx: Sfx;
   gain: GainNode;
+  /** Being faded out to make room (voice cap). */
+  stolen?: boolean;
 }
 
 export const spawnSfx = (g: Graph, sfx: Sfx, layers: readonly Layer[], start: number, gain: number, distant: boolean): SfxVoice => {
   const { ctx } = g;
   const recipe = RECIPES[sfx];
   const vg = ctx.createGain();
-  vg.gain.value = Math.min(1, Math.max(0, gain)) * TIER_GAIN[recipe.tier];
+  vg.gain.value = Math.min(1, Math.max(0, gain)) * TIER_GAIN[recipe.tier] * Math.pow(10, (recipe.trimDb ?? 0) / 20);
   const voice: SfxVoice = { ...newVoice(start), sfx, gain: vg };
   voice.nodes.push(vg);
   let dryOut: AudioNode = g.sfxDry;

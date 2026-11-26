@@ -158,3 +158,34 @@ export const RESOURCE_CLASS_STYLE: Record<ResourceClass, { color: string }> = {
 
 export const resourceClassOf = (cls: string | undefined): ResourceClass =>
   cls === 'luxury' || cls === 'strategic' ? cls : 'bonus';
+
+/** Small resource props (scene/geometry resourcePropGeometry); mirrored there as RESOURCE_PROPS. */
+export type ResourceArtProp = 'grain' | 'orchard' | 'animal' | 'ore' | 'sea' | 'goods';
+
+/**
+ * Render-side art table: which small prop a resource gets, and its accent color. Unknown ids
+ * keep the generic class marker (ball / gem / block), so new content always shows something.
+ * Districts read the prop too (a quarry grows around ore, a pasture around herds).
+ */
+export const RESOURCE_ART: Readonly<Record<string, { prop: ResourceArtProp; accent: string }>> = {
+  wheat: { prop: 'grain', accent: '#e4c25a' },
+  dates: { prop: 'orchard', accent: '#8a5228' },
+  olives: { prop: 'orchard', accent: '#55642e' },
+  wine: { prop: 'orchard', accent: '#7a2d55' },
+  tea: { prop: 'orchard', accent: '#93c45a' },
+  incense: { prop: 'goods', accent: '#eadfc4' },
+  silk: { prop: 'goods', accent: '#d8628f' },
+  furs: { prop: 'goods', accent: '#8f6a45' },
+  amber: { prop: 'ore', accent: '#e39a2c' },
+  salt: { prop: 'ore', accent: '#f6f3ec' },
+  stone: { prop: 'ore', accent: '#cfc8bb' },
+  copper: { prop: 'ore', accent: '#cf7a3a' },
+  iron: { prop: 'ore', accent: '#6f5d55' },
+  gold_ore: { prop: 'ore', accent: '#efc644' },
+  fish: { prop: 'sea', accent: '#9db8c8' },
+  whales: { prop: 'sea', accent: '#4f6070' },
+  walrus_ivory: { prop: 'sea', accent: '#efe6d2' },
+  horses: { prop: 'animal', accent: '#8f5c38' },
+  cattle: { prop: 'animal', accent: '#cdb79a' },
+  deer: { prop: 'animal', accent: '#b58550' },
+};

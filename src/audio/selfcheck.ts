@@ -10,13 +10,15 @@ import { AmbiencePlayer } from './ambience';
 import { activeRange, dbfs, dcOffset, loudnessCurve, maxJump, mixDown, peak, quietJump, rms, spectrum } from './analysis';
 import { toPlayerScene } from './engine';
 import { buildGraph } from './graph';
-import { AMBIENCE_LEVEL } from './levels';
+import { AMBIENCE_LEVEL, busGains, DEFAULT_AUDIO_SETTINGS } from './levels';
 import { mulberry32 } from './random';
 import { RECIPES, SFX_LIST, type Tier } from './recipes';
 import { spawnSfx } from './sfxvoice';
 import type { AmbienceScene, Sfx } from './types';
 
 export const SR = 48000;
+/** Effects bus at the default volume. */
+const SFX_DEFAULT = busGains(DEFAULT_AUDIO_SETTINGS).sfx;
 
 export interface Metric {
   name: string;
@@ -57,6 +59,9 @@ const renderSfx = (sfx: Sfx, seed: number, o: { reverb: boolean; limiter: boolea
   const tail = o.reverb ? 1.9 : 0.3;
   return render(recipe.dur + tail, (ctx) => {
     const g = buildGraph(ctx, { rand: mulberry32(seed), reverb: o.reverb, limiter: o.limiter });
+    // At the default effects volume (what the player hears); louder sliders lean on the limiter.
+    g.sfxDry.gain.value = SFX_DEFAULT;
+    g.sfxWet.gain.value = SFX_DEFAULT;
     spawnSfx(g, sfx, recipe.build(mulberry32(seed)), 0, 1, false);
   });
 };

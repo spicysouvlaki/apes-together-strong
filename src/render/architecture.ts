@@ -152,6 +152,9 @@ export const kitStyle = (weights: readonly MotifWeight[], age: number): { wall: 
 const GOLD = hex('#e0b23e');
 const WOOD = hex('#7a5536');
 const STONE = hex('#b9b1a3');
+/** Siege breach: scorched gap and crack lines in a damaged wall. */
+const BREACH = hex('#2e2119');
+const CRACK = hex('#3a2a20');
 
 // --- Emitter -----------------------------------------------------------------------------------
 
@@ -638,8 +641,35 @@ export const settlementLayout = (input: SettlementLayoutInput): SettlementLayout
   // Walls ring cities (and city-states); damage darkens them.
   if (big) {
     let wc = wallMaterial(mat(main).trim, input.age);
-    if (input.damage > 0) wc = mix(wc, hex('#5e3427'), 0.25 + input.damage * 0.5);
-    ctx.e.part('wall', 0, 0, 0, 0, 0, 0, 0.8, 0.09 + input.age * 0.015, 0.8, wc);
+    if (input.damage > 0) wc = mix(wc, hex('#5e3427'), 0.15 + input.damage * 0.35);
+    const wh = 0.09 + input.age * 0.015;
+    ctx.e.part('wall', 0, 0, 0, 0, 0, 0, 0.8, wh, 0.8, wc);
+    // Siege damage (playtest 3: a besieged city must look besieged): breached wall sections —
+    // a dark scorched gap with a jagged crack either side and rubble spilled outward — one per
+    // third of wall HP lost, never on the gate side (segment 1).
+    const breaches = input.damage > 0 ? Math.min(3, Math.ceil(input.damage * 3)) : 0;
+    const order = [3, 5, 0, 4, 2];
+    for (let b = 0; b < breaches; b++) {
+      const seg = order[(b + Math.floor(rnd(900) * 5)) % order.length] ?? 3;
+      const a = (Math.PI / 3) * seg;
+      const cx = Math.cos(a) * 0.8;
+      const cz = Math.sin(a) * 0.8;
+      // Pieces rotate by r: local +x maps to (cos r, -sin r), here the wall's tangent.
+      const r = -a - Math.PI / 2;
+      const tx = -Math.sin(a);
+      const tz = Math.cos(a);
+      ctx.e.part('block', cx, cz, r, 0, -0.01, 0, 0.22, wh * 1.7 + 0.03, 0.075, BREACH);
+      for (const side of [-1, 1]) {
+        const off = side * (0.11 + rnd(910 + b) * 0.03);
+        ctx.e.part('block', cx + tx * off * 1.2, cz + tz * off * 1.2, r, 0, wh * 0.2, 0, 0.018, wh * 1.2, 0.07, CRACK);
+      }
+      for (let k = 0; k < 4; k++) {
+        const out = 0.07 + rnd(920 + b * 7 + k) * 0.1;
+        const along = (rnd(930 + b * 7 + k) - 0.5) * 0.2;
+        const rs = 0.035 + rnd(940 + b * 7 + k) * 0.03;
+        ctx.e.part('block', cx * (1 + out / 0.8) + tx * along, cz * (1 + out / 0.8) + tz * along, rnd(950 + k) * 3, 0, 0, 0, rs * 1.3, rs, rs, mix(wc, STONE, 0.5));
+      }
+    }
   }
 
   // Wonder landmarks.

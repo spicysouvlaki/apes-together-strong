@@ -26,6 +26,8 @@ export default defineConfig({
         globPatterns: ['**/*.{js,css,html,svg,png,webp,json,glb,opus,woff2}'],
         maximumFileSizeToCacheInBytes: 20 * 1024 * 1024,
         navigateFallback: 'index.html',
+        // The audition page is a real document, not an app route.
+        navigateFallbackDenylist: [/audio-demo\.html/],
         cleanupOutdatedCaches: true,
       },
       manifest: {
@@ -46,5 +48,15 @@ export default defineConfig({
     }),
   ],
   worker: { format: 'es' },
-  build: { target: 'es2022', sourcemap: true },
+  build: {
+    target: 'es2022',
+    sourcemap: true,
+    // audio-demo.html ships too, so every sound can be auditioned on a phone from the deployed site.
+    rollupOptions: {
+      input: {
+        main: fileURLToPath(new URL('./index.html', import.meta.url)),
+        audio: fileURLToPath(new URL('./audio-demo.html', import.meta.url)),
+      },
+    },
+  },
 });

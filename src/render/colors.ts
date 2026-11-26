@@ -87,10 +87,11 @@ export interface OwnerColors {
 }
 
 /**
- * City-states: neutral warm grey so they never read as a rival empire; raiders: dark red.
- * Both are kept far (CIELAB) from every banner color (tests/render-style.test.ts).
+ * City-states: neutral warm grey trimmed with antique gold (playtest 3: "visibly neutral, grey
+ * and gold") so they never read as a rival empire; raiders: dark red. Both primaries are kept
+ * far (CIELAB) from every banner color (tests/render-style.test.ts).
  */
-export const CITY_STATE_COLORS: OwnerColors = { primary: '#9c9a96', secondary: '#f1efe9' };
+export const CITY_STATE_COLORS: OwnerColors = { primary: '#9c9a96', secondary: '#d4ad4a' };
 /** Crisis raiders (GDD §5): dark red. */
 export const RAIDER_COLORS: OwnerColors = { primary: '#7a1e1e', secondary: '#2a2222' };
 /** An owner id we can't resolve (stale snapshot, removed player). */

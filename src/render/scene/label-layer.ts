@@ -9,25 +9,28 @@
  *
  * Settler site seals (round gold seals with a rank numeral, LabelSpec.seal) share the atlas
  * and the draw call; they sit on their survey stake, never move and never push names around.
- * A name cartouche that covers a unit is faded (aShift.y = alpha) so the unit stays readable,
- * and `hitTag` maps a tap on a label back to the tile it names.
+ * A unit standing on or in front of a settlement lifts its cartouche (aShift.w, label heights):
+ * the quad has a stretchable leader band, so the banner rises clear of the figurine while the
+ * leader's bead stays on the roofline (playtest 3). A name cartouche that still covers a unit
+ * (one behind it) is faded (aShift.y = alpha) so the unit stays readable, and `hitTag` maps a
+ * tap on a label back to the tile it names.
  */
 import {
+  BufferGeometry,
   CanvasTexture,
   DynamicDrawUsage,
+  Float32BufferAttribute,
   InstancedBufferAttribute,
   InstancedMesh,
   LinearFilter,
   ShaderMaterial,
   Vector3,
-  type BufferGeometry,
   type Camera,
   type Object3D,
 } from 'three';
 import { LabelLayout } from '../label-layout';
-import { LabelSlotCache, labelKey, type LabelSpec } from '../labels';
+import { LabelSlotCache, isFixedLabel, labelKey, type LabelSpec } from '../labels';
 import { patternKeep, type PatternId } from '../patterns';
-import { labelQuadGeometry } from './geometry';
 
 // 1536 x 1024 RGBA = 6 MB; 4 x 16 = 64 slots wide enough for long names + pop badge.
 const ATLAS_W = 1536;
@@ -37,6 +40,8 @@ const SLOT_H = 64;
 const COLS = ATLAS_W / SLOT_W;
 const ROWS = ATLAS_H / SLOT_H;
 export const LABEL_CAPACITY = COLS * ROWS;
+/** Floats per unit obstacle passed to layout(): x, base y, z, top y, tag. */
+export const OBSTACLE_STRIDE = 5;
 
 /** Label (slot) height as a fraction of camera distance (constant on-screen size). */
 const LABEL_SIZE = 0.03;
@@ -49,16 +54,46 @@ const PILL_TOP = 2;
 const PILL_H = 36;
 const PILL_FRAC = PILL_H / SLOT_H;
 const LEADER_FRAC = (SLOT_H - PILL_TOP - PILL_H) / SLOT_H;
+/** Bottom rows holding the leader's bead (never stretched by a lift). */
+const BEAD_FRAC = 7 / SLOT_H;
+
+/**
+ * Unit quad (x -0.5..0.5, y 0..1, uv = position) with two extra vertex rows: the bead band
+ * [0, BEAD_FRAC] and the leader band [BEAD_FRAC, LEADER_FRAC], which stretches when the
+ * cartouche is lifted over a unit (only the line in it stretches; the bead and banner don't).
+ */
+const labelQuadGeometry = (): BufferGeometry => {
+  const rows = [0, BEAD_FRAC, LEADER_FRAC, 1];
+  const pos: number[] = [];
+  const uv: number[] = [];
+  for (const y of rows) {
+    for (const x of [-0.5, 0.5]) {
+      pos.push(x, y, 0);
+      uv.push(x + 0.5, y);
+    }
+  }
+  const index: number[] = [];
+  for (let r = 0; r < rows.length - 1; r++) {
+    const a = r * 2;
+    index.push(a, a + 1, a + 3, a, a + 3, a + 2);
+  }
+  const g = new BufferGeometry();
+  g.setAttribute('position', new Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new Float32BufferAttribute(uv, 2));
+  g.setIndex(index);
+  return g;
+};
 /** Site seal diameter in slot px (rank 1 is drawn larger). */
 const SEAL_D = 46;
 const SEAL_D_TOP = 58;
 
 const vertexShader = /* glsl */ `
 // Shifted labels move by whole cartouche heights (label-layout.ts works in those units).
-// aShift: x = vertical shift, y = alpha, z = sideways nudge in quad widths (edge clamping).
+// aShift: x = vertical shift, y = alpha, z = sideways nudge in quad widths (edge clamping),
+// w = lift over a unit (the banner and leader top rise; the bead stays, the leader stretches).
 attribute vec4 aUv;
 attribute float aAspect;
-attribute vec3 aShift;
+attribute vec4 aShift;
 uniform float uSize;
 varying vec2 vLocal;
 varying vec4 vRect;
@@ -69,7 +104,8 @@ void main() {
   vNudge = aShift.z;
   vec4 mv = modelViewMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
   float s = uSize * -mv.z;
-  mv.xy += vec2((position.x + aShift.z) * aAspect, position.y + aShift.x * ${PILL_FRAC.toFixed(4)}) * s;
+  float up = aShift.x + (position.y > ${(BEAD_FRAC + 0.001).toFixed(4)} ? aShift.w : 0.0);
+  mv.xy += vec2((position.x + aShift.z) * aAspect, position.y + up * ${PILL_FRAC.toFixed(4)}) * s;
   gl_Position = projectionMatrix * mv;
   // Hidden labels collapse to a degenerate point (no fragments).
   if (aShift.y < 0.01) gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
@@ -119,6 +155,11 @@ export class LabelLayer {
   /** Obstacle screen points (units) for fading; grown only when the unit count grows. */
   private obsX = new Float32Array(64);
   private obsY = new Float32Array(64);
+  /** Per unit (lift): screen x, top y, half width, tag. */
+  private unitX = new Float32Array(32);
+  private unitTop = new Float32Array(32);
+  private unitHw = new Float32Array(32);
+  private unitTag = new Int32Array(32);
   private readonly layoutSolver = new LabelLayout(LABEL_CAPACITY);
   private readonly v = new Vector3();
   private n = 0;
@@ -149,7 +190,7 @@ export class LabelLayer {
     this.aUv.setUsage(DynamicDrawUsage);
     this.aAspect = new InstancedBufferAttribute(new Float32Array(LABEL_CAPACITY), 1);
     this.aAspect.setUsage(DynamicDrawUsage);
-    this.aShift = new InstancedBufferAttribute(new Float32Array(LABEL_CAPACITY * 3), 3);
+    this.aShift = new InstancedBufferAttribute(new Float32Array(LABEL_CAPACITY * 4), 4);
     this.aShift.setUsage(DynamicDrawUsage);
     this.geometry.setAttribute('aUv', this.aUv);
     this.geometry.setAttribute('aAspect', this.aAspect);
@@ -192,10 +233,10 @@ export class LabelLayer {
    * Place a label whose bottom-center anchors at world (x, y, z). Higher `priority` wins
    * de-overlap. Extra labels are dropped.
    */
-  push(spec: LabelSpec, x: number, y: number, z: number, priority = 0, tag = -1): void {
-    if (this.n >= LABEL_CAPACITY) return;
+  push(spec: LabelSpec, x: number, y: number, z: number, priority = 0, tag = -1): number {
+    if (this.n >= LABEL_CAPACITY) return -1;
     const got = this.cache.acquire(labelKey(spec));
-    if (!got) return;
+    if (!got) return -1;
     if (got.fresh) this.draw(got.slot, spec);
     const i = this.n++;
     const m = this.mesh.instanceMatrix.array as Float32Array;
@@ -222,14 +263,29 @@ export class LabelLayer {
     uv[i * 4 + 3] = 1 - y0 / ATLAS_H;
     (this.aAspect.array as Float32Array)[i] = this.slotAspect[got.slot] ?? 4;
     this.layoutSolver.priority[i] = priority;
-    const isSeal = spec.seal !== undefined;
+    this.layoutSolver.tag[i] = tag;
+    const isSeal = isFixedLabel(spec);
     this.layoutSolver.solid[i] = isSeal ? 0 : 1;
     this.seal[i] = isSeal ? 1 : 0;
     this.tags[i] = tag;
     const sh = this.aShift.array as Float32Array;
-    sh[i * 3] = 0;
-    sh[i * 3 + 1] = 1;
-    sh[i * 3 + 2] = 0;
+    sh[i * 4] = 0;
+    sh[i * 4 + 1] = 1;
+    sh[i * 4 + 2] = 0;
+    sh[i * 4 + 3] = 0;
+    return i;
+  }
+
+  /**
+   * Animate a fixed label (damage number): rise (label heights, up) and opacity. Overrides the
+   * layout's values until the next layout() (the caller re-applies after layouts).
+   */
+  setFixed(i: number, rise: number, alpha: number): void {
+    if (i < 0 || i >= this.n) return;
+    const sh = this.aShift.array as Float32Array;
+    sh[i * 4] = rise;
+    sh[i * 4 + 1] = alpha;
+    this.aShift.needsUpdate = true;
   }
 
   end(): void {
@@ -256,7 +312,11 @@ export class LabelLayer {
     /** HUD-free band (px from the top) labels must stay inside. */
     minY = 0,
     maxY = Infinity,
-    /** World points (x, y, z triples) that labels should not cover (units); faded if they do. */
+    /**
+     * Units labels should not cover, OBSTACLE_STRIDE floats each: x, base y, z, top y, tag (the
+     * tile of the settlement the unit stands on or in front of, else -1). A unit tagged with a
+     * label's tile lifts that label; any other unit the label covers fades it.
+     */
     obstacles: Float32Array | null = null,
     obstacleCount = 0,
     /** Screen columns (px) cartouches are nudged inside (left/right safe area). */
@@ -288,22 +348,48 @@ export class LabelLayer {
       // Labels behind the camera or far off screen never block others.
       if (this.v.z > 1 || sx < -viewW || sx > viewW * 2) L.w[i] = 0;
     }
-    L.solve(2, minY, maxY, minX, maxX);
+    // Units: project base and top once; they lift their own settlement's label and fade others.
+    let k = 0;
+    let u = 0;
     if (obstacles && obstacleCount > 0) {
-      if (this.obsX.length < obstacleCount) {
-        this.obsX = new Float32Array(obstacleCount * 2);
-        this.obsY = new Float32Array(obstacleCount * 2);
+      if (this.obsX.length < obstacleCount * 2) {
+        this.obsX = new Float32Array(obstacleCount * 4);
+        this.obsY = new Float32Array(obstacleCount * 4);
       }
-      let k = 0;
+      if (this.unitX.length < obstacleCount) {
+        this.unitX = new Float32Array(obstacleCount * 2);
+        this.unitTop = new Float32Array(obstacleCount * 2);
+        this.unitHw = new Float32Array(obstacleCount * 2);
+        this.unitTag = new Int32Array(obstacleCount * 2);
+      }
       for (let j = 0; j < obstacleCount; j++) {
-        this.v.set(obstacles[j * 3] ?? 0, obstacles[j * 3 + 1] ?? 0, obstacles[j * 3 + 2] ?? 0).project(camera);
+        const o = j * OBSTACLE_STRIDE;
+        const wx = obstacles[o] ?? 0;
+        const wz = obstacles[o + 2] ?? 0;
+        this.v.set(wx, obstacles[o + 1] ?? 0, wz).project(camera);
         if (this.v.z > 1) continue;
-        this.obsX[k] = (this.v.x * 0.5 + 0.5) * viewW;
-        this.obsY[k] = (-this.v.y * 0.5 + 0.5) * viewH;
+        const bx = (this.v.x * 0.5 + 0.5) * viewW;
+        const by = (-this.v.y * 0.5 + 0.5) * viewH;
+        this.v.set(wx, obstacles[o + 3] ?? 0, wz).project(camera);
+        const tx = (this.v.x * 0.5 + 0.5) * viewW;
+        const ty = (-this.v.y * 0.5 + 0.5) * viewH;
+        // Fade test points: the figure's top and its middle.
+        this.obsX[k] = tx;
+        this.obsY[k] = ty;
         k++;
+        this.obsX[k] = (bx + tx) / 2;
+        this.obsY[k] = (by + ty) / 2;
+        k++;
+        this.unitX[u] = tx;
+        this.unitTop[u] = ty;
+        this.unitHw[u] = Math.max(4, (by - ty) * 0.32);
+        this.unitTag[u] = obstacles[o + 4] ?? -1;
+        u++;
       }
-      L.fade(this.obsX, this.obsY, k);
     }
+    L.liftOver(this.unitX, this.unitTop, this.unitHw, this.unitTag, u);
+    L.solve(2, minY, maxY, minX, maxX, this.obsX, this.obsY, k);
+    if (k > 0) L.fade(this.obsX, this.obsY, k);
     const sh = this.aShift.array as Float32Array;
     let changed = false;
     for (let i = 0; i < n; i++) {
@@ -311,10 +397,12 @@ export class LabelLayer {
       const vis = L.alpha[i] ?? 1;
       const w = L.w[i] ?? 0;
       const nudge = w > 0 ? (L.dx[i] ?? 0) / w : 0;
-      if (sh[i * 3] !== s || sh[i * 3 + 1] !== vis || sh[i * 3 + 2] !== nudge) changed = true;
-      sh[i * 3] = s;
-      sh[i * 3 + 1] = vis;
-      sh[i * 3 + 2] = nudge;
+      const lift = L.lift[i] ?? 0;
+      if (sh[i * 4] !== s || sh[i * 4 + 1] !== vis || sh[i * 4 + 2] !== nudge || sh[i * 4 + 3] !== lift) changed = true;
+      sh[i * 4] = s;
+      sh[i * 4 + 1] = vis;
+      sh[i * 4 + 2] = nudge;
+      sh[i * 4 + 3] = lift;
     }
     if (changed) this.aShift.needsUpdate = true;
   }
@@ -374,6 +462,32 @@ export class LabelLayer {
       this.dirtyTexture = true;
       return;
     }
+    if (spec.damage !== undefined) {
+      // Floating combat number: inked red numerals with a paper halo (reads on any terrain).
+      const text = `\u2212${spec.damage}`;
+      ctx.font = `800 40px Fraunces, "Fraunces Variable", Georgia, serif`;
+      const tw = Math.min(SLOT_W - 20, ctx.measureText(text).width);
+      const used = Math.ceil(tw + 20);
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'alphabetic';
+      ctx.lineJoin = 'round';
+      const cx = x0 + used / 2;
+      const by = y0 + SLOT_H - 12;
+      ctx.lineWidth = 9;
+      ctx.strokeStyle = 'rgba(255, 246, 226, 0.92)';
+      ctx.strokeText(text, cx, by);
+      ctx.lineWidth = 4.5;
+      ctx.strokeStyle = '#2a140c';
+      ctx.strokeText(text, cx, by);
+      ctx.fillStyle = '#e0392a';
+      ctx.fillText(text, cx, by);
+      ctx.textAlign = 'left';
+      ctx.restore();
+      this.slotWidth[slot] = used;
+      this.slotAspect[slot] = used / SLOT_H;
+      this.dirtyTexture = true;
+      return;
+    }
     ctx.globalAlpha = spec.ghost ? 0.7 : 1;
     // Typeset to the UI's display serif (bundled as 'Fraunces'); Georgia until it loads.
     const nameFont = `600 23px Fraunces, "Fraunces Variable", Georgia, serif`;
@@ -390,7 +504,9 @@ export class LabelLayer {
     const popW = pop ? Math.max(h - 12, ctx.measureText(pop).width + 11) : 0;
     ctx.font = nameFont;
     const starW = spec.capital ? 15 : 0;
-    const fixed = pad + sw + 6 + starW + (pop ? 6 + popW : 0) + pad + (spec.war ? 22 : 0);
+    const walled = spec.wall !== undefined && spec.wall < 1;
+    const gaugeW = walled ? 36 : 0;
+    const fixed = pad + sw + 6 + starW + (pop ? 6 + popW : 0) + pad + (spec.war ? 22 : 0) + gaugeW;
     // Long names truncate at ~220 px so a label never dominates the screen.
     const maxText = Math.min(220, SLOT_W - 8 - fixed);
     let t = name;
@@ -432,9 +548,14 @@ export class LabelLayer {
     if (spec.ghost) ctx.setLineDash([6, 4]);
     ctx.stroke();
     ctx.setLineDash([]);
-    // Owner-color rule along the bottom of the cartouche (reads as the realm's ribbon).
+    // Owner-color rule along the bottom of the cartouche (reads as the realm's ribbon); a
+    // city-state's is grey and gold in alternating dashes (neutral at a glance).
     ctx.fillStyle = spec.war ? 'rgba(196, 55, 44, 0.85)' : spec.color;
     ctx.fillRect(left + notch + 2, top + h - 5, w - notch * 2 - 4, 2.5);
+    if (spec.cityState && !spec.war) {
+      ctx.fillStyle = '#c9a23e';
+      for (let gx = left + notch + 2; gx < left + w - notch - 2; gx += 12) ctx.fillRect(gx, top + h - 5, Math.min(6, left + w - notch - 2 - gx), 2.5);
+    }
     // Crest: owner color + pattern; city-states get a diamond.
     const sx = left + pad + notch * 0.5 + sw / 2;
     const sy = top + h / 2 - 1;
@@ -457,8 +578,9 @@ export class LabelLayer {
     }
     ctx.fillStyle = spec.color;
     ctx.fill();
-    ctx.lineWidth = 1.5;
-    ctx.strokeStyle = '#3a2c1f';
+    // City-states read neutral: a gold-leaf rim on their grey diamond (playtest 3).
+    ctx.lineWidth = spec.cityState ? 2.4 : 1.5;
+    ctx.strokeStyle = spec.cityState ? '#b8902e' : '#3a2c1f';
     ctx.stroke();
     if (spec.pattern) {
       ctx.save();
@@ -494,15 +616,43 @@ export class LabelLayer {
       ctx.textAlign = 'left';
       cx += popW + 6;
     }
-    if (spec.wall !== undefined && spec.wall < 1) {
-      // Wall HP (GDD §7): a bar under the cartouche, green -> red.
-      const bw = w - notch * 2 - 6;
-      const bx = left + notch + 3;
-      const by = top + h - 6;
-      ctx.fillStyle = '#3b3b3b';
-      ctx.fillRect(bx, by, bw, 5);
-      ctx.fillStyle = spec.wall > 0.6 ? '#5cbf4a' : spec.wall > 0.3 ? '#e3c13b' : '#d9493b';
-      ctx.fillRect(bx + 1, by + 1, Math.max(2, (bw - 2) * spec.wall), 3);
+    if (walled && spec.wall !== undefined) {
+      // Wall HP (GDD §7; playtest 3: a besieged city must look besieged): a round gauge — dark
+      // track, an arc of the walls left (green -> amber -> red) and a little tower in the middle.
+      const gx = cx + 15;
+      const gr = 14.5;
+      const col = spec.wall > 0.6 ? '#3fa834' : spec.wall > 0.3 ? '#e0a82f' : '#d8301f';
+      // Ink disc, pale track ring, the remaining wall as a thick colored arc, a tower in the middle.
+      ctx.beginPath();
+      ctx.arc(gx, sy, gr, 0, Math.PI * 2);
+      ctx.fillStyle = '#3b2c1e';
+      ctx.fill();
+      ctx.lineWidth = 5;
+      ctx.strokeStyle = '#d9ccb0';
+      ctx.beginPath();
+      ctx.arc(gx, sy, gr - 3.5, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.strokeStyle = col;
+      ctx.lineWidth = 5.5;
+      ctx.lineCap = 'butt';
+      ctx.beginPath();
+      ctx.arc(gx, sy, gr - 3.5, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.max(0.05, spec.wall));
+      ctx.stroke();
+      // Tower glyph (crenellated), cracked once half the wall is gone.
+      ctx.fillStyle = '#fbf3df';
+      ctx.fillRect(gx - 3.5, sy - 2.5, 7, 7.5);
+      for (const mx of [-3.5, -0.75, 2]) ctx.fillRect(gx + mx, sy - 5, 1.5, 2.5);
+      if (spec.wall <= 0.5) {
+        ctx.strokeStyle = col;
+        ctx.lineWidth = 1.6;
+        ctx.beginPath();
+        ctx.moveTo(gx + 0.8, sy - 2.5);
+        ctx.lineTo(gx - 1.2, sy + 0.5);
+        ctx.lineTo(gx + 1, sy + 2.2);
+        ctx.lineTo(gx - 0.6, sy + 5);
+        ctx.stroke();
+      }
+      cx += gaugeW;
     }
     if (spec.war) {
       // Crossed swords, drawn as two strokes.

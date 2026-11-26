@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { audio } from '../src/audio';
 import { audioContextCtor, toPlayerScene, WebAudioEngine } from '../src/audio/engine';
-import { busGains, volumeToGain, AMBIENCE_LEVEL } from '../src/audio/levels';
+import { busGains, volumeToGain, AMBIENCE_LEVEL, SFX_LEVEL } from '../src/audio/levels';
 import { envAt, envPoints, withGrains } from '../src/audio/envelope';
 import { karplusStrong, noiseSamples, reverbImpulse, softClip, softClipCurve } from '../src/audio/dsp';
 import { mulberry32 } from '../src/audio/random';
-import { activeRange, dbfs, dcOffset, maxJump, peak, quietJump, rms, spectrum } from '../src/audio/analysis';
+import { activeRange, bandShare, dbfs, dcOffset, integratedLoudness, maxJump, peak, quietJump, rms, spectrum } from '../src/audio/analysis';
 import { mtof, note, inKey, quantize, degree } from '../src/audio/theory';
 
 describe('audio engine without Web Audio', () => {
@@ -30,7 +30,7 @@ describe('audio engine without Web Audio', () => {
   it('reports a locked state with no voices', () => {
     const e = new WebAudioEngine();
     e.unlock();
-    expect(e.stats()).toEqual({ state: 'locked', sfxVoices: 0, ambienceVoices: 0, plucksCached: 0 });
+    expect(e.stats()).toMatchObject({ state: 'locked', sfxVoices: 0, ambienceVoices: 0, plucksCached: 0, liveNodes: 0, scheduler: { running: false, starts: 0 } });
   });
 });
 
@@ -48,7 +48,7 @@ describe('settings mapping', () => {
   it('mute silences both buses; ambience sits under the effects', () => {
     expect(busGains({ sfxVolume: 80, musicVolume: 80, muted: true })).toEqual({ sfx: 0, music: 0 });
     const g = busGains({ sfxVolume: 100, musicVolume: 100, muted: false });
-    expect(g.sfx).toBe(1);
+    expect(g.sfx).toBe(SFX_LEVEL);
     expect(g.music).toBeCloseTo(AMBIENCE_LEVEL);
     expect(g.music).toBeLessThan(g.sfx);
   });
@@ -185,5 +185,33 @@ describe('analysis', () => {
     x[4000] = 0.3;
     expect(quietJump(x, sr)).toBeGreaterThan(0.2);
     expect(maxJump(sine(100, sr, 0.1))).toBeLessThan(0.01);
+  });
+});
+
+describe('loudness (BS.1770)', () => {
+  const sine = (f: number, amp: number, sr: number, seconds: number): Float32Array => {
+    const x = new Float32Array(Math.round(sr * seconds));
+    for (let i = 0; i < x.length; i++) x[i] = amp * Math.sin((2 * Math.PI * f * i) / sr);
+    return x;
+  };
+  it('reads a full-scale 997 Hz sine at 0 LUFS on two channels and -3 LUFS on one', () => {
+    for (const sr of [44100, 48000]) {
+      const s = sine(997, 1, sr, 3);
+      expect(integratedLoudness([s, s], sr)).toBeCloseTo(0, 0);
+      expect(integratedLoudness([s], sr)).toBeCloseTo(-3.01, 0);
+    }
+  });
+  it('gates silence and measures a -20 dB tone 20 dB lower', () => {
+    const sr = 48000;
+    const a = sine(997, 0.1, sr, 3);
+    expect(integratedLoudness([a, a], sr)).toBeCloseTo(-20, 0);
+    expect(integratedLoudness([new Float32Array(sr * 2)], sr)).toBe(-Infinity);
+  });
+  it('splits spectral energy by band', () => {
+    const sr = 48000;
+    const { mags } = spectrum(sine(200, 0.5, sr, 1), sr);
+    expect(bandShare(mags, sr, 300)).toBeLessThan(0.05);
+    const hi = spectrum(sine(1000, 0.5, sr, 1), sr).mags;
+    expect(bandShare(hi, sr, 300)).toBeGreaterThan(0.95);
   });
 });

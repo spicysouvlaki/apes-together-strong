@@ -47,18 +47,19 @@ import {
 } from '../colors';
 import { BASE_Y, FOG_TOP, WATER_TOP, tileTop } from '../heights';
 import { hexAtIndex, hexToWorld, mapBounds, tileIndex, worldToHex } from '../layout';
-import { labelSpec, sealSpec, wallFraction, type LabelSpec } from '../labels';
+import { damageSpec, labelSpec, sealSpec, wallFraction, type LabelSpec } from '../labels';
 import type { ZoomBand } from '../camera-math';
 import { DIR_BUCKET, buildBorderMesh, computeBorderEdges, createBorderMeshData, createEdgeList, type BorderColors } from '../borders';
 import { BorderMesh } from './border-mesh';
 import { computeRiverSegments, roadRiverCrossings, type RiverSegment, type Seg2 } from '../rivers';
 import { GhostMemory, type GhostSettlement } from '../ghosts';
 import { patternFor } from '../patterns';
-import { RESOURCE_CLASS_STYLE, gradeTerrainColors, resourceClassOf, type ResourceClass } from '../terrain-style';
+import { REACH_STYLE } from '../highlight-style';
+import { RESOURCE_ART, RESOURCE_CLASS_STYLE, gradeTerrainColors, resourceClassOf, type ResourceClass } from '../terrain-style';
 import { ART, SKIN_TONES, SURFACE, artDirectTerrain, packedSkin, scaleRgb, surfaceKind, tileVariation, type SurfaceKind } from '../palette';
 import { hashTile, microDensity, scatterInHex, treeCount, unit01, type RenderQuality } from '../scatter';
 import { PIECE_KINDS, buildCultureIndex, kitStyle, motifWeights, settlementLayout, type CultureIndex, type Piece, type PieceKind } from '../architecture';
-import { districtPieces, districtPlan, districtSmoke, type DistrictKind, type DistrictNeighbor } from '../districts';
+import { districtNeighbor, districtPieces, districtPlan, districtSmoke, type DistrictKind, type DistrictNeighbor, type DistrictResource } from '../districts';
 import { fillMapField, waterDistance } from '../textures';
 import {
   RESOURCE_PROPS,
@@ -97,7 +98,7 @@ import {
   bridgeGeometry,
   type ResourcePropKind,
 } from './geometry';
-import { LOOKS, LOOK_TOP, allFigureGeometries, forecourtGeometry, palisadeGeometry, pennonGeometry, raftGeometry, unitBaseGeometry, type Look } from './figurines';
+import { LOOKS, LOOK_TOP, allFigureGeometries, forecourtGeometry, palisadeGeometry, pennonGeometry, raftGeometry, unitBaseGeometry, warMarkGeometry, type Look } from './figurines';
 import {
   HP_PIPS,
   LUNGE_MS,
@@ -111,6 +112,7 @@ import {
   lerpAngle,
   lungeCurve,
   pickAttacker,
+  relationMarkers,
   restHeading,
   stackLayout,
   unitLook,
@@ -119,10 +121,11 @@ import {
   type UnitArtDef,
   type UnitRelation,
 } from '../unit-look';
-import { Instances } from './instances';
-import { LabelLayer } from './label-layer';
+import { Instances, replayRecord } from './instances';
+import { LabelLayer, OBSTACLE_STRIDE } from './label-layer';
 import { createPatternUniforms, type PatternUniforms } from './pattern-material';
 import {
+  HL_FILL_R,
   SOFT,
   createSceneUniforms,
   landMaterial,
@@ -181,6 +184,10 @@ const SHAKE_MS = 360;
 const DIE_MS = 1100;
 /** Lost HP pips flash and fall. */
 const PIP_DROP_MS = 750;
+/** Floating damage numbers ("−29") rise and fade over this long. */
+const FLOAT_MS = 1400;
+/** HP pips are drawn this much larger than nominal (playtest 3: hard to see at default zoom). */
+const PIP_SCALE = 1.4;
 /** Ranged shot flight time. */
 const SHOT_MS = 380;
 const FLOURISH_MS = 900;
@@ -209,7 +216,7 @@ const C = {
   hpLow: rgb('#de5a43'),
   select: rgb('#fff4d6'),
   selectUnit: rgb('#ffd86a'),
-  reachable: rgb('#fff0c8'),
+  reachable: rgb(REACH_STYLE.wash),
   attackable: rgb('#e0453a'),
   path: rgb('#fffaf0'),
   pathBack: rgb('#24180f'),
@@ -235,7 +242,7 @@ const RELATION_RIM: Record<UnitRelation, Rgb> = {
   own: rgb('#fff8ea'),
   rival: rgb('#2a2522'),
   war: rgb('#e0453a'),
-  cityState: rgb('#a8a49b'),
+  cityState: rgb('#c9a445'),
   raider: rgb('#5c1212'),
 };
 const FLASH_COLORS: Record<FlashKind, Rgb> = {
@@ -253,32 +260,13 @@ const RESOURCE_RGB: Record<ResourceClass, Rgb> = {
   strategic: rgb(RESOURCE_CLASS_STYLE.strategic.color),
 };
 
-/**
- * Render-side art table: which small prop a resource gets, and its accent color. Unknown ids
- * keep the generic class marker (ball / gem / block), so new content always shows something.
- */
-const RESOURCE_ART: Record<string, { prop: ResourcePropKind; accent: string }> = {
-  wheat: { prop: 'grain', accent: '#e4c25a' },
-  dates: { prop: 'orchard', accent: '#8a5228' },
-  olives: { prop: 'orchard', accent: '#55642e' },
-  wine: { prop: 'orchard', accent: '#7a2d55' },
-  tea: { prop: 'orchard', accent: '#93c45a' },
-  incense: { prop: 'goods', accent: '#eadfc4' },
-  silk: { prop: 'goods', accent: '#d8628f' },
-  furs: { prop: 'goods', accent: '#8f6a45' },
-  amber: { prop: 'ore', accent: '#e39a2c' },
-  salt: { prop: 'ore', accent: '#f6f3ec' },
-  stone: { prop: 'ore', accent: '#cfc8bb' },
-  copper: { prop: 'ore', accent: '#cf7a3a' },
-  iron: { prop: 'ore', accent: '#6f5d55' },
-  gold_ore: { prop: 'ore', accent: '#efc644' },
-  fish: { prop: 'sea', accent: '#9db8c8' },
-  whales: { prop: 'sea', accent: '#4f6070' },
-  walrus_ivory: { prop: 'sea', accent: '#efe6d2' },
-  horses: { prop: 'animal', accent: '#8f5c38' },
-  cattle: { prop: 'animal', accent: '#cdb79a' },
-  deer: { prop: 'animal', accent: '#b58550' },
-};
+
+/** Packed per-tile facts the board depends on besides terrain/feature/resource (change check). */
+const tileFlags = (t: { river: boolean; elevation: number; climate: string }): number =>
+  (t.river ? 1 : 0) | ((t.elevation & 0xff) << 1) | ((t.climate.charCodeAt(0) & 0xff) << 9) | ((t.climate.length & 0xf) << 17);
+
+/** A resource's art class for district planning (unknown ids: 'other'). */
+const resourceArtOf = (id: string): DistrictResource => RESOURCE_ART[id]?.prop ?? 'other';
 
 /** Feature glyphs on the strategic atlas (land shader). */
 const GLYPH_NONE = 0;
@@ -461,6 +449,8 @@ export class World {
   private readonly ferns: Instances;
   private readonly mists: Instances;
   private jungleTile = new Uint8Array(0);
+  /** Hill tiles rebuilt as terraced fields (no hill mound). */
+  private terraceTile = new Uint8Array(0);
   private readonly palms: Instances;
   private readonly rocks: Instances;
   private readonly tufts: Instances;
@@ -477,6 +467,10 @@ export class World {
   private readonly figures: Record<Look, Instances>;
   private readonly rafts: Instances;
   private readonly pennons: Instances;
+  /** Crossed-swords pennants over units at war with the viewer (and raiders). */
+  private readonly warMarks: Instances;
+  /** Bobbing gem over the viewer's selected unit. */
+  private readonly selMarks: Instances;
   private readonly forecourts: Instances;
   private readonly unitBases: Instances;
   private readonly unitRims: Instances;
@@ -506,6 +500,9 @@ export class World {
   private readonly particles: Particle[] = [];
 
   private settlementDraws: SettlementDraw[] = [];
+  /** Settlement piece lists by id (and district pieces by spot), reused while their inputs hold. */
+  private readonly layoutCache = new Map<string, { key: string; pieces: Piece[]; flag: number }>();
+  private readonly layoutSeen = new Set<string>();
   private readonly bornAt = new Map<SettlementId, number>();
   private readonly flourishAt = new Map<SettlementId, number>();
   private knownSettlements: Set<SettlementId> | null = null;
@@ -527,12 +524,16 @@ export class World {
   /** Last HP seen per unit, and pip-drop animations (lost pips flash and fall). */
   private readonly lastHp = new Map<UnitId, number>();
   private readonly pipDrop = new Map<UnitId, { from: number; at: number }>();
+  /** Floating damage numbers in flight (label index into the label layer, last rise/alpha). */
+  private floats: { x: number; y: number; z: number; dmg: number; start: number; label: number; rise: number; alpha: number }[] = [];
+  /** Last settlement HP seen (wall damage numbers). */
+  private readonly lastCityHp = new Map<SettlementId, number>();
   private lastNow = 0;
   private selection: Selection = { unit: null, tile: null, reachable: [], attackable: [], path: [], pathTurns: [] };
   private sites: SiteMark[] = [];
   private labelEntries: LabelEntry[] = [];
-  /** Unit figure points (x, y, z triples) labels must not cover. */
-  private obstacles = new Float32Array(3 * 64);
+  /** Units labels must not cover (label-layer OBSTACLE_STRIDE floats each). */
+  private obstacles = new Float32Array(5 * 64);
   private obstacleCount = 0;
   /** Tiles in front of (camera side of) a visible unit get thinned vegetation; offsets toward the unit. */
   private frontTile = new Uint8Array(0);
@@ -595,7 +596,7 @@ export class World {
     this.borders = new BorderMesh(B, this.patternUniforms, 3);
     this.staticShadows = I(flatDiscGeometry(14), soft(-1), 1024, D, 'shadows', 1);
     this.resourceHalos = I(flatDiscGeometry(16), soft(-2), 128, D, 'resource-halos', 2);
-    this.hlFill = I(hexFlatGeometry(0.93), soft(-5), 64, B, 'hl-fill', 5);
+    this.hlFill = I(hexFlatGeometry(Number(HL_FILL_R)), soft(-5), 64, B, 'hl-fill', 5);
     this.hlRing = I(hexFlatGeometry(1.0), soft(-6), 32, B, 'hl-ring', 6);
     // Route preview: unit discs scaled per instance into dashes, waypoint dots, turn ticks and the
     // destination bullseye (ink outline under a vellum fill: readable on water and pale land).
@@ -648,6 +649,8 @@ export class World {
     this.figures = figs as Record<Look, Instances>;
     this.rafts = I(raftGeometry(), shipMat, 16, D, 'unit-rafts');
     this.pennons = I(pennonGeometry(), figMat, 16, D, 'unit-pennons');
+    this.warMarks = I(warMarkGeometry(), figMat, 16, D, 'unit-war-marks');
+    this.selMarks = I(readyMarkerGeometry(), propTint, 2, D, 'unit-selected-mark');
     this.forecourts = I(forecourtGeometry(), propFixed, 32, D, 'unit-forecourts');
     this.unitBases = I(unitBaseGeometry(), baseMat, 128, D, 'unit-bases');
     this.unitRims = new Instances(g(baseRingGeometry(0.172, 0.02)), unlit, 128, D, 'unit-rims');
@@ -731,6 +734,7 @@ export class World {
     this.strategic.visible = strategic;
     const changed = band !== this.band;
     this.band = band;
+    if (changed) this.labelsDirty = true;
     if (changed && this.state) this.updateMicro();
   }
 
@@ -738,6 +742,7 @@ export class World {
     if (q === this.quality) return;
     this.quality = q;
     this.applyQuality();
+    this.forceRebuild = true;
     if (this.state) this.update(this.state, this.viewer, null, 0);
   }
 
@@ -830,6 +835,28 @@ export class World {
   // -------------------------------------------------------------------------------------------
 
   private lastVisible: readonly number[] = [];
+  /** Inputs the layers were last built from (incremental update). */
+  private forceRebuild = true;
+  private prevFog = new Uint8Array(0);
+  private prevSettled = new Uint8Array(0);
+  private prevFront = new Uint8Array(0);
+  private prevTerrace = new Uint8Array(0);
+  private sigTerrain: (string | undefined)[] = [];
+  private sigFeature: (string | null | undefined)[] = [];
+  private sigResource: (string | null | undefined)[] = [];
+  private sigFlags = new Int32Array(0);
+  private builtAge = -1;
+  /** Per-tile prop / micro-detail caches (key + recorded pushes; -1 = rebuild). */
+  private propKeys = new Int32Array(0);
+  private propRecs: (number[] | null)[] = [];
+  private microKeys = new Int32Array(0);
+  private microRecs: (number[] | null)[] = [];
+  private microDensityBuilt = -1;
+
+  /** Rebuild every layer on the next update (quality change, context restore). */
+  invalidate(): void {
+    this.forceRebuild = true;
+  }
 
   update(state: GameState, viewer: PlayerId | null, visible: readonly number[] | null, now: number): void {
     this.state = state;
@@ -840,10 +867,41 @@ export class World {
     const n = width * height;
     if (width !== this.width || height !== this.height || this.fog.length !== n) this.resize(width, height);
     const viewerState = viewer !== null ? state.players[viewer] : undefined;
+    // Incremental update (playtest 3: setState stalled busy turns): remember what each layer was
+    // built from and rebuild only layers whose inputs changed. Board (tiles, water field, rivers)
+    // = fog + static tile facts; props/micro = that + clearings (settlements, units, districts),
+    // front-of-unit thinning, age; territory = owners + fog. Settlements, units and labels are
+    // cheap and always refresh (their piece lists are cached per settlement).
+    this.prevFog.set(this.fog);
     classifyFog(n, viewer === null ? null : (viewerState?.explored ?? []), vis, this.fog);
     this.placeRose(state, viewer);
     const ageIdx = Math.max(0, AGES.indexOf(state.age));
     const high = this.quality === 'high';
+    const force = this.forceRebuild;
+    this.forceRebuild = false;
+    let fogChanged = force;
+    for (let i = 0; i < n && !fogChanged; i++) if (this.fog[i] !== this.prevFog[i]) fogChanged = true;
+    let tilesChanged = force;
+    let ownersChanged = force;
+    for (let i = 0; i < n; i++) {
+      const t = tiles[i];
+      if (!t) continue;
+      if (this.owners[i] !== t.owner) {
+        ownersChanged = true;
+        this.owners[i] = t.owner;
+      }
+      if (this.sigTerrain[i] !== t.terrain || this.sigFeature[i] !== t.feature || this.sigResource[i] !== t.resource || this.sigFlags[i] !== tileFlags(t)) {
+        tilesChanged = true;
+        this.sigTerrain[i] = t.terrain;
+        this.sigFeature[i] = t.feature;
+        this.sigResource[i] = t.resource;
+        this.sigFlags[i] = tileFlags(t);
+      }
+    }
+    const board = fogChanged || tilesChanged;
+    this.prevSettled.set(this.settledTile);
+    this.prevFront.set(this.frontTile);
+    this.prevTerrace.set(this.terraceTile);
 
     this.settledTile.fill(0);
     for (const s of Object.values(state.settlements)) {
@@ -860,13 +918,12 @@ export class World {
     this.markFrontTiles(state, viewer);
 
     // Pass 1: per-tile facts.
-    for (let i = 0; i < n; i++) {
+    for (let i = 0; i < n && board; i++) {
       const tile = tiles[i];
       if (!tile) continue;
       const w = hexToWorld(tile);
       this.tileX[i] = w.x;
       this.tileZ[i] = w.z;
-      this.owners[i] = tile.owner;
       const isWater = this.terrainWater.get(tile.terrain) ?? false;
       this.waterTile[i] = isWater ? 1 : 0;
       const fog = (this.fog[i] ?? FOG_UNEXPLORED) as FogClass;
@@ -886,7 +943,37 @@ export class World {
       this.surface[i] = surfaceKind(base, { mountain: isMountain, climate: tile.climate });
     }
     this.planDistricts(state, viewer);
+    let clearings = board || ageIdx !== this.builtAge;
+    for (let i = 0; i < n && !clearings; i++) {
+      if (this.settledTile[i] !== this.prevSettled[i] || this.frontTile[i] !== this.prevFront[i] || this.terraceTile[i] !== this.prevTerrace[i]) clearings = true;
+    }
+    this.builtAge = ageIdx;
+    // Tile facts changed (rare: a new map, terrain edits): every per-tile prop / micro cache is
+    // stale. Fog changes are per tile and part of each tile's cache key.
+    if (tilesChanged) {
+      this.propKeys.fill(-1);
+      this.microKeys.fill(-1);
+    }
+    if (board) this.updateBoard(state);
+    if (clearings) {
+      this.updateProps(state, ageIdx, high);
+      this.updateMicro();
+    }
+    if (board) this.updateRivers(state);
+    if (board || ownersChanged) this.updateTerritory(state);
+    this.updateSettlements(state, viewer, now);
+    this.updateTradeRoutes(state, viewer);
+    this.prepareUnits(state, viewer, now);
+    this.drawUnits(now);
+    this.drawSelection();
+    this.drawSites();
+    this.applyQuality();
+  }
 
+  /** Board layers (land, water, parchment) and the water-depth map field. */
+  private updateBoard(state: GameState): void {
+    const { tiles } = state.map;
+    const n = this.width * this.height;
     // Water depth field (from explored land only: no coastline leaks through the fog).
     waterDistance(
       n,
@@ -943,18 +1030,6 @@ export class World {
     this.land.end();
     this.water.end();
     this.parchment.end();
-
-    this.updateProps(state, ageIdx, high);
-    this.updateMicro();
-    this.updateRivers(state);
-    this.updateTerritory(state);
-    this.updateSettlements(state, viewer, now);
-    this.updateTradeRoutes(state, viewer);
-    this.prepareUnits(state, viewer, now);
-    this.drawUnits(now);
-    this.drawSelection();
-    this.drawSites();
-    this.applyQuality();
   }
 
   /**
@@ -1075,6 +1150,16 @@ export class World {
     this.surface = new Uint8Array(n);
     this.tileColor = new Float32Array(n * 3);
     this.settledTile = new Uint8Array(n);
+    this.terraceTile = new Uint8Array(n);
+    this.prevFog = new Uint8Array(n);
+    this.prevSettled = new Uint8Array(n);
+    this.prevFront = new Uint8Array(n);
+    this.prevTerrace = new Uint8Array(n);
+    this.sigTerrain = new Array<string | undefined>(n);
+    this.sigFeature = new Array<string | null | undefined>(n);
+    this.sigResource = new Array<string | null | undefined>(n);
+    this.sigFlags = new Int32Array(n).fill(-1);
+    this.forceRebuild = true;
     this.frontTile = new Uint8Array(n);
     this.frontDx = new Float32Array(n);
     this.frontDz = new Float32Array(n);
@@ -1134,10 +1219,12 @@ export class World {
     const n = this.width * this.height;
     const L = [this.mountains[0], this.mountains[1], this.hills, this.conifers, this.broadleaf, this.jungle, this.ferns, this.mists, this.palms, this.rocks, this.staticShadows];
     if (this.jungleTile.length !== n) this.jungleTile = new Uint8Array(n);
-    this.jungleTile.fill(0);
+    if (this.propKeys.length !== n) {
+      this.propKeys = new Int32Array(n).fill(-1);
+      this.propRecs = new Array<number[] | null>(n).fill(null);
+    }
     for (const l of L) l?.begin();
     this.resourceList = [];
-    const pts = this.scatter;
     const shadow = (x: number, y: number, z: number, r: number, k: number, mem: number): void => {
       if (high) this.staticShadows.push(x + 0.05 * r, y + 0.004, z + 0.04 * r, r, 1, r, 0, C.white, mem, SOFT.shadow, k, 0);
     };
@@ -1146,9 +1233,47 @@ export class World {
       if (!tile) continue;
       const fog = (this.fog[i] ?? FOG_UNEXPLORED) as FogClass;
       if (fog === FOG_UNEXPLORED || this.waterTile[i]) {
+        this.jungleTile[i] = 0;
         if (fog !== FOG_UNEXPLORED && tile.resource) this.pushResource(tile.resource, i, ageIdx, fog);
         continue;
       }
+      // Per-tile cache: a tile whose clearing, fog and front-thinning are unchanged replays its
+      // instances (scatter placement is the expensive part; units moving changes a few tiles).
+      const fd = this.frontTile[i] ? (Math.round(Math.atan2(this.frontDz[i] ?? 0, this.frontDx[i] ?? 0) / (Math.PI / 3)) + 9) % 6 : 6;
+      const pkey = fog | ((this.settledTile[i] ?? 0) << 2) | ((this.frontTile[i] ?? 0) << 4) | ((this.terraceTile[i] ?? 0) << 5) | (fd << 6);
+      const cached = this.propRecs[i];
+      if (cached && this.propKeys[i] === pkey) {
+        replayRecord(L, cached);
+        if (tile.resource) this.pushResource(tile.resource, i, ageIdx, fog);
+        continue;
+      }
+      const rec: number[] = [];
+      L.forEach((l, k) => {
+        if (!l) return;
+        l.recorder = rec;
+        l.recordId = k;
+      });
+      this.jungleTile[i] = 0;
+      this.propsForTile(tile, i, fog, ageIdx, high, shadow);
+      for (const l of L) if (l) l.recorder = null;
+      this.propRecs[i] = rec;
+      this.propKeys[i] = pkey;
+    }
+    for (const l of L) l?.end();
+    this.drawResources();
+  }
+
+  /** Relief, vegetation and rocks for one explored land tile (recorded by updateProps). */
+  private propsForTile(
+    tile: GameState['map']['tiles'][number],
+    i: number,
+    fog: FogClass,
+    ageIdx: number,
+    high: boolean,
+    shadow: (x: number, y: number, z: number, r: number, k: number, mem: number) => void,
+  ): void {
+    const pts = this.scatter;
+    {
       const mem = fog === FOG_EXPLORED ? 1 : 0;
       const x = this.tileX[i] ?? 0;
       const z = this.tileZ[i] ?? 0;
@@ -1176,7 +1301,9 @@ export class World {
         }
       }
       const feature = tile.feature;
-      if (feature === 'hills') {
+      if (feature === 'hills' && this.terraceTile[i] === 1) {
+        // Terraced: the district rebuilds the hill as stepped fields.
+      } else if (feature === 'hills') {
         const tint = scaleRgb(tc, 0.98);
         this.hills.push(x, top - 0.035, z, 1.0, 1.0 + unit01(h >>> 5) * 0.35, 1.0, spin, tint, mem);
         shadow(x - 0.05, top, z, 0.8, 0.22, mem);
@@ -1266,8 +1393,6 @@ export class World {
       }
       if (hasRes && tile.resource) this.pushResource(tile.resource, i, ageIdx, fog);
     }
-    for (const l of L) l?.end();
-    this.drawResources();
   }
 
   private pushResource(id: string, i: number, ageIdx: number, fog: FogClass): void {
@@ -1294,10 +1419,15 @@ export class World {
     const L = [this.tufts, this.reeds, this.drifts, this.dunes, this.flowers];
     for (const l of L) l.begin();
     const density = microDensity(this.band, this.quality);
+    const n0 = this.width * this.height;
+    if (this.microKeys.length !== n0 || density !== this.microDensityBuilt) {
+      this.microKeys = new Int32Array(n0).fill(-1);
+      this.microRecs = new Array<number[] | null>(n0).fill(null);
+      this.microDensityBuilt = density;
+    }
     if (state && density > 0) {
       const tiles = state.map.tiles;
       const n = this.width * this.height;
-      const pts = this.scatter;
       for (let i = 0; i < n; i++) {
         const tile = tiles[i];
         if (!tile || this.waterTile[i]) continue;
@@ -1313,6 +1443,42 @@ export class World {
         const settled = this.settledTile[i] === 1;
         // District tiles (fields, workshops) are built over: no grass tufts poking through.
         if (this.settledTile[i] === 3) continue;
+        // Per-tile cache (see updateProps): replay unless fog or the settlement clearing changed.
+        const mkey = fog | (settled ? 4 : 0);
+        const cached = this.microRecs[i];
+        if (cached && this.microKeys[i] === mkey) {
+          replayRecord(L, cached);
+          continue;
+        }
+        const rec: number[] = [];
+        L.forEach((l, k) => {
+          l.recorder = rec;
+          l.recordId = k;
+        });
+        this.microForTile(tile, kind, tc, settled, density, x, z, top, mem);
+        for (const l of L) l.recorder = null;
+        this.microRecs[i] = rec;
+        this.microKeys[i] = mkey;
+      }
+    }
+    for (const l of L) l.end();
+  }
+
+  /** Tufts, flowers, reeds, drifts, dunes and pebbles for one tile (recorded by updateMicro). */
+  private microForTile(
+    tile: GameState['map']['tiles'][number],
+    kind: SurfaceKind,
+    tc: Rgb,
+    settled: boolean,
+    density: number,
+    x: number,
+    z: number,
+    top: number,
+    mem: number,
+  ): void {
+    const pts = this.scatter;
+    {
+      {
         const wooded = tile.feature === 'forest' || tile.feature === 'jungle';
         const clear: [number, number, number] | undefined = tile.resource ? [RESOURCE_SPOT[0], RESOURCE_SPOT[1], 0.22] : undefined;
         const opts = { radius: 0.78, minDist: 0.17, clearCenter: settled ? 0.72 : 0, clear };
@@ -1380,7 +1546,6 @@ export class World {
         }
       }
     }
-    for (const l of L) l.end();
   }
 
   private drawResources(): void {
@@ -1526,6 +1691,8 @@ export class World {
    */
   private planDistricts(state: GameState, viewer: PlayerId | null): void {
     this.districtSpots = [];
+    this.terraceTile.fill(0);
+    const ageIdx = Math.max(0, AGES.indexOf(state.age));
     const tiles = state.map.tiles;
     const claimed = new Set<number>();
     for (const id of Object.keys(state.settlements).sort()) {
@@ -1541,10 +1708,18 @@ export class World {
         const t = tiles[j];
         if (!t || this.fog[j] === FOG_UNEXPLORED) continue;
         const water = this.waterTile[j] === 1;
-        if (t.owner !== s.owner && !(water && t.owner === null)) continue;
-        const free = !water && !t.resource && !(this.terrainMountain.get(t.terrain) ?? false) && this.settledTile[j] !== 1;
-        const wooded = free && (t.feature === 'forest' || t.feature === 'jungle');
-        neighbors.push({ dir: d, water, open: free && !t.feature, wooded });
+        // Own land (a new town's border may not cover every neighbor yet: unclaimed land next to
+        // it still farms), or open water for a quay.
+        if (t.owner !== s.owner && t.owner !== null) continue;
+        const nb = districtNeighbor(d, {
+          water,
+          mountain: this.terrainMountain.get(t.terrain) ?? false,
+          feature: t.feature,
+          // A resource not yet revealed this age is just land.
+          resource: t.resource && (this.resourceAge.get(t.resource) ?? 0) <= ageIdx ? resourceArtOf(t.resource) : null,
+          settled: this.settledTile[j] === 1,
+        });
+        if (nb) neighbors.push(nb);
       }
       const plan = districtPlan({
         id: s.id,
@@ -1559,6 +1734,8 @@ export class World {
         if (j < 0) continue;
         claimed.add(j);
         if (this.waterTile[j] !== 1) this.settledTile[j] = 3;
+        // Terraces replace the hill mound (the hill is rebuilt as stepped fields).
+        if (spot.kind === 'terraces') this.terraceTile[j] = 1;
         this.districtSpots.push({
           sid: s.id,
           tile: j,
@@ -1603,11 +1780,19 @@ export class World {
     // Fog-of-war memory: remember what we see, ghost what we saw.
     this.ghostMemory.update(`${state.seed}|${viewer ?? '*'}|${this.width}x${this.height}`, state.turn, viewer, shown, this.fog);
     const occupied = new Set<number>();
+    this.layoutSeen.clear();
     for (const { tile: i, s } of shown) {
       const fog = (this.fog[i] ?? FOG_UNEXPLORED) as FogClass;
       // Own settlements always show; others only while the tile is in sight.
       if (viewer !== null && s.owner !== viewer && fog !== FOG_VISIBLE) continue;
       occupied.add(i);
+      // Wall damage taken since the last snapshot rises as a number over the town.
+      const was = this.lastCityHp.get(s.id);
+      // (Beside the name, not on it: offset toward screen right.)
+      if (was !== undefined && s.hp < was && now > 0) {
+        this.addFloat((this.tileX[i] ?? 0) + Math.cos(this.vegYaw) * 0.75, (this.shownTop[i] ?? 0) + 0.55, (this.tileZ[i] ?? 0) - Math.sin(this.vegYaw) * 0.75, was - s.hp, now);
+      }
+      this.lastCityHp.set(s.id, s.hp);
       this.placeSettlement(state, s, i, fog, false, wondersAt.get(s.id) ?? []);
     }
     for (const { tile, g } of this.ghostMemory.ghosts(this.fog)) {
@@ -1618,23 +1803,48 @@ export class World {
     // a milestone adds one (growth made visible).
     const ageIdx = Math.max(0, AGES.indexOf(state.age));
     const keys = new Set<string>();
+    const styles = new Map<string, ReturnType<typeof kitStyle>>();
     for (const spot of this.districtSpots) {
       const s = state.settlements[spot.sid];
       if (!s) continue;
       const key = `${spot.sid}#${spot.tile}:${spot.kind}`;
       keys.add(key);
       if (this.knownDistricts && !this.knownDistricts.has(key) && !this.reduceMotion) this.bornAt.set(key, now);
-      const player = state.players[s.owner];
-      const style = kitStyle(motifWeights(s.namedFor, player?.traditions ?? [], player?.hybrids ?? [], this.cultures), ageIdx);
+      let style = styles.get(s.id);
+      if (!style) {
+        const player = state.players[s.owner];
+        style = kitStyle(motifWeights(s.namedFor, player?.traditions ?? [], player?.hybrids ?? [], this.cultures), ageIdx);
+        styles.set(s.id, style);
+      }
       const x = this.tileX[spot.tile] ?? 0;
       const y = this.shownTop[spot.tile] ?? 0;
       const z = this.tileZ[spot.tile] ?? 0;
       const mem = this.fog[spot.tile] === FOG_VISIBLE ? 0 : 1;
-      this.settlementDraws.push({ id: key, x, y, z, mem, pattern: 0, pieces: districtPieces(spot.kind, spot.key, spot.toCity, spot.size, style), flag: -1 });
+      const tile = state.map.tiles[spot.tile];
+      const onRes = !!tile?.resource && this.waterTile[spot.tile] !== 1 && (this.resourceAge.get(tile.resource) ?? 0) <= ageIdx;
+      const dkey = `${spot.kind}|${spot.key}|${spot.toCity.toFixed(3)}|${spot.size.toFixed(3)}|${onRes ? 1 : 0}|${style.wall.join(',')}|${style.roof.join(',')}|${style.accent.join(',')}`;
+      const cached = this.layoutCache.get(key);
+      this.layoutSeen.add(key);
+      let pieces = cached && cached.key === dkey ? cached.pieces : districtPieces(spot.kind, spot.key, spot.toCity, spot.size, style);
+      // On a resource tile the district shares the hex with the resource prop: a pasture fences
+      // the herd (centered on it), anything else steps aside and shrinks a little.
+      let ox = 0;
+      let oz = 0;
+      let k = 1;
+      if (onRes) {
+        k = 0.78;
+        const away = spot.kind === 'pasture' ? 0.5 : -0.55;
+        ox = RESOURCE_SPOT[0] * away;
+        oz = RESOURCE_SPOT[1] * away;
+        if (!cached || cached.key !== dkey) pieces = pieces.map((p) => ({ ...p, x: p.x * k + ox, y: p.y * k, z: p.z * k + oz, sx: p.sx * k, sy: p.sy * k, sz: p.sz * k }));
+      }
+      if (!cached || cached.key !== dkey) this.layoutCache.set(key, { key: dkey, pieces, flag: -1 });
+      this.settlementDraws.push({ id: key, x, y, z, mem, pattern: 0, pieces, flag: -1 });
       const chimney = districtSmoke(spot.kind, spot.size);
-      if (chimney && mem === 0) this.smoke.push(x + chimney[0], y + chimney[1], z + chimney[2], 0.1, 0);
+      if (chimney && mem === 0) this.smoke.push(x + chimney[0] * k + ox, y + chimney[1] * k, z + chimney[2] * k + oz, 0.1, 0);
     }
     this.knownDistricts = keys;
+    for (const id of [...this.layoutCache.keys()]) if (!this.layoutSeen.has(id)) this.layoutCache.delete(id);
     this.warRings.end();
     this.rebuildLabels();
     this.drawCityIcons();
@@ -1758,8 +1968,47 @@ export class World {
       const i = tileIndex(site.hex, this.width, this.height);
       this.labels.push(sealSpec(site.rank), w.x + SITE_SPOT[0], top + SITE_STAKE_TOP * k - 0.01, w.z + SITE_SPOT[1], 10, i);
     }
+    for (const f of this.floats) f.label = this.labels.push(damageSpec(f.dmg), f.x, f.y, f.z, 20, -1);
     this.labels.end();
     this.labelsDirty = true;
+    this.applyFloats();
+  }
+
+  /** A damage number rising from a hit unit or city (combat feedback, GDD §7). */
+  private addFloat(x: number, y: number, z: number, dmg: number, now: number): void {
+    if (dmg <= 0) return;
+    // Several hits on one spot stack upward instead of overprinting.
+    let lift = 0;
+    for (const f of this.floats) if (Math.abs(f.x - x) < 0.3 && Math.abs(f.z - z) < 0.3 && now - f.start < FLOAT_MS) lift += 0.42;
+    this.floats.push({ x, y: y + lift, z, dmg, start: now, label: -1, rise: 0, alpha: 1 });
+    if (this.floats.length > 8) this.floats.shift();
+    this.rebuildLabels();
+  }
+
+  /** Re-apply the floats' rise/alpha (the label layout resets fixed labels). */
+  private applyFloats(): void {
+    for (const f of this.floats) this.labels.setFixed(f.label, f.rise, f.alpha);
+  }
+
+  /** Advance damage numbers; returns true while any is in flight. */
+  private animateFloats(now: number): boolean {
+    if (this.floats.length === 0) return false;
+    let expired = false;
+    for (const f of this.floats) {
+      const t = (now - f.start) / FLOAT_MS;
+      if (t >= 1) {
+        expired = true;
+        continue;
+      }
+      // Pops up, then drifts a little higher and fades (static under reduceMotion, then fades).
+      f.rise = this.reduceMotion ? 0.6 : 0.4 + easeOut(Math.min(1, t * 1.6)) * 1.3 + t * 0.4;
+      f.alpha = t < 0.65 ? 1 : 1 - (t - 0.65) / 0.35;
+    }
+    if (expired) {
+      this.floats = this.floats.filter((f) => (now - f.start) / FLOAT_MS < 1);
+      this.rebuildLabels();
+    } else this.applyFloats();
+    return this.floats.length > 0;
   }
 
   private placeSettlement(state: GameState, s: GhostSettlement, i: number, fog: FogClass, ghost: boolean, wonders: readonly string[]): void {
@@ -1774,18 +2023,16 @@ export class World {
     const damage = s.maxHp > 0 ? clamp01(1 - s.hp / s.maxHp) : 0;
     const player = state.players[s.owner];
     const weights = motifWeights(s.namedFor, player?.traditions ?? [], player?.hybrids ?? [], this.cultures);
-    const layout = settlementLayout({
-      id: s.id,
-      kind: s.kind,
-      population: s.population,
-      capital: s.isCapital,
-      cityState: cs,
-      age: Math.max(0, AGES.indexOf(state.age)),
-      weights,
-      damage,
-      primary,
-      wonders,
-    });
+    const age = Math.max(0, AGES.indexOf(state.age));
+    // Cached per settlement: the layout only changes when one of its inputs does.
+    const key = `${s.kind}|${s.population}|${s.isCapital ? 1 : 0}|${cs ? 1 : 0}|${age}|${damage.toFixed(2)}|${colors.primary}|${wonders.join(',')}|${weights.map((w) => `${w.motif}:${w.weight.toFixed(3)}`).join(',')}`;
+    let layout = this.layoutCache.get(s.id);
+    if (!layout || layout.key !== key) {
+      const built = settlementLayout({ id: s.id, kind: s.kind, population: s.population, capital: s.isCapital, cityState: cs, age, weights, damage, primary, wonders });
+      layout = { key, pieces: built.pieces, flag: built.flag };
+      this.layoutCache.set(s.id, layout);
+    }
+    this.layoutSeen.add(s.id);
     this.settlementDraws.push({
       id: s.id,
       x,
@@ -1800,6 +2047,13 @@ export class World {
     // Hearth smoke: more chimneys as the town grows (living world; never over ghosts).
     if (!ghost && fog === FOG_VISIBLE) {
       const big = s.kind === 'city' || cs;
+      // A besieged town burns: extra plumes rising from the wall line.
+      if (big && damage > 0.25) {
+        for (let k = 0; k < (damage > 0.6 ? 2 : 1); k++) {
+          const a = (Math.PI / 3) * (k === 0 ? 3 : 5) + 0.2;
+          this.smoke.push(x + Math.cos(a) * 0.62, y + 0.16, z + Math.sin(a) * 0.62, 0.15, 0);
+        }
+      }
       const plumes = Math.min(4, 1 + Math.floor(s.population / 4));
       for (let k = 0; k < plumes; k++) {
         const hk = hashTile(i, k, 17);
@@ -2042,9 +2296,13 @@ export class World {
           const w = hexToWorld(tgt);
           face = headingToward(w.x - x, w.z - z);
         }
-        // HP drop: lost pips flash and fall (one snapshot later than the hit itself).
+        // HP drop: lost pips flash and fall (one snapshot later than the hit itself), and the
+        // damage rises as a number over the figure.
         const lastHp = this.lastHp.get(id);
-        if (lastHp !== undefined && u.hp < lastHp && !this.reduceMotion) this.pipDrop.set(id, { from: lastHp, at: now });
+        if (lastHp !== undefined && u.hp < lastHp && !relayout) {
+          if (!this.reduceMotion) this.pipDrop.set(id, { from: lastHp, at: now });
+          this.addFloat(x, y + LOOK_TOP[look] * UNIT_SCALE * spot.scale + 0.35, z, lastHp - u.hp, now);
+        }
         this.lastHp.set(id, u.hp);
         draws.push({
           id,
@@ -2105,18 +2363,35 @@ export class World {
       this.lungeAt.delete(id);
     }
     this.unitDraws = draws;
-    // Unit figure points labels must not cover (re-checked on the next label layout).
-    if (this.obstacles.length < draws.length * 6) this.obstacles = new Float32Array(draws.length * 12);
+    // Units labels must not cover (re-checked on the next label layout): a unit on a settlement,
+    // or on the tile in front of it (camera side), lifts that settlement's label over itself;
+    // any other unit a label covers fades the label (label-layer.ts).
+    const OS = OBSTACLE_STRIDE;
+    if (this.obstacles.length < draws.length * OS) this.obstacles = new Float32Array(draws.length * OS * 2);
+    const camX = Math.sin(yaw);
+    const camZ = Math.cos(yaw);
     let k = 0;
     for (const d of draws) {
       const S = UNIT_SCALE * d.scale;
-      const h = LOOK_TOP[d.look] * S;
-      for (const f of [0.45, 0.9]) {
-        this.obstacles[k * 3] = d.tx;
-        this.obstacles[k * 3 + 1] = d.ty + 0.04 + h * f;
-        this.obstacles[k * 3 + 2] = d.tz;
-        k++;
+      const i = tileIndex(d.hex, this.width, this.height);
+      let tag = -1;
+      if (this.settledTile[i] === 1) tag = i;
+      else {
+        for (let dd = 0; dd < 6 && tag < 0; dd++) {
+          const j = this.neighbors[i * 6 + dd] ?? -1;
+          if (j < 0 || this.settledTile[j] !== 1) continue;
+          const dx = (this.tileX[i] ?? 0) - (this.tileX[j] ?? 0);
+          const dz = (this.tileZ[i] ?? 0) - (this.tileZ[j] ?? 0);
+          if ((dx * camX + dz * camZ) / (Math.hypot(dx, dz) || 1) >= 0.45) tag = j;
+        }
       }
+      this.obstacles[k * OS] = d.tx;
+      this.obstacles[k * OS + 1] = d.ty + 0.04;
+      this.obstacles[k * OS + 2] = d.tz;
+      // Top of the figure plus the HP pips / ready marker that may ride above it.
+      this.obstacles[k * OS + 3] = d.ty + 0.04 + LOOK_TOP[d.look] * S + (d.hp < UNIT_MAX_HP ? 0.2 : 0.06);
+      this.obstacles[k * OS + 4] = tag;
+      k++;
     }
     this.obstacleCount = k;
     this.labelsDirty = true;
@@ -2133,6 +2408,8 @@ export class World {
     const same = Math.abs(w.x - r.x) < 0.3 && Math.abs(w.z - r.z) < 0.3;
     const heading = same ? r.heading : headingToward(w.x - r.x, w.z - r.z);
     this.dying.push({ d: r.d, x: r.x, y: r.y, z: r.z, heading, start: now, dusted: false });
+    // The killing blow's damage (whatever HP it had left).
+    this.addFloat(r.x, r.y + LOOK_TOP[r.d.look] * UNIT_SCALE * r.d.scale + 0.35, r.z, r.d.hp, now);
     if (this.dying.length > 8) this.dying.shift();
   }
 
@@ -2149,6 +2426,8 @@ export class World {
     this.palisades.begin();
     this.rafts.begin();
     this.pennons.begin();
+    this.warMarks.begin();
+    this.selMarks.begin();
     this.forecourts.begin();
     this.hpBack.begin();
     this.hpFront.begin();
@@ -2234,14 +2513,26 @@ export class World {
       this.unitRims.push(x, y + (d.water ? 0 : 0.012), z, S, 1, S, 0, d.rim);
       this.unitShadows.push(x + 0.03, y + 0.004, z + 0.02, (ship ? 0.36 : 0.3) * S, 1, (ship ? 0.36 : 0.3) * S, 0, C.white, 0, SOFT.shadow, 0.55, 0);
       this.figures[d.look].push(x, fy + lift, z, S, S, S, heading, d.primary, 0, d.second, d.phase, d.skin);
-      if (d.relation === 'raider') {
+      const marks = relationMarkers(d.relation);
+      if (marks.pennon) {
         // Behind-left of the base in the camera frame (cameraToWorld inlined: no per-frame allocation).
         const ox = -0.12 * S * rx - 0.1 * S * Math.sin(this.yaw);
         const oz = -0.12 * S * rz - 0.1 * S * Math.cos(this.yaw);
         this.pennons.push(x + ox, y + 0.03, z + oz, S, S, S, this.yaw, d.primary, 0, d.second, d.phase, 0);
       }
       if (d.ring) this.goldRings.push(x, y + 0.012, z, S, 1, S, 0, C.gold);
-      if (selected) {
+      if (marks.warRing) {
+        // Playtest 3: enemies at war must read instantly. A broad red outer ring (outside a
+        // famous person's gold ring) and a crossed-swords pennant behind-right of the base.
+        const wr = S * (d.ring ? 1.16 : 0.96);
+        this.goldRings.push(x, y + 0.01, z, wr, 1, wr, 0, C.warRim);
+      }
+      if (marks.swords) {
+        const ox = 0.13 * S * rx - 0.1 * S * Math.sin(this.yaw);
+        const oz = 0.13 * S * rz - 0.1 * S * Math.cos(this.yaw);
+        this.warMarks.push(x + ox, y + 0.03, z + oz, S * 0.95, S * 0.95, S * 0.95, this.yaw, C.warRim, 0, 0x2a2222, d.phase, 0);
+      }
+      if (selected && d.own) {
         this.unitGlow.push(x, y + 0.02, z, 0.46 * S * pulse, 1, 0.46 * S * pulse, 0, C.selectUnit, 0, SOFT.glow, 0.9, amb ? 1 : 0);
         const rs = S * (d.ring ? 1.12 : 0.86) * pulse;
         this.goldRings.push(x, y + 0.016, z, rs, 1, rs, 0, C.selectUnit);
@@ -2259,7 +2550,12 @@ export class World {
       if (d.hp < UNIT_MAX_HP || dropK >= 0) {
         topY = this.drawPips(x, topY, z, d.hp, drop && dropK >= 0 ? drop.from : d.hp, dropK, rx, rz);
       }
-      if (d.own && this.ready.has(d.id)) this.readyMarks.push(x, topY + 0.03, z, S * 0.9, S * 0.9, S * 0.9, 0.3, C.white, 0);
+      if (selected && d.own) {
+        // "This one is yours and selected": a larger gem bobbing over the figure (never on a
+        // rival: only own units can be selected), above the ready gem's slot.
+        const bob = amb ? Math.sin(now * 0.004) * 0.03 : 0;
+        this.selMarks.push(x, topY + 0.05 + bob, z, S * 1.45, S * 1.45, S * 1.45, 0.3, C.white, 0);
+      } else if (d.own && this.ready.has(d.id)) this.readyMarks.push(x, topY + 0.03, z, S * 0.9, S * 0.9, S * 0.9, 0.3, C.white, 0);
       // In a settlement the walls already say "garrisoned"; the palisade would bury the town.
       if (d.fortified && !ship && !d.settled) this.palisades.push(x, y + 0.01, z, S, S, S, this.yaw, d.primary, 0);
       const ds = this.iconScale;
@@ -2296,6 +2592,8 @@ export class World {
     this.palisades.end();
     this.rafts.end();
     this.pennons.end();
+    this.warMarks.end();
+    this.selMarks.end();
     this.forecourts.end();
     this.hpBack.end();
     this.hpFront.end();
@@ -2309,7 +2607,7 @@ export class World {
    * health. Pips just lost flash white, turn red and drop away (`dropK` 0..1). Returns the y above.
    */
   private drawPips(x: number, y0: number, z: number, hp: number, fromHp: number, dropK: number, rx: number, rz: number): number {
-    const k = Math.max(1, this.propScale);
+    const k = Math.max(1, this.propScale) * PIP_SCALE;
     const by = y0 + 0.03;
     const n = hpPips(hp, UNIT_MAX_HP);
     const was = dropK >= 0 ? hpPips(fromHp, UNIT_MAX_HP) : n;
@@ -2346,7 +2644,10 @@ export class World {
     if (!cameraChanged && !this.labelsDirty) return;
     this.labelsDirty = false;
     // Labels stay out of the HUD bars (a little slack: the bars' lower edge is translucent).
-    this.labels.layout(camera as PerspectiveCamera, viewW, viewH, hud.top * 0.85, viewH - hud.bottom * 0.5, this.obstacles, this.obstacleCount, (hud.left ?? 0) + 6, viewW - (hud.right ?? 0) - 6);
+    // On the strategic atlas units are flat dots: they neither lift nor fade names.
+    const units = this.detail.visible ? this.obstacleCount : 0;
+    this.labels.layout(camera as PerspectiveCamera, viewW, viewH, hud.top * 0.85, viewH - hud.bottom * 0.5, this.obstacles, units, (hud.left ?? 0) + 6, viewW - (hud.right ?? 0) - 6);
+    this.applyFloats();
   }
 
   // -------------------------------------------------------------------------------------------
@@ -2374,7 +2675,8 @@ export class World {
       const top = this.topAt(h);
       if (top === null) continue;
       const w = hexToWorld(h);
-      this.hlFill.push(w.x, top + 0.014, w.z, 1, 1, 1, 0, C.reachable, 0, SOFT.reach, 0.5, 0);
+      // Slightly raised over the tile top (and over borders/roads), see highlight-style.ts.
+      this.hlFill.push(w.x, top + 0.03, w.z, 1, 1, 1, 0, C.reachable, 0, SOFT.reach, 1, 0);
     }
     for (const h of sel.attackable) {
       const top = this.topAt(h);
@@ -2668,6 +2970,7 @@ export class World {
     if (this.shakeAt.size > 0 || this.lungeAt.size > 0 || this.dying.length > 0 || this.pipDrop.size > 0) {
       if (this.drawUnits(now)) any = true;
     }
+    if (this.animateFloats(now)) any = true;
     return any;
   }
 
@@ -2675,6 +2978,7 @@ export class World {
 
   /** Re-upload every buffer after a WebGL context restore. */
   touchAll(): void {
+    this.forceRebuild = true;
     this.root.traverse((o) => {
       const m = o as Mesh;
       if (m.isMesh) {
@@ -2701,6 +3005,8 @@ export class World {
     this.ghostMemory.clear();
     this.knownSettlements = null;
     this.bornAt.clear();
+    this.lastCityHp.clear();
+    this.floats = [];
   }
 
   dispose(): void {
@@ -2757,6 +3063,8 @@ export class World {
       ...LOOKS.map((k) => this.figures[k]),
       this.rafts,
       this.pennons,
+      this.warMarks,
+      this.selMarks,
       this.forecourts,
       this.unitBases,
       this.unitRims,

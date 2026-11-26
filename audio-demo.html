@@ -3,47 +3,124 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <title>Audio demo</title>
+    <title>Audio audition</title>
     <style>
-      :root { --bg: #f3ede1; --card: #fffaf0; --ink: #3a2f25; --muted: #7a6a58; --accent: #a0522d; --good: #4f7a4a; --bad: #a33a2a; }
-      @media (prefers-color-scheme: dark) { :root { --bg: #1f1a15; --card: #2a241d; --ink: #efe4d2; --muted: #b3a38e; --accent: #e09a6a; --good: #8fc287; --bad: #e57b68; } }
+      :root {
+        --bg: #f3ede1; --card: #fffaf0; --ink: #3a2f25; --muted: #7a6a58; --line: #e2d7c3;
+        --accent: #a0522d; --accent-ink: #fff; --good: #4f7a4a; --bad: #a33a2a; --chip: #efe5d3;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root { --bg: #1f1a15; --card: #2a241d; --ink: #efe4d2; --muted: #b3a38e; --line: #3d342a; --accent: #e09a6a; --accent-ink: #1f1a15; --good: #8fc287; --bad: #e57b68; --chip: #352d24; }
+      }
       * { box-sizing: border-box; }
-      body { margin: 0; padding: 12px 16px 40px; background: var(--bg); color: var(--ink); font: 14px/1.4 Georgia, 'Iowan Old Style', serif; }
-      h1 { font-size: 20px; margin: 4px 0 2px; } h2 { font-size: 15px; margin: 18px 0 6px; color: var(--accent); }
-      p.note { color: var(--muted); margin: 0 0 8px; font-size: 13px; }
-      .row { display: flex; flex-wrap: wrap; gap: 6px; }
-      button { min-height: 40px; min-width: 44px; padding: 0 10px; border: 1px solid color-mix(in srgb, var(--ink) 20%, transparent); border-radius: 8px; background: var(--card); color: var(--ink); font: inherit; }
+      html { -webkit-text-size-adjust: 100%; }
+      body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.45 Georgia, 'Iowan Old Style', serif; }
+      main { max-width: 980px; margin: 0 auto; padding: 12px 16px 64px; }
+      header.top { position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 16px; background: color-mix(in srgb, var(--bg) 92%, transparent); backdrop-filter: blur(6px); border-bottom: 1px solid var(--line); }
+      header.top h1 { font-size: 18px; margin: 0; flex: 1 1 auto; min-width: 0; white-space: nowrap; }
+      header.top button { min-height: 40px; padding: 4px 12px; }
+      .pill { font: 12px ui-monospace, Menlo, monospace; padding: 3px 8px; border-radius: 99px; background: var(--chip); color: var(--muted); }
+      .pill.on { color: var(--good); } .pill.off { color: var(--bad); }
+      h2 { font-size: 16px; margin: 26px 0 4px; color: var(--accent); }
+      h3 { font-size: 14px; margin: 14px 0 6px; color: var(--muted); font-weight: normal; letter-spacing: .04em; text-transform: uppercase; }
+      p { margin: 4px 0 8px; } p.note, .note { color: var(--muted); font-size: 13px; }
+      button { font: inherit; color: var(--ink); background: var(--card); border: 1px solid var(--line); border-radius: 10px; min-height: 44px; padding: 6px 12px; cursor: pointer; }
       button:active { transform: translateY(1px); }
-      button.tier-big, button.tier-fanfare { border-color: var(--accent); }
-      button.mini { min-height: 24px; min-width: 28px; padding: 0 6px; margin-left: 6px; }
-      label { display: inline-flex; align-items: center; gap: 6px; margin: 2px 12px 2px 0; }
-      input[type=range] { width: 110px; }
-      #plan, #stats, #summary { font: 12px ui-monospace, Menlo, monospace; color: var(--muted); margin-top: 6px; overflow-wrap: anywhere; }
-      table { border-collapse: collapse; width: 100%; margin-top: 8px; }
-      td { padding: 4px 6px; border-top: 1px solid color-mix(in srgb, var(--ink) 12%, transparent); vertical-align: middle; }
-      tr.pass td:nth-child(2) { color: var(--good); font-weight: bold; } tr.fail td:nth-child(2) { color: var(--bad); font-weight: bold; }
+      button.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; font-weight: bold; }
+      button.big { min-height: 52px; padding: 8px 16px; }
+      button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+      .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+      .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 8px; }
+      .sfx { text-align: left; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 8px 10px; }
+      .sfx b { font-size: 15px; } .sfx .when { font-size: 12.5px; color: var(--ink); opacity: .85; } .sfx .what { font-size: 12px; color: var(--muted); font-style: italic; }
+      .sfx .tier { font: 10.5px ui-monospace, Menlo, monospace; color: var(--muted); }
+      .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px; }
+      ol.guide { padding-left: 20px; margin: 6px 0; } ol.guide li { margin: 4px 0; }
+      label.slider { display: grid; grid-template-columns: 104px 1fr 34px; align-items: center; gap: 8px; min-height: 36px; }
+      label.slider input { width: 100%; }
+      label.slider small { display: block; color: var(--muted); font-size: 11px; line-height: 1.1; }
+      .sliders { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 2px 18px; }
+      .mono, #plan, #stats { font: 12px/1.5 ui-monospace, Menlo, monospace; color: var(--muted); overflow-wrap: anywhere; }
+      #stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 2px 12px; }
+      #stats b { color: var(--ink); font-weight: normal; }
+      table { border-collapse: collapse; width: 100%; margin-top: 8px; font-size: 13px; }
+      th, td { padding: 4px 6px; border-top: 1px solid var(--line); vertical-align: middle; text-align: left; }
+      th { color: var(--muted); font-weight: normal; }
+      tr.pass td.v, td.ok { color: var(--good); } tr.fail td.v, td.bad { color: var(--bad); font-weight: bold; }
       td.metrics { font: 11px ui-monospace, Menlo, monospace; color: var(--muted); }
-      canvas { display: block; background: var(--card); border-radius: 4px; }
+      canvas { display: block; background: var(--bg); border-radius: 4px; }
       .scroll { overflow-x: auto; }
+      code { font: 12.5px ui-monospace, Menlo, monospace; background: var(--chip); padding: 1px 4px; border-radius: 4px; }
+      details { margin: 6px 0; } summary { cursor: pointer; color: var(--accent); min-height: 32px; }
     </style>
   </head>
   <body>
-    <h1>Audio demo</h1>
-    <p class="note">Everything is synthesised (Web Audio, D dorian). Tap anything once to unlock sound.</p>
-    <div id="stats"></div>
-    <h2>Settings</h2>
-    <div id="settings" class="row"></div>
-    <h2>Sound effects</h2>
-    <div id="sfx" class="row"></div>
-    <h2>Event batches (planner)</h2>
-    <div id="events" class="row"></div>
-    <div id="plan"></div>
-    <h2>Ambience</h2>
-    <div id="ambience" class="row"></div>
-    <h2>Self-check (OfflineAudioContext)</h2>
-    <div class="row"><button id="run">Run self-check</button></div>
-    <div id="summary"></div>
-    <div class="scroll"><table><tbody id="results"></tbody></table></div>
+    <header class="top">
+      <h1>Audio audition</h1>
+      <span id="state" class="pill">tap to start</span>
+      <button id="mute" aria-pressed="false">Mute</button>
+    </header>
+    <main>
+      <p class="note">Everything here is synthesised live with Web Audio in D dorian (no audio files). Dev-only page; nothing on it changes the game. Use headphones first, then your phone's speaker: the mix is tuned for the speaker.</p>
+
+      <h2>Listen first</h2>
+      <div class="card">
+        <ol class="guide">
+          <li><b>The signature:</b> press <i>Offer → recruit</i>. The offer should sound like a question that stops on E; the recruit, two seconds later, should answer it and land home on D. If they do not feel like a pair, that is the first thing to fix.</li>
+          <li><b>A busy turn start:</b> press <i>Busy turn start</i>. Up to five sounds in about three seconds; it should feel like one short phrase, never a pile-up.</li>
+          <li><b>A typical turn:</b> press <i>Typical turn</i> with the music on (pick an age below). Clicks and footsteps should sit clearly over the music without being tiring.</li>
+          <li><b>The music:</b> pick each age, then raise a few culture sliders. Each age should feel different; each culture adds its own instrument. Toggle <i>Crisis</i>: slower and darker within about three seconds.</li>
+          <li><b>Everything else:</b> the effect buttons below, grouped by where they occur.</li>
+        </ol>
+      </div>
+
+      <h2>Volume</h2>
+      <div class="sliders" id="settings"></div>
+
+      <h2>Signature and turns</h2>
+      <div class="row" id="turns"></div>
+      <div id="plan" style="margin-top:6px"></div>
+
+      <h2>Music (age scenes)</h2>
+      <div class="row" id="ages"></div>
+      <div class="row" id="presets" style="margin-top:8px"></div>
+      <div class="sliders" id="cultures" style="margin-top:8px"></div>
+
+      <h2>Sound effects</h2>
+      <p class="note">Each button says when the game plays it and what it is meant to sound like.</p>
+      <div id="sfx"></div>
+
+      <h2>If something sounds wrong</h2>
+      <div class="card">
+        <table>
+          <tr><th>Problem</th><th>Change</th></tr>
+          <tr><td>Music too loud or too quiet overall</td><td><code>AMBIENCE_LEVEL</code> in <code>src/audio/levels.ts</code> (0.4 now; ×0.7 is about −3 dB)</td></tr>
+          <tr><td>All effects too loud or quiet</td><td><code>SFX_LEVEL</code> in <code>src/audio/levels.ts</code></td></tr>
+          <tr><td>One effect too loud, quiet or annoying</td><td>its <code>trimDb</code> in <code>src/audio/recipes.ts</code> (±3 dB steps), or its layer gains; the tier sets the starting level (<code>TIER_GAIN</code>)</td></tr>
+          <tr><td>Culture instruments too loud against the age's tune</td><td><code>NOTE_TRIM</code> and <code>cultureBusGain</code> in <code>src/audio/ambience.ts</code>; per-instrument gains in <code>src/audio/voices.ts</code></td></tr>
+          <tr><td>The drone hum is annoying</td><td><code>droneFor()</code> levels in <code>src/audio/ambience.ts</code></td></tr>
+          <tr><td>A busy turn is too long or too busy</td><td><code>DEFAULT_MAX_SOUNDS</code>, <code>DEFAULT_MAX_SPAN_MS</code> and the gaps in <code>src/audio/planner.ts</code></td></tr>
+          <tr><td>Something plays at the wrong moment</td><td><code>EVENT_CUES</code> in <code>src/audio/planner.ts</code> (sim events) or <code>src/ui/ui-audio.ts</code> (taps and screens)</td></tr>
+        </table>
+        <p class="note">After any level change, run the mix review below: every effect should stay at least 8 dB over the music (interface clicks 4 dB), and the numbers say which one moved.</p>
+      </div>
+
+      <h2>Live engine</h2>
+      <div id="stats" class="card"></div>
+
+      <h2>Checks (no ears needed)</h2>
+      <p class="note">All three render offline (faster than real time, no speaker needed) and work on a phone.</p>
+      <div class="row">
+        <button id="run-mix">Mix review</button>
+        <button id="run-soak">Soak test (leaks)</button>
+        <button id="run-check">Self-check (every sound)</button>
+      </div>
+      <div id="progress" class="mono" style="margin-top:6px"></div>
+      <div id="mix" class="scroll"></div>
+      <div id="soak" class="scroll"></div>
+      <div id="summary" class="mono"></div>
+      <div class="scroll"><table><tbody id="results"></tbody></table></div>
+    </main>
     <script type="module" src="/src/audio/demo.ts"></script>
   </body>
 </html>

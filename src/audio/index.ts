@@ -38,3 +38,6 @@ export const setAudioPlanOptions = (o: import('./planner').PlanOptions): void =>
 
 /** Debug counters (demo page). */
 export const audioStats = () => engine.stats();
+
+/** The engine itself, for the dev-only demo page's soak and mix tools. */
+export const audioEngine = engine;

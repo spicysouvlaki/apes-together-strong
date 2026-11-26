@@ -24,7 +24,15 @@ export interface LabelSpec {
   wall?: number;
   /** A settler site seal: a round gold seal with this rank's numeral instead of a cartouche. */
   seal?: number;
+  /** A floating combat number ("−29"): HP lost, drawn as inked red numerals, no cartouche. */
+  damage?: number;
 }
+
+/** Floating damage number spec (combat feedback over the hit unit or city). */
+export const damageSpec = (hp: number): LabelSpec => ({ text: String(hp), capital: false, color: '#d8392b', damage: Math.max(0, Math.round(hp)) });
+
+/** Fixed labels (seals, damage numbers) never move, never hide and never block names. */
+export const isFixedLabel = (spec: LabelSpec): boolean => spec.seal !== undefined || spec.damage !== undefined;
 
 /** Site seal spec (rank 1 = best site, drawn a little larger). */
 export const sealSpec = (rank: number): LabelSpec => ({ text: String(rank), capital: false, color: '#c9a03a', seal: rank });
@@ -62,7 +70,9 @@ export const labelSpec = (
 export const labelKey = (spec: LabelSpec): string =>
   spec.seal !== undefined
     ? `seal|${spec.seal}`
-    : `${spec.capital ? '*' : '-'}${spec.color}|${spec.pattern ?? 0}${spec.ghost ? 'g' : ''}${spec.war ? 'w' : ''}${spec.cityState ? 'c' : ''}${spec.wall !== undefined && spec.wall < 1 ? `h${spec.wall}` : ''}|${spec.text}`;
+    : spec.damage !== undefined
+      ? `dmg|${spec.damage}`
+      : `${spec.capital ? '*' : '-'}${spec.color}|${spec.pattern ?? 0}${spec.ghost ? 'g' : ''}${spec.war ? 'w' : ''}${spec.cityState ? 'c' : ''}${spec.wall !== undefined && spec.wall < 1 ? `h${spec.wall}` : ''}|${spec.text}`;
 
 /**
  * Fixed-capacity LRU of atlas slots keyed by label key. `acquire` returns the slot and whether

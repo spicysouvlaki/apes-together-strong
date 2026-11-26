@@ -89,9 +89,13 @@
  *   hang on a short ink leader ABOVE the settlement; de-overlap only moves labels up, and never
  *   into the HUD bands (safe area). A cartouche at the screen edge slides inward (inside the
  *   left/right safe area) while its leader stays on the settlement (label-layout edgeNudge).
- *   Labels also show on the strategic atlas (capitals and own cities win when crowded). A label that covers a unit (e.g. one standing on the tile
- *   north of the city) fades to 30% and lets taps through; a new settlement's label appears
- *   once its founding pop-in has landed. Trees on the two tiles in front of a visible unit are
+ *   Labels also show on the strategic atlas (capitals and own cities win when crowded). Labels
+ *   always draw over units (no depth test). A unit standing ON a settlement or on the tile in
+ *   FRONT of it (camera side) lifts that settlement's cartouche clear of the figure: the banner
+ *   rises and the leader stretches, its bead staying on the roofline (label-layout liftOver,
+ *   playtest 3). A label that would cover a unit BEHIND it first tries a longer leader (one or
+ *   two label heights); only if that collides too does it fade to 30% and let taps through. A
+ *   new settlement's label appears once its founding pop-in has landed. Trees on the two tiles in front of a visible unit are
  *   thinned and cleared toward it. Desert carries crescent dunes (lit crest, shaded slip face).
  *
  * UNITS (art pass 4; pure rules in unit-look.ts, geometry in scene/figurines.ts)
@@ -104,12 +108,21 @@
  *   (taller, gilded plume, square standard) vs explorer (wide hat, swallowtail pennant). Looks are
  *   chosen from content data (class + age, canFound / canTrade / vision, figureKind), never ids.
  *   Owner primary AND secondary are painted on figures and bases (materials SECOND). Base: team
- *   band, secondary rule, rim white = yours, dark = rival, red = at war, grey = city-state, dark
- *   red + a fluttering pennon = raiders; famous people add a gold ring. Idle: a gentle per-figure
+ *   band, secondary rule, rim white = yours, dark = rival, red = at war, antique gold on a grey
+ *   band = city-state (CITY_STATE_COLORS grey + gold), dark red + a fluttering pennon = raiders;
+ *   famous people add a gold ring. Hostiles (at war, raiders) also get a broad red outer ring
+ *   and a crossed-swords pennant behind-right of the base (unit-look relationMarkers). Only the
+ *   viewer's own selected unit gets the gold glow, pulse ring and a large bobbing gem above it.
+ *   Faces (playtest 3): two ink eye dots on every head; hair swept back from a high hairline
+ *   (the old level cap read as a hat); headbands and helmet brims sit above the eyes. The
+ *   warband is one bold warrior (big club, shield) with a dark companion silhouette behind; the
+ *   galley's sail leans back ~40° and is braced so it faces the camera at rest. Idle: a gentle per-figure
  *   sway and cloth flutter in the vertex shader (IDLE; ships BOB broadside-on). Figures face the
  *   viewer at rest (folded travel heading), face an adjacent hostile across the edge, march in
  *   their travel direction with a dust trail. Fortified = stake palisade with shields (not in
- *   towns: the walls say it). Damaged = five billboarded HP pips; lost pips flash and drop.
+ *   towns: the walls say it). Damaged = five billboarded HP pips (1.4x, readable at default
+ *   zoom); lost pips flash and drop, and the HP lost rises as a red inked number ("−29", one
+ *   atlas label) over the unit; a killing blow shows what the unit had left.
  *   Embarked land units ride a raft. Stacks: soldier in front full size, civilian behind smaller;
  *   in a settlement units step onto a paved forecourt at the front edge (smaller), offsets follow
  *   the view rotation. COMBAT: flash(hex, 'combat') infers the attacker (selected unit in range,
@@ -118,22 +131,54 @@
  *   first) topples backward away from the blow, then sinks into the ground with a dust puff.
  *
  * SETTLEMENTS AND DISTRICTS
- *   Growth spills onto the settlement's own neighbor tiles (districts.ts, by population
- *   milestone): fields (pop 2, 4, 8), a harbor quay on water (3), an orchard (5, 12), workshop
- *   quarters with smoking kilns (6, 10), a monument plinth for capitals (city pop ≥ 6); cities
- *   count 2 pop higher. Orchards/workshops may cut a clearing in woods; fields need open land.
+ *   Growth spills onto the settlement's own (or unclaimed) neighbor tiles (districts.ts, by
+ *   population milestone): fields (pop 2, 4, 8), a harbor quay on water (3), an orchard (5, 12),
+ *   workshop quarters with smoking kilns (6, 10), a monument plinth for capitals (city pop ≥ 6);
+ *   cities count 2 pop higher. Playtest 3 (no districts at pop 5–7 in real games: real starts are
+ *   ringed by hills, woods and resources, and only flat empty land qualified): each milestone
+ *   falls back by ground (DISTRICT_FALLBACKS) — terraced strip fields on hills (the hill mound is
+ *   dropped), a woodcutters' camp in forest, a quarry on ore/stone, a fenced pasture around
+ *   herds, fields on grain; a resource prop keeps its spot (the district steps aside). Fields
+ *   are raised, inked plots with a farmhouse. tests/render-districts.test.ts checks real
+ *   generated maps: pop 3 shows fields, a pop-6 town ≥ 2 districts, a pop-6 city ≥ 3.
  *   New districts pop in. Inked dashed tracks run from the center to land districts and along
  *   the viewer's trade routes (vellum dots across water).
  *   Built from per-culture motif kits keyed by the culture `architecture` of `namedFor`, blended
  *   with the owner's adopted traditions' and hybrids' cultures (architecture.ts), so hybrids look
  *   hybrid. Size grows with population; cities/city-states get walls (by age material), cities a
  *   centerpiece, capitals a gold finial; built wonders add a landmark silhouette. Owner banners
- *   sway and carry the colorblind pattern.
+ *   sway and carry the colorblind pattern. Siege: walls darken with damage and show one breach
+ *   per third of wall HP lost (scorched gap, crack lines, spilled rubble), a damaged town sends
+ *   up extra smoke, and the label carries a round wall gauge (arc of walls left, green -> amber
+ *   -> red, cracked tower below half) instead of the old thin bar. Wall damage taken since the
+ *   last snapshot rises as a number beside the name. City-state cartouches: grey diamond with a
+ *   gold rim and a grey-and-gold rule (neutral at a glance).
  *
  * FOG MEMORY
  *   Rival settlements seen once stay on explored-but-not-visible tiles as faded "ghosts" with a
  *   dashed label, as last seen (ghosts.ts). Memory is keyed by game seed + viewer + map size and
- *   resets on a new game; it lives only in the renderer.
+ *   resets on a new game; it lives only in the renderer (empty again after a page reload).
+ *   Remembered ground (explored, not in sight) carries fine diagonal pen hatching over its
+ *   sepia tint (materials memoryHatch, playtest 3): visible = clean colour, remembered = hatched
+ *   sepia, unexplored = parchment chart, tellable at default zoom.
+ *
+ * SELECTION OVERLAYS (highlight-style.ts; tests/render-highlight.test.ts)
+ *   Reachable tiles: an ink keyline just inside the hex edge, a bright glint line inside it and
+ *   a periwinkle-violet wash with a slow sheen (uTime; still under reduceMotion), raised 0.03
+ *   over the tile top. Outline ΔE ≥ 40 against every graded terrain (lit and shaded) and the
+ *   parchment, wash ΔE ≥ 15 (an aqua wash vanished on coast water, the old cream one on
+ *   desert), and ≥ 30 from attack red, the route ribbon and the settle-seal gold. Attack tiles
+ *   stay a pulsing red fill + ring.
+ *
+ * INCREMENTAL UPDATES (playtest 3: setState stalled busy turns)
+ *   setState rebuilds only what changed: the board (land/water/parchment, water field, rivers)
+ *   when fog or tile facts change; territory when owners or fog change; relief/vegetation and
+ *   micro-detail per TILE through a record/replay cache (instances.ts recorder/replayRecord,
+ *   keyed by fog, clearing, front-thinning and terrace state), so a unit moving re-scatters only
+ *   the tiles it touched; settlement and district piece lists are cached by their inputs.
+ *   Turn 41, 375x812, desktop Chrome, median (p90): small map full rebuild 4.3 ms (7.3) ->
+ *   incremental 2.1 ms (3.7); standard 5.2 ms (11.8) -> 2.3 ms (3.5); an unchanged snapshot
+ *   0.2–0.3 ms. The frame after a snapshot (buffer uploads) stays ~4.7 ms.
  *
  * MAP FINISH (art pass 4): bridges where roads cross rivers (rivers.ts roadRiverCrossings);
  *   pasture animals graze (materials GRAZE); dark cliff seams on hill knolls; parchment stains
@@ -183,6 +228,9 @@
  *   Trade routes owned by the viewer draw as a dotted line between their settlements.
  *
  * PERFORMANCE
+ *   Clarity pass (playtest 3), standard map turn 41, 375x812 @2x: default framing 61 draws /
+ *   228k tris high, 49 / 140k low; regional 60 / 211k; strategic 15 / 37k (war marks and the
+ *   selected-unit gem add a draw each only while shown).
  *   Art pass 4, ?game=1&turns=40 (turn 41, crisis, raiders), 375x812 @2x: default framing
  *   59 draws / 191k tris high, 48 / 112k low; regional 59 / 170k; strategic 15 / 31k.
  *   ~50-60 draw calls at close/regional zoom regardless of map size (everything is instanced;
@@ -220,7 +268,7 @@ export interface RenderSelection {
   unit: UnitId | null;
   /** Selected tile outline. */
   tile: Hex | null;
-  /** Move targets (soft highlight). */
+  /** Move targets (inked outline + violet wash, highlight-style.ts). */
   reachable: Hex[];
   /** Attack targets (red highlight). */
   attackable: Hex[];

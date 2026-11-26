@@ -16,8 +16,30 @@ import type { Rgb } from '../colors';
 
 const toLinear = (c: number): number => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
 
+/** Floats per recorded push: layer id, x, y, z, sx, sy, sz, rotY, r, g, b, a0..a3. */
+export const RECORD_STRIDE = 15;
+const scratchRgb: Rgb = [0, 0, 0];
+
+/**
+ * Replay pushes recorded by `Instances.recorder` (per-tile caches: a tile whose inputs did not
+ * change re-pushes its instances instead of re-running scatter/hash placement).
+ */
+export const replayRecord = (layers: readonly (Instances | undefined)[], rec: readonly number[]): void => {
+  for (let o = 0; o + RECORD_STRIDE <= rec.length; o += RECORD_STRIDE) {
+    const layer = layers[rec[o] ?? 0];
+    if (!layer) continue;
+    scratchRgb[0] = rec[o + 8] ?? 0;
+    scratchRgb[1] = rec[o + 9] ?? 0;
+    scratchRgb[2] = rec[o + 10] ?? 0;
+    layer.push(rec[o + 1] ?? 0, rec[o + 2] ?? 0, rec[o + 3] ?? 0, rec[o + 4] ?? 0, rec[o + 5] ?? 0, rec[o + 6] ?? 0, rec[o + 7] ?? 0, scratchRgb, rec[o + 11] ?? 0, rec[o + 12] ?? 0, rec[o + 13] ?? 0, rec[o + 14] ?? 0);
+  }
+};
+
 export class Instances {
   mesh: InstancedMesh;
+  /** When set, every push is also appended here (RECORD_STRIDE floats, tagged `recordId`). */
+  recorder: number[] | null = null;
+  recordId = 0;
   private n = 0;
   private capacity: number;
   private aux: InstancedBufferAttribute | null = null;
@@ -63,6 +85,7 @@ export class Instances {
     a3 = 0,
   ): void {
     if (this.n >= this.capacity) this.grow(this.capacity * 2);
+    if (this.recorder) this.recorder.push(this.recordId, x, y, z, sx, sy, sz, rotY, color[0], color[1], color[2], a0, a1, a2, a3);
     const i = this.n++;
     const m = this.mesh.instanceMatrix.array as Float32Array;
     const o = i * 16;

@@ -28,6 +28,7 @@ import {
   type IUniform,
 } from 'three';
 import { ART } from '../palette';
+import { REACH_STYLE, glslVec3 } from '../highlight-style';
 import { PATTERN_GLSL } from '../patterns';
 import { DETAIL_SIZE, generateDetailTexels } from '../textures';
 
@@ -172,6 +173,15 @@ vec3 lightRig(vec3 n) {
 }
 // Explored-but-not-visible: a warm sepia memory, like a hand-tinted engraving. Enough of the
 // original hue survives that grass, desert and forest stay tellable; never muddy dark.
+// Remembered (explored, not in sight) ground also carries fine diagonal pen hatching (playtest 3:
+// at default zoom the sepia alone did not say "this is memory, not sight", especially around
+// rivals' remembered ghost cities). World-space lines, ~6 per hex, fading on the atlas.
+vec3 memoryHatch(vec3 c, float m, vec2 xz) {
+  if (m < 0.01) return c;
+  float l = abs(fract((xz.x - xz.y * 0.7) * 3.1) - 0.5);
+  float ink = (1.0 - smoothstep(0.055, 0.11, l)) * m * (1.0 - uAtlas * 0.6);
+  return mix(c, vec3(0.36, 0.26, 0.16), ink * 0.26);
+}
 vec3 memoryTint(vec3 c, float m) {
   float l = luma(c);
   vec3 sepia = vec3(1.26, 0.94, 0.54) * (0.08 + l * 1.04);
@@ -552,6 +562,7 @@ void main() {
   }
   lit *= cloudShade(uDetail, vW.xz);
   vec3 c2 = memoryTint(lit, vInst.x);
+  if (!side) c2 = memoryHatch(c2, vInst.x, vW.xz);
   c = finish(c2, vDepth);
   ${OUT}
 }`;
@@ -661,7 +672,7 @@ void main() {
     lit = mix(lit, a, uAtlas);
   }
   lit *= cloudShade(uDetail, vW.xz);
-  c = finish(memoryTint(lit, vInst.x * 0.45), vDepth);
+  c = finish(memoryHatch(memoryTint(lit, vInst.x * 0.45), vInst.x * 0.8, vW.xz), vDepth);
   ${OUT}
 }`;
   return make('diorama-water', u, FLAT_VERT, frag);
@@ -906,6 +917,8 @@ void main() {
 // --- Soft overlays: territory, highlights, glows, blob shadows -------------------------------------
 
 export const SOFT = { wash: 0, reach: 1, attack: 2, ring: 3, territory: 4, glow: 5, shadow: 6, ink: 7, mist: 8 } as const;
+/** Radius of the highlight fill hex (world.ts hlFill); the reach mode draws its outline from it. */
+export const HL_FILL_R = '0.93';
 
 /**
  * Soft-edged translucent overlays on flat hex/disc geometry (radius 1 at scale 1).
@@ -932,9 +945,20 @@ void main() {
   if (mode < 0.5) {
     a *= 0.55 + 0.45 * smoothstep(0.4, 1.0, hx);
   } else if (mode < 1.5) {
-    // Reachable: a gentle raised tint with a bright soft rim.
-    a *= 0.45 + 0.55 * smoothstep(0.55, 0.98, hx);
-    c = mix(c, vec3(1.0), smoothstep(0.9, 1.0, hx) * 0.6);
+    // Reachable (highlight-style.ts REACH_STYLE): an ink keyline just inside the hex edge, a
+    // bright glint line inside it and a violet wash with a slow sheen drifting across the board.
+    // Dark + light outline: reads on pale desert, snow and parchment edges as well as on grass
+    // and water. vLocal is in instance units (fill geometry radius ${HL_FILL_R}).
+    float e = hx / ${HL_FILL_R};
+    float ink = smoothstep(0.83, 0.865, e) * (1.0 - smoothstep(0.955, 0.99, e));
+    float glint = smoothstep(0.765, 0.8, e) * (1.0 - smoothstep(0.83, 0.865, e));
+    float wash = 1.0 - smoothstep(0.765, 0.8, e);
+    float sheen = 0.5 + 0.5 * sin((vW.x * 0.55 + vW.z * 0.35) * 1.4 - uTime * 0.9 * uAnim);
+    sheen = sheen * sheen * uAnim;
+    vec3 wc = mix(c, ${glslVec3(REACH_STYLE.glint)}, sheen * 0.3 + smoothstep(0.45, 0.78, e) * 0.18);
+    c = mix(wc, ${glslVec3(REACH_STYLE.glint)}, glint);
+    c = mix(c, ${glslVec3(REACH_STYLE.ink)}, ink);
+    a *= wash * ${REACH_STYLE.washAlpha.toFixed(3)} * (0.85 + 0.35 * sheen) + glint * ${REACH_STYLE.glintAlpha.toFixed(3)} + ink * ${REACH_STYLE.inkAlpha.toFixed(3)};
   } else if (mode < 2.5) {
     a *= (0.5 + 0.5 * smoothstep(0.35, 1.0, hx)) * pulse;
   } else if (mode < 3.5) {

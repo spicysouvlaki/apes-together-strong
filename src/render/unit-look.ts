@@ -96,6 +96,27 @@ export const unitRelation = (viewer: string | null, owner: string, atWar: boolea
 /** Hostile to the viewer: units that face each other across a front. */
 export const isHostile = (r: UnitRelation): boolean => r === 'war' || r === 'raider';
 
+/**
+ * Extra markers by relation (playtest 3: in a war, enemies, neutrals and rivals must part at a
+ * glance): hostiles get a broad red outer ring and a crossed-swords pennant; raiders also keep
+ * their dark-red pennon; city-states are grey-and-gold (rim), rivals plain dark.
+ */
+export interface RelationMarkers {
+  readonly warRing: boolean;
+  readonly swords: boolean;
+  readonly pennon: boolean;
+}
+const markersFor = (r: UnitRelation): RelationMarkers => ({ warRing: isHostile(r), swords: isHostile(r), pennon: r === 'raider' });
+/** Precomputed per relation (read in the per-frame unit pass: no allocation). */
+const RELATION_MARKERS: Readonly<Record<UnitRelation, RelationMarkers>> = {
+  own: markersFor('own'),
+  rival: markersFor('rival'),
+  war: markersFor('war'),
+  cityState: markersFor('cityState'),
+  raider: markersFor('raider'),
+};
+export const relationMarkers = (r: UnitRelation): RelationMarkers => RELATION_MARKERS[r];
+
 // --- Stacking ---------------------------------------------------------------------------------
 
 export interface StackSpot {

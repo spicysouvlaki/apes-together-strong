@@ -35,7 +35,7 @@ import { endTurnSent, enemyConfirmedTurn, idleSheetTurn, lastTap, loading, pushL
 import { continueStandingOrders, initStandingOrders, runStandingOrders } from './shell/standing-orders';
 import { initGuide } from './shell/guide-state';
 import { idleSheetOpen } from './shell/IdleSheet';
-import { audio } from '../audio';
+import { audio, setAudioPlanOptions } from '../audio';
 import { commandSound, initUiAudio } from './ui-audio';
 
 let flashHandler: ((hex: Hex, kind: FlashKindSpec) => void) | null = null;
@@ -83,6 +83,8 @@ const onState = (state: GameState, events: SimEvent[]): void => {
   if (!prev || prev.seed !== state.seed) turnLog.value = [];
   game.value = state;
   lastEvents.value = events;
+  // Lets the planner tell whose settlement grew, so your own growth gets its soft tick.
+  setAudioPlanOptions({ settlementOwner: (id) => state.settlements[id]?.owner });
   audio.playEvents(events, me.value);
   thinking.value = null;
   loading.value = null;

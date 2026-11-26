@@ -27,13 +27,24 @@ export interface Voice {
 
 export const newVoice = (start: number): Voice => ({ sources: [], nodes: [], start, end: start });
 
-/** Karplus-Strong buffers, generated on first use per pitch and kept (LRU) for reuse. */
+/** Memory cap for cached pluck buffers (bytes). 40 x 3 s at 48 kHz would be 23 MB. */
+export const PLUCK_CACHE_BYTES = 6 * 1024 * 1024;
+
+/**
+ * Karplus-Strong buffers, generated on first use per pitch and kept (LRU) for reuse, bounded
+ * by entry count and by bytes. Lengths are bucketed to 0.5 s so notes of similar length share a
+ * buffer (a miss costs a few ms of main-thread DSP).
+ */
 export class PluckCache {
   private readonly cache = new Map<string, { buffer: AudioBuffer; rate: number }>();
+  private bytesHeld = 0;
+  hits = 0;
+  misses = 0;
   constructor(
     private readonly ctx: BaseAudioContext,
     private readonly max = 40,
     private readonly rand: Rand = liveRand,
+    private readonly maxBytes = PLUCK_CACHE_BYTES,
   ) {}
 
   get(freq: number, bright: number, decay: number, dur: number): { buffer: AudioBuffer; rate: number } {
@@ -42,22 +53,28 @@ export class PluckCache {
     // Quantise so near-identical requests share a buffer; length rounds up so it always covers.
     const b = Math.round(bright * 10) / 10;
     const d = Math.round(decay * 4) / 4;
-    const len = Math.min(3, Math.ceil(dur * 4) / 4);
+    const len = Math.min(3, Math.ceil(dur * 2) / 2);
     const key = `${n}|${b}|${d}|${len}`;
     const hit = this.cache.get(key);
     if (hit) {
+      this.hits += 1;
       this.cache.delete(key);
       this.cache.set(key, hit);
       return hit;
     }
+    this.misses += 1;
     const ks = karplusStrong(sr, freq, len, b, d, this.rand);
     const buffer = this.ctx.createBuffer(1, ks.data.length, sr);
     buffer.getChannelData(0).set(ks.data);
     const entry = { buffer, rate: ks.rate };
     this.cache.set(key, entry);
-    if (this.cache.size > this.max) {
+    this.bytesHeld += buffer.length * 4;
+    while (this.cache.size > 1 && (this.cache.size > this.max || this.bytesHeld > this.maxBytes)) {
       const oldest = this.cache.keys().next().value;
-      if (oldest !== undefined) this.cache.delete(oldest);
+      if (oldest === undefined) break;
+      const e = this.cache.get(oldest);
+      if (e) this.bytesHeld -= e.buffer.length * 4;
+      this.cache.delete(oldest);
     }
     return entry;
   }
@@ -65,7 +82,19 @@ export class PluckCache {
   get size(): number {
     return this.cache.size;
   }
+
+  /** Bytes of sample data held. */
+  get bytes(): number {
+    return this.bytesHeld;
+  }
 }
+
+/** Membrane modes [ratio, relative amp, relative decay] (circular membrane, lightly damped). */
+export const DRUM_MODES: readonly (readonly [number, number, number])[] = [
+  [1, 0.45, 1], [1.59, 0.4, 0.7], [2.14, 0.5, 0.5], [2.65, 0.45, 0.4], [3.16, 0.35, 0.3], [4.15, 0.2, 0.22],
+];
+/** Keeps the summed modes at the old drum's level. */
+const DRUM_MODE_NORM = 0.42;
 
 /** [ratio, relative amp, relative decay] per partial. */
 const PARTIALS: Record<PartialSet, readonly (readonly [number, number, number])[]> = {
@@ -121,8 +150,10 @@ const bellLayer = (rig: Rig, l: BellLayer, t: number, out: AudioNode, voice: Voi
     osc.frequency.value = f;
     const g = ctx.createGain();
     const dur = Math.max(0.02, l.dur * d);
-    const attack = l.partials === 'wood' ? 0.0015 : 0.002;
-    applyEnv(g.gain, envPoints({ kind: 'perc', attack, curve: l.partials === 'wood' ? 6 : 4.5 }, dur, l.gain * a * norm * 1.6), t);
+    // Wood: a 3 ms attack and a fuller decay keep the knock's crest factor low, so it reads
+    // as loud on a phone speaker without a sample spike that hits the limiter.
+    const attack = l.partials === 'wood' ? 0.003 : 0.002;
+    applyEnv(g.gain, envPoints({ kind: 'perc', attack, curve: l.partials === 'wood' ? 4 : 4.5 }, dur, l.gain * a * norm * 1.6), t);
     osc.connect(g);
     g.connect(amp);
     voice.nodes.push(g);
@@ -234,8 +265,11 @@ export const renderLayer = (rig: Rig, l: Layer, t0: number, out: AudioNode, voic
       idx.gain.exponentialRampToValueAtTime(Math.max(0.01, l.indexEnd) * f, end);
       mod.connect(idx);
       idx.connect(car.frequency);
-      car.connect(amp);
-      voice.nodes.push(idx);
+      // An integer ratio puts a sideband at 0 Hz (ratio 1: f - f): block that DC.
+      const dc = filter(ctx, { type: 'highpass', freq: 30, q: 0.7 }, t, l.dur);
+      car.connect(dc);
+      dc.connect(amp);
+      voice.nodes.push(idx, dc);
       track(voice, mod, t, end + 0.02);
       track(voice, car, t, end + 0.02);
       return;
@@ -262,16 +296,17 @@ export const renderLayer = (rig: Rig, l: Layer, t0: number, out: AudioNode, voic
       const amp = output(rig, l.pan, out, voice);
       amp.gain.value = 1;
       const f = mtof(l.midi) * Math.pow(2, (l.cents ?? 0) / 1200);
-      // Fundamental with a pitch drop, plus the first two inharmonic membrane modes, so a
-      // phone speaker (nothing below ~250 Hz) still hears the drum's body.
-      const modes: readonly (readonly [number, number, number])[] = [[1, 1, 1], [1.59, 0.5, 0.6], [2.14, 0.3, 0.4]];
+      // Fundamental with a pitch drop, plus the upper inharmonic membrane modes. Phone speakers
+      // reproduce nothing below ~300 Hz, so most of the energy sits in modes 3–6: the ear
+      // infers the low pitch from them (missing fundamental) and the drum is heard everywhere.
+      const modes = DRUM_MODES;
       for (const [ratio, a, d] of modes) {
         const osc = ctx.createOscillator();
         osc.frequency.setValueAtTime(f * ratio * Math.pow(2, l.drop / 12), t);
         osc.frequency.exponentialRampToValueAtTime(f * ratio, t + Math.min(0.08, l.dur * 0.3));
         const g = ctx.createGain();
         const dur = Math.max(0.03, l.dur * d);
-        applyEnv(g.gain, envPoints({ kind: 'perc', attack: 0.002, curve: 5 }, dur, l.gain * a * 0.6), t);
+        applyEnv(g.gain, envPoints({ kind: 'perc', attack: 0.002, curve: 5 }, dur, l.gain * a * DRUM_MODE_NORM), t);
         osc.connect(g);
         g.connect(amp);
         voice.nodes.push(g);
@@ -281,7 +316,7 @@ export const renderLayer = (rig: Rig, l: Layer, t0: number, out: AudioNode, voic
         const src = ctx.createBufferSource();
         src.buffer = rig.noise.pink;
         src.loop = true;
-        const fl = filter(ctx, { type: 'bandpass', freq: 1200 + f * 2, q: 0.8 }, t, l.dur);
+        const fl = filter(ctx, { type: 'bandpass', freq: 1500 + f * 3, q: 0.8 }, t, l.dur);
         const g = ctx.createGain();
         const dur = Math.min(0.08, l.dur);
         applyEnv(g.gain, envPoints({ kind: 'perc', attack: 0.001, curve: 6 }, dur, l.gain * l.snap * 0.7), t);

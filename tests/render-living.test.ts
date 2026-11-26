@@ -33,7 +33,8 @@ describe('districts', () => {
     const plan = districtPlan({ ...base, population: 7, neighbors: ring([], [2], [4]) });
     expect(plan).toContainEqual({ dir: 2, kind: 'quay' });
     expect(plan.some((d) => d.kind === 'fields')).toBe(false);
-    expect(plan.find((d) => d.dir === 4)?.kind).toMatch(/orchard|workshop/);
+    // Woods: cleared for an orchard or workshop, or a woodcutters' camp when fields need a tile.
+    expect(plan.find((d) => d.dir === 4)?.kind).toMatch(/orchard|workshop|camp/);
   });
 
   it('cities count as grander and capitals get a monument plinth', () => {
