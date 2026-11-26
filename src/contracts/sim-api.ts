@@ -110,6 +110,11 @@ export interface Settlement {
   siegeTurns: number;
   /** `item` is a unit, building or wonder id (one shared namespace). Towns cannot produce. */
   production: { item: string | null; progress: number };
+  /**
+   * Items to start, in order, when `production.item` completes (max 3). Absent on old saves =
+   * empty. An entry that is no longer a legal option when its turn comes is skipped.
+   */
+  queue?: string[];
 }
 
 export interface Unit {
@@ -383,6 +388,8 @@ export type Command =
   | { type: 'openTradeRoute'; unit: UnitId; to: SettlementId }
   // Settlements
   | { type: 'setProduction'; settlement: SettlementId; item: string | null }
+  /** Replaces the settlement's follow-on queue (max 3 legal item ids; [] clears it). */
+  | { type: 'setProductionQueue'; settlement: SettlementId; items: string[] }
   /** Buy the item outright with gold. */
   | { type: 'buyItem'; settlement: SettlementId; item: string }
   /** Town -> city, for gold. */
@@ -437,8 +444,10 @@ export type SimEvent =
       attacker: UnitId;
       attackerOwner: PlayerId;
       defenderOwner: PlayerId;
-      /** Null when the target was a settlement's walls. */
+      /** Null when the target was a settlement's walls, or a civilian taken without a fight. */
       defender: UnitId | null;
+      /** Unit def id of a civilian (scout, merchant, settler…) seized on the tile; absent otherwise. */
+      capturedUnitDef?: string;
       at: Hex;
       damageToAttacker: number;
       damageToDefender: number;
@@ -463,7 +472,27 @@ export type SimEvent =
   | { type: 'playerEliminated'; player: PlayerId; by: PlayerId | null }
   | { type: 'gameEnded'; winner: PlayerId }
   /** Generic player-facing toast; `player` null = everyone. */
-  | { type: 'notice'; player: PlayerId | null; text: string };
+  | {
+      type: 'notice';
+      player: PlayerId | null;
+      text: string;
+      /** Machine-readable cause so the UI can rank and voice notices without matching words. */
+      kind?: NoticeKind;
+      settlement?: SettlementId;
+      /** Gold lost or gained, progress refunded, etc., when the notice is about a number. */
+      amount?: number;
+    };
+
+export type NoticeKind =
+  | 'raiderWarning'
+  | 'pillaged'
+  | 'wonderLost'
+  | 'wonderCarried'
+  | 'treasury'
+  | 'firstContact'
+  | 'offerWithdrawn'
+  | 'queueSkipped'
+  | 'other';
 
 export type CommandResult =
   | { ok: true; state: GameState; events: SimEvent[] }
