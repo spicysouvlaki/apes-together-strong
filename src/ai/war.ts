@@ -22,7 +22,7 @@ import { CITY_STATE_PREFIX, isCityStateOwner, warKey, type PlayerId, type Settle
 import { MIN_WAR_TURNS, PEACE_INFLUENCE_COST } from '../sim/constants';
 import { WAR_DECLARED_TEXT } from '../sim/diplomacy';
 import { ci, tileAt } from '../sim/lookup';
-import { posture } from '../sim/voice';
+import { posture, warHeldBack } from '../sim/voice';
 import { exec, me, type AiCtx } from './ctx';
 import { hashStr } from './util';
 import { cityStatesAtWar, enemiesAtWar, militaryPower, ownSettlements } from './world';
@@ -194,7 +194,8 @@ export const considerWar = (ai: AiCtx, _military: number): void => {
   // Consider it now and then, not every turn.
   if (hashStr(`${state.seed}|${player}|war|${Math.floor(state.turn / 3)}`) % 3 !== 0) return;
   const aggr = aggression(ai);
-  const target = pickWarTarget(ai, livingRivals(ai));
+  // A human we warned lately (first contact, borders touching) gets the promised grace.
+  const target = pickWarTarget(ai, livingRivals(ai).filter((id) => !warHeldBack(state, player, id)));
   if (!target) {
     considerCityStateWar(ai);
     return;

@@ -15,11 +15,13 @@ import {
   FOOD_PER_POP,
   FOUND_CLAIM_RADIUS,
   MIN_SETTLEMENT_DISTANCE,
+  PRODUCTION_QUEUE_MAX,
   SETTLEMENT_VISION,
   UNREST_THRESHOLD,
   UPGRADE_COST_BASE,
   UPGRADE_COST_PER_POP,
   WALL_BASE_HP,
+  WONDER_CARRY_SOURCE,
   WONDERS_PURCHASABLE,
   WONDER_AGE_PROGRESS,
 } from './constants';
@@ -83,14 +85,31 @@ export const namingCulture = (state: GameState, player: PlayerId, content: Conte
   return best ?? pick(state, content.cultures).id;
 };
 
+/**
+ * A spelling-blind key for comparing place names: diacritics, case, punctuation and a final
+ * vowel ending are dropped, so "Spártē" and "Sparta", or "Massalía" and "Massalia", match.
+ */
+export const placeKey = (name: string): string =>
+  name
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '')
+    .replace(/[aeiouy]+$/, '');
+
 export const pickName = (state: GameState, culture: CultureId | null, content: ContentBundle): string => {
   const used = new Set<string>();
+  // Wave 11: a player city named "Spártē" was founded beside the city-state Sparta. A name is
+  // taken when any settlement in the game (city-states included) has the same `placeKey`.
+  const taken = new Set<string>();
   for (const id of Object.keys(state.settlements)) {
     const s = state.settlements[id];
-    if (s) used.add(s.name);
+    if (!s) continue;
+    used.add(s.name);
+    taken.add(placeKey(s.name));
   }
   const names = (culture && ci(content).cultures[culture]?.cityNames) || [];
-  for (const n of names) if (!used.has(n)) return n;
+  for (const n of names) if (!used.has(n) && !taken.has(placeKey(n))) return n;
   const base = names[0] ?? 'Settlement';
   for (let i = 2; ; i++) {
     const n = `${base} ${i}`;
@@ -245,8 +264,11 @@ export const availableItems = (state: GameState, s: Settlement, content: Content
   for (const w of content.wonders) {
     // Wonders belong to their age (GDD §7 "~8 wonders per age"): a past age's wonder is no
     // longer buildable, otherwise it is a trivial bargain for whoever is behind (autoplay: 85%
-    // of ancient wonders were finished in the classical age). Banked progress stays.
-    if (state.wonders[w.id] || AGE_INDEX[w.age] !== age) continue;
+    // of ancient wonders were finished in the classical age). Banked progress stays. The one
+    // exception is a wonder a city was already building when its age ended (wave 11: the
+    // Dolmen of Menga vanished mid-build at T51): that city may finish it (`carryWonders`).
+    if (state.wonders[w.id]) continue;
+    if (AGE_INDEX[w.age] !== age && !wonderCarried(state, s, w.id)) continue;
     if (w.requiresTech && !known.has(w.requiresTech)) continue;
     if (!conditionMatches(w.requires, env)) continue;
     out.push({ item: w.id, kind: 'wonder' });
@@ -256,6 +278,140 @@ export const availableItems = (state: GameState, s: Settlement, content: Content
 
 export const canProduce = (state: GameState, s: Settlement, item: string, content: ContentBundle): boolean =>
   availableItems(state, s, content).some((x) => x.item === item);
+
+// --- Wonders carried over an age transition -------------------------------------------
+
+/** `TimedEffect.source` (on the owner) letting settlement `sid` finish past-age wonder `wid`. */
+export const wonderCarryMark = (sid: SettlementId, wid: string): string => `${WONDER_CARRY_SOURCE}${sid}:${wid}`;
+
+export const wonderCarried = (state: GameState, s: Settlement, wid: string): boolean =>
+  state.players[s.owner]?.effects.some((e) => e.source === wonderCarryMark(s.id, wid)) === true;
+
+/**
+ * At an age's end (called by beginTransition after the age's own markers are swept): a city
+ * building a wonder of the ending age with work already in it keeps the right to finish it
+ * through the next age ('wonderCarried'). Any other wonder in production — an older age's, or
+ * one not yet started — is dropped, and its banked work goes to the city's next item
+ * ('wonderLost' with the amount). Marks last until the next transition (untilTurn −1).
+ */
+export const carryWonders = (ctx: SimCtx, endingAge: GameState['age']): void => {
+  const { state, content } = ctx;
+  for (const id of Object.keys(state.settlements).sort()) {
+    const s = state.settlements[id];
+    const item = s?.production.item;
+    const def = item ? ci(content).wonders[item] : undefined;
+    if (!s || !item || !def || !state.players[s.owner]) continue;
+    const progress = s.production.progress;
+    if (def.age === endingAge && progress > 0 && !state.wonders[item]) {
+      state.players[s.owner]?.effects.push({ source: wonderCarryMark(s.id, item), untilTurn: -1, modifiers: [] });
+      ctx.events.push({
+        type: 'notice',
+        player: s.owner,
+        kind: 'wonderCarried',
+        settlement: s.id,
+        amount: progress,
+        text: `The age has turned, but the builders of ${s.name} will not leave ${def.name} half done: they may still finish it.`,
+      });
+      continue;
+    }
+    s.production.item = null;
+    if (progress > 0) {
+      ctx.events.push({
+        type: 'notice',
+        player: s.owner,
+        kind: 'wonderLost',
+        settlement: s.id,
+        amount: progress,
+        text: `${def.name} belongs to an age that has passed and can no longer be built. The work ${s.name} put into it goes to the next thing it builds.`,
+      });
+    }
+  }
+};
+
+// --- Production queue ---------------------------------------------------------------
+
+const isOneOff = (kind: ItemKind | null): boolean => kind === 'building' || kind === 'wonder';
+
+const itemName = (content: ContentBundle, item: string): string => {
+  const idx = ci(content);
+  return idx.units[item]?.name ?? idx.buildings[item]?.name ?? idx.wonders[item]?.name ?? item;
+};
+
+/**
+ * Why `item` cannot wait in `s`'s queue, or null. Allowed: anything buildable now, and
+ * anything of this age (or an earlier one, for units and buildings) that waits only on a
+ * technology the player has not learned yet. Built buildings and claimed wonders are refused.
+ */
+export const queueItemError = (state: GameState, s: Settlement, item: string, content: ContentBundle): string | null => {
+  const kind = itemKind(content, item);
+  if (!kind) return 'That is not something a city can build.';
+  if (canProduce(state, s, item, content)) return null;
+  const idx = ci(content);
+  const known = new Set(state.players[s.owner]?.techs ?? []);
+  const age = AGE_INDEX[state.age];
+  const name = itemName(content, item);
+  if (kind === 'building' && s.buildings.includes(item)) return `${s.name} already has a ${name}.`;
+  if (kind === 'wonder' && state.wonders[item]) return `${name} has already been built.`;
+  const def = idx.units[item] ?? idx.buildings[item] ?? idx.wonders[item];
+  if (!def || ('figureKind' in def && def.figureKind)) return 'That cannot be built.';
+  const ageOk = kind === 'wonder' ? AGE_INDEX[def.age] === age : AGE_INDEX[def.age] <= age;
+  if (ageOk && def.requiresTech && !known.has(def.requiresTech)) return null; // plausibly legal later
+  return `${name} cannot be built in ${s.name}.`;
+};
+
+/**
+ * Replace the follow-on queue (GDD §7 settlements; wave 11). At most PRODUCTION_QUEUE_MAX
+ * entries, each legal now or plausibly later (`queueItemError`); a building or wonder may
+ * appear only once, and not when it is already the current item. [] clears the queue.
+ */
+export const setProductionQueue = (ctx: SimCtx, player: PlayerId, sid: SettlementId, items: readonly string[]): string | null => {
+  const { state, content } = ctx;
+  const s = state.settlements[sid];
+  if (!s || s.owner !== player) return 'That settlement is not yours.';
+  if (s.kind !== 'city') return 'Towns do not build items; upgrade it to a city first.';
+  if (items.length > PRODUCTION_QUEUE_MAX) return `A city can queue at most ${PRODUCTION_QUEUE_MAX} items.`;
+  const seen = new Set<string>(s.production.item ? [s.production.item] : []);
+  for (const item of items) {
+    const err = queueItemError(state, s, item, content);
+    if (err) return err;
+    if (isOneOff(itemKind(content, item)) && seen.has(item)) return `${itemName(content, item)} is already planned in ${s.name}.`;
+    seen.add(item);
+  }
+  if (items.length === 0) delete s.queue;
+  else s.queue = items.slice();
+  return null;
+};
+
+/**
+ * The city is idle: start the first queued item that is legal now. Entries that are not
+ * (a building bought meanwhile, a wonder taken by a rival, a tech still missing) are dropped,
+ * each with a 'queueSkipped' notice to the owner.
+ */
+export const advanceQueue = (ctx: SimCtx, s: Settlement): void => {
+  const { state, content } = ctx;
+  while (s.production.item === null && s.queue && s.queue.length > 0) {
+    const next = s.queue.shift() as string;
+    if (s.kind === 'city' && canProduce(state, s, next, content)) {
+      s.production.item = next;
+    } else if (state.players[s.owner]) {
+      ctx.events.push({
+        type: 'notice',
+        player: s.owner,
+        kind: 'queueSkipped',
+        settlement: s.id,
+        text: `${s.name} skipped ${itemName(content, next)} in its queue: it cannot be built there now.`,
+      });
+    }
+  }
+  if (s.queue && s.queue.length === 0) delete s.queue;
+};
+
+/** Drop a one-off item from a settlement's queue without a word (it was just finished or set). */
+const unqueue = (s: Settlement, item: string): void => {
+  if (!s.queue) return;
+  s.queue = s.queue.filter((x) => x !== item);
+  if (s.queue.length === 0) delete s.queue;
+};
 
 /** Gold price of an item: remaining production × BUY_GOLD_PER_PRODUCTION. */
 export const goldCostOf = (state: GameState, s: Settlement, item: string, content: ContentBundle, mods?: readonly Modifier[]): number => {
@@ -291,15 +447,21 @@ export const completeItem = (ctx: SimCtx, s: Settlement, item: string): boolean 
     // of production they invested stays banked for their next project, and they are told so.
     for (const id of Object.keys(state.settlements)) {
       const o = state.settlements[id];
-      if (!o || o.id === s.id || o.production.item !== item) continue;
+      if (!o || o.id === s.id) continue;
+      unqueue(o, item);
+      if (o.production.item !== item) continue;
       o.production.item = null;
       if (o.owner !== s.owner && state.players[o.owner]) {
         ctx.events.push({
           type: 'notice',
           player: o.owner,
+          kind: 'wonderLost',
+          settlement: o.id,
+          amount: o.production.progress,
           text: `${def.name} was completed by another people first. The work ${o.name} put into it is not lost: it goes to the next thing ${o.name} builds.`,
         });
       }
+      advanceQueue(ctx, o);
     }
   } else {
     return false;
@@ -316,6 +478,7 @@ export const setProduction = (ctx: SimCtx, player: PlayerId, sid: SettlementId, 
   if (item !== null && !canProduce(state, s, item, content)) return 'That cannot be built here right now.';
   // Progress carries over between items (simplification: one progress counter per settlement).
   s.production.item = item;
+  if (item !== null && isOneOff(itemKind(content, item))) unqueue(s, item);
   return null;
 };
 
@@ -331,7 +494,11 @@ export const buyItem = (ctx: SimCtx, player: PlayerId, sid: SettlementId, item: 
   if (p.stock.gold < gold) return `That costs ${gold} gold; you have ${Math.floor(p.stock.gold)}.`;
   if (!completeItem(ctx, s, item)) return 'There is no free tile around the settlement to place it.';
   p.stock.gold -= gold;
-  if (s.production.item === item) s.production = { item: null, progress: 0 };
+  if (kind !== 'unit') unqueue(s, item);
+  if (s.production.item === item) {
+    s.production = { item: null, progress: 0 };
+    advanceQueue(ctx, s);
+  }
   return null;
 };
 
@@ -383,17 +550,18 @@ export const growSettlement = (ctx: SimCtx, s: Settlement, y: YieldRecord, happi
 export const produceInSettlement = (ctx: SimCtx, s: Settlement, y: YieldRecord, mods: readonly Modifier[]): void => {
   const { state, content } = ctx;
   if (s.kind !== 'city') return;
+  if (s.production.item !== null && !canProduce(state, s, s.production.item, content)) s.production.item = null;
+  // An idle city (a wonder lost at the age's end, a finished item last turn) takes its next
+  // queued item before this turn's work is added.
+  if (s.production.item === null) advanceQueue(ctx, s);
   const item = s.production.item;
   if (item === null) return; // idle production is banked as gold in computeEmpire
-  if (!canProduce(state, s, item, content)) {
-    s.production.item = null;
-    return;
-  }
   s.production.progress = Math.round((s.production.progress + y.production) * 100) / 100;
   const cost = itemCost(state, s, item, content, mods);
   if (s.production.progress >= cost && completeItem(ctx, s, item)) {
     s.production.progress = Math.round((s.production.progress - cost) * 100) / 100;
     s.production.item = null;
+    advanceQueue(ctx, s);
   }
 };
 

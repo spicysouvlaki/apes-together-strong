@@ -26,7 +26,7 @@ import { generateMap, MAP_DIMENSIONS } from './mapgen';
 import { newPlayer } from './players';
 import { setGovernment, setResearch } from './research';
 import { seedRng, shuffle } from './rng';
-import { buyItem, createSettlement, foundSettlement, setProduction, upgradeSettlement } from './settlements';
+import { buyItem, createSettlement, foundSettlement, setProduction, setProductionQueue, upgradeSettlement } from './settlements';
 import { endTurn, beginNextTurn, refreshIncome, startOfTurnForPlayer, treasuryNotices } from './turn';
 import { disbandRefund, isLookout, moveUnit, removeUnit, spawnUnit } from './units';
 
@@ -210,6 +210,8 @@ const dispatch = (ctx: SimCtx, player: PlayerId, command: Command): string | nul
       return openTradeRoute(ctx, player, command.unit, command.to);
     case 'setProduction':
       return setProduction(ctx, player, command.settlement, command.item);
+    case 'setProductionQueue':
+      return setProductionQueue(ctx, player, command.settlement, command.items);
     case 'buyItem':
       return buyItem(ctx, player, command.settlement, command.item);
     case 'upgradeSettlement':
@@ -272,6 +274,7 @@ const COMMAND_SHAPE: Record<Command['type'], Record<string, (v: unknown) => bool
   foundSettlement: { unit: isStr },
   openTradeRoute: { unit: isStr, to: isStr },
   setProduction: { settlement: isStr, item: (v) => v === null || isStr(v) },
+  setProductionQueue: { settlement: isStr, items: (v) => Array.isArray(v) && v.every(isStr) },
   buyItem: { settlement: isStr, item: isStr },
   upgradeSettlement: { settlement: isStr },
   setResearch: { tree: (v) => v === 'tech' || v === 'civic', id: isStr },

@@ -5,7 +5,7 @@
 import { useState } from 'preact/hooks';
 import { hexDistance } from '@contracts/hex';
 import type { GameState, Unit } from '@contracts/sim-api';
-import { TRADE_RANGE } from '../../sim/constants';
+import { TRADE_RANGE, TRADE_ROUTE_GOLD } from '../../sim/constants';
 import { askConfirm, content, dispatch, game, lookup, me, myTurn, openModal, q, selection } from '../store';
 import { capitalize, num } from './format';
 import { cancelRoute, confirmRoute, previewRoute, refreshOverlay, selectUnit } from './MapView';
@@ -208,20 +208,49 @@ export function UnitSheet() {
         </div>
       )}
       {destinations.length > 0 && (
-        <div class="site-row small" aria-label="Places that would take a trade route">
-          <span class="muted site-label">Trade with:</span>
-          {destinations.map((d) => (
-            <button
-              key={d.id}
-              class="btn site-btn"
-              disabled={!canAct}
-              aria-label={`Plan a route to ${d.name}, ${arrivalText(d.plan.turns).toLowerCase()}`}
-              onClick={() => previewRoute(u.id, g.settlements[d.id]?.at ?? u.at, { frame: true })}
-            >
-              <Icon name="trade" size="sm" /> {d.name}
-              <span class="muted tnum">· {d.plan.turns <= 1 ? 'this turn' : `${d.plan.turns - 1} ${d.plan.turns === 2 ? 'turn' : 'turns'}`}</span>
-            </button>
-          ))}
+        <div class="trade-dests" aria-label="Places that would take a trade route">
+          <div class="small muted site-label">Trade with:</div>
+          {destinations.map((d) => {
+            const when = d.plan.turns <= 1 ? 'arrives this turn' : `${d.plan.turns - 1} ${d.plan.turns === 2 ? 'turn' : 'turns'} away`;
+            return (
+              <div class="trade-dest" key={d.id}>
+                <button
+                  class="trade-dest-main"
+                  disabled={!canAct}
+                  aria-label={`Show the route to ${d.name} on the map, ${when}`}
+                  onClick={() => previewRoute(u.id, g.settlements[d.id]?.at ?? u.at, { frame: true })}
+                >
+                  <Icon name="trade" size="sm" />
+                  <span class="grow">
+                    <b>{d.name}</b>
+                    <span class="muted small"> · {when}</span>
+                  </span>
+                  <span class="trade-yield tnum" aria-hidden="true">
+                    +{TRADE_ROUTE_GOLD} <Icon name="gold" size="sm" />
+                  </span>
+                </button>
+                <button
+                  class="btn btn-primary trade-send"
+                  disabled={!canAct}
+                  aria-label={`Send the merchant to ${d.name}: a route there brings ${TRADE_ROUTE_GOLD} gold a turn`}
+                  onClick={() => {
+                    // One tap: march beside the partner and open the route on arrival (wave 11:
+                    // pick-then-Go was two steps six times a game).
+                    const at = g.settlements[d.id]?.at;
+                    if (!at) return;
+                    plannedRoute.value = null;
+                    setOrder(u.id, { kind: 'goto', to: d.plan.to, trade: d.id });
+                    exploreNow(u.id);
+                    refreshOverlay();
+                    advance();
+                  }}
+                >
+                  Send
+                </button>
+              </div>
+            );
+          })}
+          <div class="small muted">A route brings +{TRADE_ROUTE_GOLD} gold every turn; it opens when the merchant arrives.</div>
         </div>
       )}
       {inline && (
@@ -284,9 +313,9 @@ export function UnitSheet() {
               </>
             ) : (
               <>
-                <strong>{order.recall ? 'Walking home' : 'Marching'}</strong> · {whereWord(u.at, order.to)}
+                <strong>{order.recall ? 'Walking home' : order.trade ? `Taking goods to ${g.settlements[order.trade]?.name ?? 'a partner'}` : 'Marching'}</strong> · {whereWord(u.at, order.to)}
                 {marchTurns ? `, ${arrivalText(marchTurns).replace('Arrives', 'arrives')}` : ''}.{' '}
-                {order.recall ? 'Recalled on arrival.' : 'Moves on at the start of each turn.'}
+                {order.recall ? 'Recalled on arrival.' : order.trade ? 'The route opens on arrival.' : 'Moves on at the start of each turn.'}
               </>
             )}
           </div>
@@ -304,7 +333,7 @@ export function UnitSheet() {
       )}
       {inline ? null : routePick ? (
         <div class="unit-actions">
-          <div class="small muted">Open a trade route to:</div>
+          <div class="small muted">Open a trade route (+{TRADE_ROUTE_GOLD} gold a turn) to:</div>
           {tradeTargets.map((sid) => {
             const s = g.settlements[sid];
             return (

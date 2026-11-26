@@ -386,3 +386,16 @@ button, .chip, .portrait { -webkit-touch-callout: none; }
 .recap-turn { display: inline-block; width: 30px; text-indent: 0; color: var(--ink-faint); font-size: 0.74rem; }
 .recap-go { width: 100%; }
 .recap-war { margin: 4px 0 8px; padding: 6px 8px; color: var(--madder-deep); background: rgba(155, 52, 38, 0.1); border-left: 3px solid var(--madder); font-weight: 600; }
+/* First contact (wave 11): the rival's own words set as a quotation, then who they are. */
+.contact-quote {
+  margin: 10px 0 8px; padding: 4px 0 4px 12px; border-left: 3px solid var(--gold);
+  font-family: var(--font-display); font-style: italic; font-size: 1rem; line-height: 1.35;
+}
+.contact-leader { margin: 6px 0 4px; }
+.contact-posture { margin: 0 0 12px; font-style: italic; }
+/* The Chronicle's story (wave 11): a few set paragraphs before the books. */
+.scr-chron-story { margin: 4px 0 8px; }
+.scr-chron-para { font-size: 1rem; line-height: 1.5; margin: 0 2px 10px; text-indent: 1.2em; }
+.scr-chron-story p:last-child { font-family: var(--font-display); font-style: italic; text-indent: 0; text-align: center; margin-top: 12px; }
+/* At 150% text the recap and contact cards must scroll rather than run off a 812px screen. */
+.recap { max-height: calc(100vh - 32px - var(--safe-top) - var(--safe-bottom)); overflow-y: auto; }

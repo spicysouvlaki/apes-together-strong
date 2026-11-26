@@ -37,11 +37,13 @@ import { endTurnSent, enemyConfirmedTurn, foundNudgeTurn, hudBottomPx, idleSheet
 import { foundReady, orders, resting } from './standing-orders';
 import { guideClass } from './guide-state';
 import { AdviceCard } from './AdviceCard';
-import { IdleSheet, idleSheetOpen } from './IdleSheet';
+import { IdleSheet, idleLists, idleSheetOpen } from './IdleSheet';
 import { exposedUnit } from './orders';
 import { YieldLegend } from './YieldLegend';
 import { UnitSheet } from './UnitSheet';
 import { quitToTitle } from './Panels';
+import { nearestGoals, showGoals } from './endgame-goals';
+import { LAST_CHANCE_METER } from '../../sim/ages/constants';
 
 const SHELL_KINDS: ReadonlySet<ModalKind> = new Set(['city', 'tileInfo', 'menu', 'saves', 'settings', 'codex', 'log']);
 export const isRegistered = (kind: ModalKind): boolean => SHELL_KINDS.has(kind) || !!screens[kind as ScreenKind];
@@ -192,9 +194,11 @@ const endTurn = (): void => {
       return;
     }
   }
-  // Once per turn: list what is still idle, with a jump to each (units and cities).
+  // Once per turn: list what is still idle, with a jump to each (units and cities). Cities and
+  // trees waved off with "Not now" this turn are not idle any more as far as the player is concerned.
   const idleUnitCount = idleUnits(g, my, resting.value, foundReady.value).length;
-  if ((idleUnitCount > 0 || pl.idleCities.length > 0) && idleSheetTurn.value !== g.turn) {
+  const idle = idleLists(g, my, [], nagsAtRest.value);
+  if ((idleUnitCount > 0 || idle.cities.length > 0) && idleSheetTurn.value !== g.turn) {
     idleSheetTurn.value = g.turn;
     idleSheetOpen.value = true;
     return;
@@ -348,6 +352,29 @@ function QuickButtons() {
 }
 
 /**
+ * The final age's last stretch: what still counts for the score before the Chronicle (wave 11).
+ * One slip above the controls; tap for the Legacy screen.
+ */
+function EndgameGoals() {
+  const g = game.value;
+  const my = me.value;
+  if (!g || !my || !myTurn.value || !showGoals(g.age, g.finalAge, g.ageProgress, g.phase)) return null;
+  const goals = nearestGoals(q.milestones(g, my, content), 2);
+  const last = g.ageProgress >= LAST_CHANCE_METER;
+  const text = goals.length > 0 ? goals.map((x) => x.text).join(' · ') : 'Every milestone this age is reached. Seated figures and kept traditions still add to your score.';
+  return (
+    <button class="endgame-goals" onClick={() => openModal({ kind: 'legacy' })} aria-label={`Still counts before the chronicle: ${text}.${last ? ' Milestones now count half again.' : ''} Open legacy.`}>
+      <span class="endgame-kicker" aria-hidden="true">
+        <Icon name="milestone" size="sm" /> {last ? 'Last chance, worth half again' : 'Still counts before the end'}
+      </span>
+      <span class="endgame-text" aria-hidden="true">
+        {text}
+      </span>
+    </button>
+  );
+}
+
+/**
  * Shown when the human has no settlement and no settler left (sim sets alive=false). The rivals
  * may play on, but the player's story is over: offer the Chronicle and a way out.
  */
@@ -439,6 +466,7 @@ export function Hud() {
       <HudBanner />
       {!sheetOpen && (
         <BottomStack>
+          {!unitSelected && <EndgameGoals />}
           <AdviceCard />
           <div class="hud-controls">
             <QuickButtons />
@@ -454,7 +482,7 @@ export function Hud() {
           {unitSelected && <UnitSheet key={selection.value.unit} />}
         </BottomStack>
       )}
-      {idleSheetOpen.value && !sheetOpen && <IdleSheet onEndTurn={sendEndTurn} openDecision={openDecision} />}
+      {idleSheetOpen.value && !sheetOpen && <IdleSheet onEndTurn={sendEndTurn} openDecision={openDecision} atRest={nagsAtRest.value} />}
       {thinking.value !== null && (
         <div class="thinking" role="status" aria-live="polite">
           <span class="thinking-slip">

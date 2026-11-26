@@ -141,7 +141,7 @@ const spawnRaiders = (ctx: SimCtx): void => {
     }
     if (spawned > 0) {
       const open = isUndefended(state, settlement) ? ', and no one guards it' : '';
-      ctx.events.push({ type: 'notice', player: p.id, text: `Raiders gather near ${settlement.name}${open}.` });
+      ctx.events.push({ type: 'notice', player: p.id, kind: 'raiderWarning', settlement: settlement.id, text: `Raiders gather near ${settlement.name}${open}.` });
     }
   }
 };

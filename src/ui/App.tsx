@@ -11,6 +11,7 @@ import { CombatSheet } from './shell/CombatSheet';
 import { RecruitReveal } from './shell/RecruitReveal';
 import { LongPressTip } from './shell/LongPressTip';
 import { ResumeRecap } from './shell/ResumeRecap';
+import { FirstContact } from './shell/FirstContact';
 import { Setup } from './shell/Setup';
 import { Title } from './shell/Title';
 
@@ -31,6 +32,7 @@ export function App() {
       <ModalHost />
       {r === 'game' && <RecruitReveal />}
       {r === 'game' && <ResumeRecap />}
+      {r === 'game' && <FirstContact />}
       <GlossarySheet />
       <ConfirmDialog />
       <LongPressTip />

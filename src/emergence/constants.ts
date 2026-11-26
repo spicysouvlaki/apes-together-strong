@@ -97,13 +97,23 @@ export const GP_MILITARY_PER_BATTLE_WON = 5;
 export const GP_MILITARY_PER_CITY_CAPTURED = 12;
 /** Per war under way (with a player or a city-state). */
 export const GP_MILITARY_PER_WAR = 1.2;
+/**
+ * Weight of the player's current lean when choosing which full pool offers next
+ * (offers.ts `poolOrderKey`): a pool gaining twice the average adds 2×this to its fill.
+ */
+export const GP_LEAN_WEIGHT = 0.35;
 export const GP_STATESMAN_PER_SETTLEMENT = 0.1;
 export const GP_STATESMAN_PER_INFLUENCE = 0.35;
 export const GP_STATESMAN_PER_CULTURE = 0.05;
 export const GP_STATESMAN_PER_TRADE_ROUTE = 1.2;
 export const GP_STATESMAN_PER_SUZERAINTY = 1.5;
 export const GP_STATESMAN_PER_GOLD = 0.08;
-export const GP_THOUGHT_PER_SCIENCE = 0.25;
+/**
+ * Wave 11 (scholar play drew few thinkers): at 0.25 a player with ~1.4× their rivals' science
+ * saw thought offers only as often as building offers (17% of offers, autoplay scholar
+ * persona). Raised so research-led play makes thought a leading pool.
+ */
+export const GP_THOUGHT_PER_SCIENCE = 0.4;
 export const GP_FAITH_PER_FAITH = 0.6;
 export const GP_BUILDING_PER_PRODUCTION = 0.12;
 /** Per building standing in the player's settlements (wonders count through their `gp`). */

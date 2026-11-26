@@ -7,7 +7,7 @@ import { mintId, type SimCtx } from '../sim/ctx';
 import { weightedIndex } from '../sim/rng';
 import { statValue } from '../sim/stats';
 import * as K from './constants';
-import { PARTNER_REASONS, REASON_FAMILY, TALES_REASONS, WANDERER_REASONS, pickPhrase, signalReason } from './reasons';
+import { AGE_OPENING_REASON, PARTNER_REASONS, REASON_FAMILY, TALES_REASONS, WANDERER_REASONS, pickPhrase, signalReason } from './reasons';
 import { citedSignals, signalContributions, type Contributions } from './signals';
 import { culturesWithFiguresIn, figureDef, getPlayer, kindsForGp, suzerainByCulture, tradeRoutesByCulture } from './util';
 
@@ -57,7 +57,9 @@ export const offerReason = (
   figure = '',
 ): string => {
   const a = getPlayer(state, player).affinity[culture] ?? 0;
-  if (a < K.REASON_MIN_AFFINITY) return figure ? pickPhrase(state, figure, WANDERER_REASONS) : WANDERER_REASONS[0];
+  // A signal the player really has is always the best reason, even while the culture's
+  // affinity is still low (wave 11: two of three reasons in a first offer were the generic
+  // wanderer line though a real signal fed each culture). Generic lines are the last resort.
   const [first, second] = citedSignals(state, player, contributions, culture, content);
   if (first) {
     const secondHint =
@@ -70,19 +72,26 @@ export const offerReason = (
     return figure ? signalReason(state, figure, first.signal.measure, first.hint, secondHint) : `drawn by ${first.hint}`;
   }
   if (partnerCultures(state, player, content)[culture]) return figure ? pickPhrase(state, figure, PARTNER_REASONS) : PARTNER_REASONS[0];
+  if (a < K.REASON_MIN_AFFINITY) return figure ? pickPhrase(state, figure, WANDERER_REASONS) : WANDERER_REASONS[0];
   return figure ? pickPhrase(state, figure, TALES_REASONS) : TALES_REASONS[0];
 };
 
-/** Figures named in the player's open offers (so one player never sees a figure twice). */
-const offeredTo = (state: GameState, player: PlayerId): Record<FigureId, true> => {
+/**
+ * Figures named in any open offer. An invitation is exclusive: a figure already invited by
+ * one court (this player's or a rival's) is not drawn for another until that offer closes.
+ * Wave 11: with shared candidates, choosing a figure from the later of two offers sent them
+ * to the earlier court ("joined a rival"), which read as a stale, broken offer. (The contest
+ * rule in figures.ts still settles saves made before this.)
+ */
+const invited = (state: GameState): Record<FigureId, true> => {
   const out: Record<FigureId, true> = {};
-  for (const o of state.offers) if (o.player === player) for (const f of o.candidates) out[f] = true;
+  for (const o of state.offers) for (const f of o.candidates) out[f] = true;
   return out;
 };
 
 /** GDD §4 step 1: unrecruited, non-deed figures of these kinds in the current age. */
-export const offerPool = (state: GameState, player: PlayerId, kinds: readonly FigureKind[], content: ContentBundle): Figure[] => {
-  const already = offeredTo(state, player);
+export const offerPool = (state: GameState, _player: PlayerId, kinds: readonly FigureKind[], content: ContentBundle): Figure[] => {
+  const already = invited(state);
   return content.figures.filter(
     (f) =>
       f.age === state.age && kinds.includes(f.kind) && f.deed === undefined && !state.figures[f.id] && !already[f.id],
@@ -235,18 +244,38 @@ export const lastRecruitTurn = (state: GameState, player: PlayerId): number | nu
 };
 
 /**
+ * Order in which pools are served: how full each is (banked points over threshold) plus the
+ * player's current lean — this turn's gain into the pool over the mean gain of all pools,
+ * times GP_LEAN_WEIGHT. Wave 11 (scholar play drew few thinkers): offers are paced, so in a
+ * long game most pools sit banked at the cap and the fill alone tied, leaving GP_KINDS order
+ * and threshold growth to pick; the lean lets what the player is doing now decide instead.
+ */
+export const poolOrderKey =
+  (gp: Readonly<Record<GpKind, number>>, threshold: Readonly<Record<GpKind, number>>, gains?: Readonly<Record<GpKind, number>>) =>
+  (k: GpKind): number => {
+    const fill = gp[k] / threshold[k];
+    if (!gains) return fill;
+    const mean = GP_KINDS.reduce((a, j) => a + Math.max(0, gains[j]), 0) / GP_KINDS.length;
+    return fill + (mean > 0 ? (K.GP_LEAN_WEIGHT * Math.max(0, gains[k])) / mean : 0);
+  };
+
+/**
  * Pools create offers (GDD §4 "when a pool crosses its threshold"), paced (see
  * OFFER_DROUGHT_TURNS): onboarding at FIRST_OFFER_TURN, a drought offer from the fullest pool,
  * otherwise the first pool at threshold — at most one points offer per turn, capped by
  * MAX_OPEN_OFFERS, and none right after a recruit.
  */
-export const createPointsOffers = (ctx: SimCtx, player: PlayerId, contributions: Contributions): void => {
+export const createPointsOffers = (
+  ctx: SimCtx,
+  player: PlayerId,
+  contributions: Contributions,
+  gains?: Readonly<Record<GpKind, number>>,
+): void => {
   const { state } = ctx;
   const p = getPlayer(state, player);
   const open = openOfferCount(state, player);
-  const fullest = GP_KINDS.slice().sort(
-    (a, b) => p.gp[b] / p.gpThreshold[b] - p.gp[a] / p.gpThreshold[a] || GP_KINDS.indexOf(a) - GP_KINDS.indexOf(b),
-  );
+  const key = poolOrderKey(p.gp, p.gpThreshold, gains);
+  const fullest = GP_KINDS.slice().sort((a, b) => key(b) - key(a) || GP_KINDS.indexOf(a) - GP_KINDS.indexOf(b));
   if (state.turn >= K.FIRST_OFFER_TURN && open === 0 && neverOffered(state, player)) {
     // Onboarding: the fullest pool (ties in GP_KINDS order) offers early.
     for (const gp of fullest) {
@@ -393,7 +422,7 @@ export const offerAgeOpening = (ctx: SimCtx, player: PlayerId): boolean => {
   const contributions = signalContributions(state, player, content);
   const hint = citedSignals(state, player, contributions, culture, content)[0]?.hint ?? 'your people';
   const reasons: Record<FigureId, string> = {};
-  for (const f of drawn) reasons[f.id] = `come at last, drawn by the old tales of ${hint}`;
+  for (const f of drawn) reasons[f.id] = AGE_OPENING_REASON.replace('{h}', hint);
   pushOffer(ctx, player, FIGURE_KIND_TO_GP[first.kind], drawn, reasons, null);
   return true;
 };
@@ -403,6 +432,35 @@ export const mustFigure = (content: ContentBundle, id: FigureId): Figure => {
   const f = figureDef(content, id);
   if (!f) throw new Error(`unknown figure ${id}`);
   return f;
+};
+
+/** Kinds an offer of this source draws from (deeds have no pool). */
+export const kindsForSource = (source: Offer['source']): FigureKind[] =>
+  source === 'deed' ? [] : source === 'legend' ? ['legend'] : kindsForGp(source);
+
+/**
+ * An open offer lost its last candidate to a rival's court. Refill it from its own pool with
+ * a fresh draw (same source, same reasons rules); if the pool is empty, drop it with the
+ * usual refund and tell the player ('offerWithdrawn'). Returns true when refilled.
+ */
+export const refillOrWithdraw = (ctx: SimCtx, offer: Offer): boolean => {
+  const { state, content } = ctx;
+  const kinds = kindsForSource(offer.source);
+  const pool = kinds.length > 0 && state.players[offer.player] ? offerPool(state, offer.player, kinds, content) : [];
+  const drawn = pool.length > 0 ? drawCandidates(state, offer.player, pool, content) : [];
+  if (drawn.length > 0) {
+    offer.candidates = drawn.map((f) => f.id);
+    offer.reasons = reasonsFor(ctx, offer.player, drawn, signalContributions(state, offer.player, content));
+    return true;
+  }
+  dropOffer(state, offer.id, true);
+  ctx.events.push({
+    type: 'notice',
+    player: offer.player,
+    kind: 'offerWithdrawn',
+    text: 'Every figure in one of your open offers joined another court first; the offer is withdrawn and its points return to you.',
+  });
+  return false;
 };
 
 /**

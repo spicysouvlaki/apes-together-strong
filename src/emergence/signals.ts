@@ -230,6 +230,23 @@ export const topTwoSignals = (
 ): { signal: Signal; value: number }[] => topSignals(contributions, culture, content).slice(0, 2);
 
 /**
+ * "your friendship with their city" → "your friendship with Massalia" (wave 11): a suzerainty
+ * hint names the city-state(s) of that culture the player is suzerain of. The hint keeps its
+ * content wording; only the generic "their city" is replaced, so other hints are untouched.
+ */
+export const nameCityStates = (state: GameState, player: PlayerId, culture: CultureId, content: ContentBundle, hint: string): string => {
+  const names: string[] = [];
+  for (const def of content.cityStates) {
+    const cs = state.cityStates[def.id];
+    if (!cs || !cs.alive || cs.suzerain !== player || def.culture !== culture) continue;
+    names.push(state.settlements[cs.settlement]?.name ?? def.name);
+  }
+  if (names.length === 0) return hint;
+  const list = names.length === 1 ? (names[0] as string) : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1] as string}`;
+  return hint.replace(/their cit(y|ies)/, list);
+};
+
+/**
  * The (up to two) strongest signals for `culture` that may be cited as a reason, each with its
  * number-aware hint: the measured amount (contribution / weight) must be one the player really
  * has (reasons.ts `citable`), and plurals follow the count (playtest 3).
@@ -247,7 +264,8 @@ export const citedSignals = (
     const w = x.signal.weights[culture] ?? 0;
     const amount = w > 0 ? x.value / w : 0;
     if (!citable(x.signal.measure, amount)) continue;
-    out.push({ ...x, hint: numberedHint(x.signal.hint, x.signal.measure, amount, settlements) });
+    const hint = numberedHint(x.signal.hint, x.signal.measure, amount, settlements);
+    out.push({ ...x, hint: x.signal.measure === 'suzerainOfCulture' ? nameCityStates(state, player, culture, content, hint) : hint });
     if (out.length === 2) break;
   }
   return out;

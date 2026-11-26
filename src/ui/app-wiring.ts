@@ -38,6 +38,9 @@ import { continueStandingOrders, initStandingOrders, runStandingOrders } from '.
 import { initGuide } from './shell/guide-state';
 import { resumeRecap, shouldRecap } from './shell/resume-recap';
 import { idleSheetOpen } from './shell/IdleSheet';
+import { contactMoments, firstContacts } from './shell/first-contact';
+import { namingLine, strongestCulture } from './shell/city-lines';
+import { hexDistance } from '@contracts/hex';
 import { audio, setAudioPlanOptions } from '../audio';
 import { commandSound, initUiAudio } from './ui-audio';
 
@@ -75,6 +78,22 @@ const eventNames = (state: GameState, prev: GameState | null): EventNames => ({
     const at = (s: GameState | null) => (s ? Object.values(s.settlements).find((x) => x.at.q === hex.q && x.at.r === hex.r) : undefined);
     return (at(state) ?? at(prev))?.name ?? null;
   },
+  nearestSettlement: (hex, owner) => {
+    let best: { name: string; d: number } | null = null;
+    for (const s of Object.values(state.settlements)) {
+      if (s.owner !== owner) continue;
+      const d = hexDistance(s.at, hex);
+      if (!best || d < best.d) best = { name: s.name, d };
+    }
+    return best?.name ?? null;
+  },
+  producing: (id) => state.settlements[id]?.production.item ?? null,
+  namingLine: (id) => {
+    const s = state.settlements[id];
+    if (!s) return null;
+    const weights = q.cultureWeights(state, s.owner, content);
+    return namingLine(lookup.cultures[s.namedFor]?.adjective ?? null, s.namedFor, strongestCulture(weights, content.cultures.map((c) => c.id)));
+  },
   unitAt: (hex, owner) => {
     const u = prev ? Object.values(prev.units).find((x) => x.owner === owner && x.at.q === hex.q && x.at.r === hex.r) : undefined;
     return u ? ((u.figure ? lookup.figures[u.figure]?.name : undefined) ?? lookup.units[u.type]?.name ?? null) : null;
@@ -91,7 +110,10 @@ const isMyTurnStart = (prev: GameState | null, next: GameState, my: PlayerId | n
 
 const onState = (state: GameState, events: SimEvent[]): void => {
   const prev = game.value;
-  if (!prev || prev.seed !== state.seed) turnLog.value = [];
+  if (!prev || prev.seed !== state.seed) {
+    turnLog.value = [];
+    firstContacts.value = [];
+  }
   // A resumed save gets "the story so far" (playtest 4); a new game starts with the guide.
   if (shouldRecap(prev?.seed ?? null, state.seed, state.turn) && state.phase === 'playing') resumeRecap.value = { seed: state.seed, turn: state.turn };
   else if (resumeRecap.value && resumeRecap.value.seed !== state.seed) resumeRecap.value = null;
@@ -135,6 +157,9 @@ const onState = (state: GameState, events: SimEvent[]): void => {
     if (t) specs.push(isThreat(ev, my) ? { ...t, threat: true } : t);
   }
   pushToasts(rankToasts(specs).map((t) => ({ ...t, turn: state.turn })));
+  // Meeting a people is a moment of its own (wave 11), on top of its line in the news.
+  const met = contactMoments(events, my, [state, prev], content);
+  if (met.length > 0) firstContacts.value = [...firstContacts.value, ...met.filter((m) => !firstContacts.value.some((x) => x.player === m.player))];
   pushLog(state.turn, dedupeByScreen(specs));
 
   // Standing orders: start this turn's moves, or continue a run waiting on this snapshot.

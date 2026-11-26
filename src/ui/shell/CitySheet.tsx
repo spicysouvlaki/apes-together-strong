@@ -6,9 +6,11 @@
 import { useEffect, useState } from 'preact/hooks';
 import type { ProductionOption } from '@contracts/sim-api';
 import type { YieldType } from '@contracts/content-schemas';
-import { closeModal, content, dispatch, game, lookup, me, myTurn, openModal, q } from '../store';
+import { closeModal, content, dispatch, game, lastError, lookup, me, myTurn, openModal, q } from '../store';
 import { YIELD_ICON, YIELD_NAME, capitalize, growthText, num, signed, turnsText } from './format';
-import { FOOD_PER_POP, UNREST_THRESHOLD } from '../../sim/constants';
+import { FOOD_PER_POP, UNREST_THRESHOLD, UPGRADE_COST_BASE, UPGRADE_COST_PER_POP } from '../../sim/constants';
+import { MAX_QUEUE, queueAdd, queueChoices, queueMove, queueRemove, suggestContext, suggestNext } from './build-queue';
+import { namingLine, strongestCulture, upgradeCostReason } from './city-lines';
 import { Icon } from '../art/Icon';
 import { FigurePortrait } from '../art/game-art';
 import { GlossText } from './GlossarySheet';
@@ -43,7 +45,11 @@ const GROUPS: { kind: ProductionOption['kind']; title: string }[] = [
 export function CitySheet({ settlement }: { settlement: string }) {
   const g = game.value;
   const my = me.value;
-  const [picking, setPicking] = useState(false);
+  // 'current' changes what is being built; 'queue' adds a follow-on ("Then: …").
+  const [picking, setPicking] = useState<'current' | 'queue' | null>(null);
+  // Set when a queue edit was sent; an error arriving meanwhile is shown inline (the sim may
+  // refuse the whole list, e.g. an item that stopped being legal).
+  const [queueSent, setQueueSent] = useState(false);
   // The Buy button that was tapped once and waits for its second tap (see below).
   const [armed, setArmed] = useState<string | null>(null);
   useEffect(() => {
@@ -74,6 +80,17 @@ export function CitySheet({ settlement }: { settlement: string }) {
   const current = s.production.item;
   const currentOpt = current ? options.find((o) => o.item === current) : undefined;
   const upgradeCost = mine && s.kind === 'town' ? q.upgradeCost(g, s.id, content) : 0;
+  const queue = s.queue ?? [];
+  const queueError = queueSent ? lastError.value : null;
+  const sendQueue = (items: string[]): void => {
+    setQueueSent(true);
+    dispatch({ type: 'setProductionQueue', settlement: s.id, items: items.slice(0, MAX_QUEUE) });
+  };
+  const ctx = !current && options.length > 0 ? suggestContext(g, s.id, content, (a, b) => q.atWar(g, a, b), q.settlementCap(g, my, content)) : null;
+  const suggestion = ctx ? suggestNext(options, ctx) : null;
+  const named = mine
+    ? namingLine(lookup.cultures[s.namedFor]?.adjective ?? null, s.namedFor, strongestCulture(q.cultureWeights(g, my, content), content.cultures.map((c) => c.id)))
+    : null;
   const figures = Object.values(g.figures).filter(
     (f) => f.owner === my && f.location.state === 'based' && f.location.settlement === s.id,
   );
@@ -101,6 +118,7 @@ export function CitySheet({ settlement }: { settlement: string }) {
           <div class="small muted">
             {capitalize(s.kind)} · Population {s.population} · Walls {Math.round(s.hp)}/{s.maxHp}
           </div>
+          {named && <div class="small muted city-named">{named}</div>}
         </div>
         {ring.length > 1 && at >= 0 && (
           <>
@@ -145,6 +163,7 @@ export function CitySheet({ settlement }: { settlement: string }) {
           >
             <Icon name="upgrade" /> Upgrade to city · <Icon name="gold" size="sm" /> {upgradeCost}
           </button>
+          <div class="small muted mt4 upgrade-why">{upgradeCostReason(upgradeCost, s.population, UPGRADE_COST_BASE, UPGRADE_COST_PER_POP)}</div>
           {gold < upgradeCost && (
             <div class="small muted mt4">
               {Math.ceil(upgradeCost - gold)} more gold needed
@@ -175,32 +194,74 @@ export function CitySheet({ settlement }: { settlement: string }) {
               )}
             </div>
             {current ? (
-              <button class="btn" disabled={!canAct} onClick={() => setPicking(!picking)} aria-expanded={picking}>
-                {picking ? 'Done' : 'Change'}
+              <button class="btn" disabled={!canAct} onClick={() => setPicking(picking === 'current' ? null : 'current')} aria-expanded={picking === 'current'}>
+                {picking === 'current' ? 'Done' : 'Change'}
               </button>
             ) : (
               <span class="small muted">Pick one below</span>
             )}
           </div>
 
-          {(picking || !current) &&
+          {!current && suggestion && (
+            <button
+              class="btn suggest-chip"
+              disabled={!canAct}
+              aria-label={`Suggested: build ${itemName(suggestion.item)}, because ${suggestion.why}`}
+              onClick={() => {
+                dispatch({ type: 'setProduction', settlement: s.id, item: suggestion.item });
+                setPicking(null);
+              }}
+            >
+              <span class="suggest-kicker" aria-hidden="true">Suggestion</span>
+              <span class="grow suggest-text" aria-hidden="true">
+                <strong>{itemName(suggestion.item)}</strong>
+                <span class="small muted"> · {suggestion.why}</span>
+              </span>
+              <Icon name="production" size="sm" />
+            </button>
+          )}
+
+          {current && (
+            <QueueStrip
+              queue={queue}
+              canAct={canAct}
+              adding={picking === 'queue'}
+              turnsOf={(item) => options.find((o) => o.item === item)?.turns ?? null}
+              onChange={sendQueue}
+              onAdd={() => setPicking(picking === 'queue' ? null : 'queue')}
+            />
+          )}
+          {queueError && (
+            <p class="small bad-text" role="alert">
+              The queue was not saved: {queueError}
+            </p>
+          )}
+
+          {(picking !== null || !current) &&
             GROUPS.map((grp) => {
-              const list = options.filter((o) => o.kind === grp.kind);
+              const pool = picking === 'queue' ? queueChoices(options, current, queue) : options;
+              const list = pool.filter((o) => o.kind === grp.kind);
               if (list.length === 0) return null;
               return (
                 <div key={grp.kind}>
-                  <div class="section-title">{grp.title}</div>
+                  <div class="section-title">{picking === 'queue' ? `Then: ${grp.title.toLowerCase()}` : grp.title}</div>
                   {list.map((o) => {
-                    const active = o.item === current;
+                    const active = picking !== 'queue' && o.item === current;
                     return (
                       <div class={`card prod-option${active ? ' active' : ''}`} key={o.item}>
                         <button
                           class="prod-main"
                           disabled={!canAct}
-                          aria-pressed={active}
+                          aria-pressed={picking === 'queue' ? undefined : active}
+                          aria-label={picking === 'queue' ? `Then build ${itemName(o.item)}` : undefined}
                           onClick={() => {
+                            if (picking === 'queue') {
+                              sendQueue(queueAdd(queue, o.item));
+                              setPicking(null);
+                              return;
+                            }
                             dispatch({ type: 'setProduction', settlement: s.id, item: o.item });
-                            setPicking(false);
+                            setPicking(null);
                           }}
                         >
                           <span class="row">
@@ -213,7 +274,7 @@ export function CitySheet({ settlement }: { settlement: string }) {
                             <GlossText text={itemDescription(o)} />
                           </span>
                         </button>
-                        {o.goldCost > 0 && (
+                        {o.goldCost > 0 && picking !== 'queue' && (
                           <button
                             class={`btn buy${armed === o.item ? ' is-armed' : ''}`}
                             disabled={!canAct || gold < o.goldCost}
@@ -274,5 +335,57 @@ export function CitySheet({ settlement }: { settlement: string }) {
         </>
       )}
     </section>
+  );
+}
+
+/**
+ * "Then: …" follow-ons as one compact strip (wave 11: refilling idle cities was the biggest
+ * chore). Each entry can move earlier or be removed; "Add" opens the picker in queue mode.
+ */
+function QueueStrip({
+  queue,
+  canAct,
+  adding,
+  turnsOf,
+  onChange,
+  onAdd,
+}: {
+  queue: readonly string[];
+  canAct: boolean;
+  adding: boolean;
+  turnsOf: (item: string) => number | null;
+  onChange: (items: string[]) => void;
+  onAdd: () => void;
+}) {
+  return (
+    <div class="queue-strip" aria-label="Build queue">
+      <span class="queue-label" aria-hidden="true">
+        Then
+      </span>
+      <ol class="queue-list">
+        {queue.map((item, i) => (
+          <li class="queue-item" key={`${i}:${item}`}>
+            <span class="queue-n tnum" aria-hidden="true">
+              {i + 1}
+            </span>
+            <span class="grow queue-name">
+              {itemName(item)}
+              {turnsOf(item) !== null && <span class="muted tnum"> · {turnsText(turnsOf(item))}</span>}
+            </span>
+            <button class="queue-btn queue-up" disabled={!canAct || i === 0} aria-label={`Build ${itemName(item)} earlier`} onClick={() => onChange(queueMove(queue, i, -1))}>
+              <Icon name="back" size="sm" />
+            </button>
+            <button class="queue-btn" disabled={!canAct} aria-label={`Remove ${itemName(item)} from the queue`} onClick={() => onChange(queueRemove(queue, i))}>
+              <Icon name="close" size="sm" />
+            </button>
+          </li>
+        ))}
+      </ol>
+      {queue.length < MAX_QUEUE && (
+        <button class="btn btn-ghost queue-add" disabled={!canAct} aria-expanded={adding} onClick={onAdd}>
+          <Icon name={adding ? 'close' : 'plus'} size="sm" /> {adding ? 'Cancel' : queue.length === 0 ? 'Then build…' : 'Add another'}
+        </button>
+      )}
+    </div>
   );
 }

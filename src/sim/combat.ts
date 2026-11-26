@@ -150,18 +150,26 @@ export const defenseBreakdown = (state: GameState, u: Unit, attackerClass: UnitC
   f.push(...bonusFactors(state, u, attackerClass, content), woundFactor(u));
   const t = tileAt(state.map, u.at);
   const home = t?.settlement ? state.settlements[t.settlement] : undefined;
-  if (home && home.owner === u.owner && home.hp > 0) f.push({ label: 'Behind walls', value: GARRISON_BONUS });
+  if (home && home.owner === u.owner && home.hp > 0) {
+    f.push({ label: 'Behind walls', value: GARRISON_BONUS });
+    // Wave 11 ("a prepared defender needs a fair chance"): built walls shelter the garrison
+    // too, with the same bonus they give the settlement's own defense, while they stand.
+    f.push({ label: 'Wall buildings', value: wallBonus(home) });
+  }
   return breakdown(def.strength, f);
 };
 
 export const defenseStrength = (state: GameState, u: Unit, attackerClass: UnitClass, content: ContentBundle): number =>
   defenseBreakdown(state, u, attackerClass, content).total;
 
+/** Strength that wall buildings (HP above the base walls) add, to the settlement and its garrison. */
+const wallBonus = (s: Settlement): number => Math.floor(Math.max(0, s.maxHp - WALL_BASE_HP) / SETTLEMENT_STRENGTH_WALL_DIVISOR);
+
 /** A settlement's own defense: scales with age and population, plus wall buildings and terrain. */
 export const settlementBreakdown = (state: GameState, s: Settlement, content: ContentBundle): StrengthBreakdown =>
   breakdown(SETTLEMENT_STRENGTH_BY_AGE[state.age], [
     { label: 'Population', value: SETTLEMENT_STRENGTH_PER_POP * s.population },
-    { label: 'Wall buildings', value: Math.floor(Math.max(0, s.maxHp - WALL_BASE_HP) / SETTLEMENT_STRENGTH_WALL_DIVISOR) },
+    { label: 'Wall buildings', value: wallBonus(s) },
     ...tileFactors(state, s.at, content),
   ]);
 
@@ -257,6 +265,7 @@ export const captureSettlement = (ctx: SimCtx, s: Settlement, to: PlayerId, atta
   s.owner = to;
   s.population = Math.max(1, s.population - 1);
   s.production = { item: null, progress: 0 };
+  delete s.queue; // the old owner's plans leave with them
   s.siegeTurns = 0;
   s.isCapital = !playerSettlements(state, to).some((o) => o.isCapital && o.id !== s.id);
   if (s.isCapital) s.kind = 'city';
@@ -359,6 +368,7 @@ export const resolveAttack = (ctx: SimCtx, u: Unit, target: Hex, plan: AttackPla
   let attackerDied = false;
   let defenderDied = false;
   let defenderOwner: PlayerId;
+  let capturedUnitDef: string | undefined;
 
   if (defender) {
     defenderOwner = defender.owner;
@@ -405,8 +415,10 @@ export const resolveAttack = (ctx: SimCtx, u: Unit, target: Hex, plan: AttackPla
       captureSettlement(ctx, settlement, u.owner, u);
     }
   } else {
-    // Only civilians: they are lost and the attacker moves in.
+    // Only civilians: they are lost and the attacker moves in. The event names what was
+    // seized, so it does not read like a blow against walls (wave 11: `defender` is null both ways).
     defenderOwner = civilians[0]?.owner ?? '';
+    capturedUnitDef = civilians[0]?.type;
     defenderDied = true;
     recordWin(state, u.owner);
     for (const c of civilians) killUnit(ctx, c.id, u.owner);
@@ -419,6 +431,7 @@ export const resolveAttack = (ctx: SimCtx, u: Unit, target: Hex, plan: AttackPla
     attackerOwner: u.owner,
     defenderOwner,
     defender: defender?.id ?? null,
+    ...(capturedUnitDef !== undefined ? { capturedUnitDef } : {}),
     at: { q: target.q, r: target.r },
     damageToAttacker: dmgToA,
     damageToDefender: dmgToD,

@@ -105,7 +105,7 @@ describe('age-opening offer (the promise kept)', () => {
       const f = content.figures.find((x) => x.id === id)!;
       expect(f.culture).toBe(dormant);
       expect(f.age).toBe('classical');
-      expect(offer!.reasons[id]).toMatch(/^come at last, drawn by the old tales of /);
+      expect(offer!.reasons[id]).toMatch(/^arriving at last, drawn by the old tales of /);
       expect(offer!.reasons[id]).not.toMatch(/\d/);
     }
   });

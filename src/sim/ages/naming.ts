@@ -47,13 +47,24 @@ export const nameOptions = (state: GameState, player: PlayerId, content: Content
   pool.push(`the First ${dream}`, `the Great ${dream}`);
 
   const out: string[] = [];
+  const keys = new Set<string>();
   for (const name of pool) {
     const n = name.slice(0, CIV_NAME_MAX).trim();
-    if (!out.includes(n)) out.push(n);
+    const key = nameKey(n);
+    if (!keys.has(key)) {
+      keys.add(key);
+      out.push(n);
+    }
     if (out.length === NAME_OPTION_COUNT) break;
   }
   return out;
 };
+
+/**
+ * Two suggestions are the same name when they differ only by a leading article or case
+ * (wave 11: "the Iberian Tiānxià" and "Iberian Tiānxià" were offered side by side).
+ */
+export const nameKey = (name: string): string => name.trim().replace(/^the\s+/i, '').toLowerCase();
 
 /** Set the civ name (trimmed, 1–40 chars). Shared by `nameCiv` and the finishTransition auto-fill. */
 export const setCivName = (ctx: SimCtx, player: PlayerId, raw: string): string | null => {

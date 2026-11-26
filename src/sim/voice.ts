@@ -12,6 +12,7 @@
 import type { ContentBundle } from '@contracts/content-schemas';
 import { hexNeighbors } from '@contracts/hex';
 import type { GameState, PlayerId, Settlement } from '@contracts/sim-api';
+import { WAR_WARNING_SOURCE, WAR_WARNING_TURNS } from './constants';
 import type { SimCtx } from './ctx';
 import { capitalOf, tileAt, tileIndex } from './lookup';
 import { visibleTileSet } from './units';
@@ -121,6 +122,23 @@ export const hasHuman = (state: GameState): boolean => state.playerOrder.some((i
 const isAi = (state: GameState, id: PlayerId): boolean => state.players[id]?.alive === true && state.players[id]?.isHuman === false;
 const isHuman = (state: GameState, id: PlayerId): boolean => state.players[id]?.alive === true && state.players[id]?.isHuman === true;
 
+/**
+ * A warning was spoken: `ai` will not declare war on `human` for WAR_WARNING_TURNS (by
+ * difficulty), so the warning gives the human time to answer it (walls, a garrison, a deal).
+ */
+const holdWar = (state: GameState, ai: PlayerId, human: PlayerId): void => {
+  const p = state.players[ai];
+  if (!p) return;
+  const source = WAR_WARNING_SOURCE + human;
+  const until = state.turn + (WAR_WARNING_TURNS[state.difficulty] ?? WAR_WARNING_TURNS.normal);
+  p.effects = p.effects.filter((e) => e.source !== source);
+  p.effects.push({ source, untilTurn: until, modifiers: [] });
+};
+
+/** True while `ai` is still holding back after warning `human` (see `holdWar`). */
+export const warHeldBack = (state: GameState, ai: PlayerId, human: PlayerId): boolean =>
+  state.players[ai]?.effects.some((e) => e.source === WAR_WARNING_SOURCE + human && e.untilTurn >= state.turn) === true;
+
 /** Send a message from an AI civ to a human player (no-op for any other pair). */
 export const speak = (
   ctx: SimCtx,
@@ -130,7 +148,10 @@ export const speak = (
   vars: { f?: string; w?: string; c?: string } = {},
 ): void => {
   if (!isAi(ctx.state, speaker) || !isHuman(ctx.state, listener)) return;
-  ctx.events.push({ type: 'notice', player: listener, text: voiceText(ctx.state, speaker, occasion, ctx.content, vars) });
+  if (occasion === 'contact' || occasion === 'borders') holdWar(ctx.state, speaker, listener);
+  const text = voiceText(ctx.state, speaker, occasion, ctx.content, vars);
+  // First contact is the one voiced occasion the UI ranks on its own ('firstContact').
+  ctx.events.push(occasion === 'contact' ? { type: 'notice', player: listener, kind: 'firstContact', text } : { type: 'notice', player: listener, text });
 };
 
 /**

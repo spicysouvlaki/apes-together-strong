@@ -163,10 +163,21 @@ export const FREE_MILITARY_UNITS = 2;
  */
 export const LOOKOUT_VISION = 2;
 export const DISBAND_REFUND_SHARE = 0.25;
-/** Gold raiders carry off when they pillage a settlement (src/sim/raids.ts). */
-export const RAIDER_PILLAGE_GOLD = 25;
+/**
+ * Gold raiders carry off when they pillage a settlement (src/sim/raids.ts): this share of the
+ * treasury, at most RAIDER_PILLAGE_GOLD_CAP. Wave 11: a flat 25 per raider, with a band of
+ * raiders each pillaging the same town in one world phase, emptied a 51-gold treasury; now a
+ * settlement is pillaged at most once per turn and never loses more than this share.
+ */
+export const RAIDER_PILLAGE_GOLD_SHARE = 0.25;
+export const RAIDER_PILLAGE_GOLD_CAP = 25;
 /** Raiders go for an undefended settlement within this distance before anything else. */
 export const RAIDER_SEEK_RANGE = 8;
+
+/** Items a city may queue after its current one (wave 11, `setProductionQueue`). */
+export const PRODUCTION_QUEUE_MAX = 3;
+/** `TimedEffect.source` prefix: this settlement may finish a past age's wonder it had begun. */
+export const WONDER_CARRY_SOURCE = 'wonderCarry:';
 
 // --- Trees and government (GDD §7 "Trees", "Governments") --------------------
 
@@ -268,5 +279,13 @@ export const DIFFICULTY_YIELDS: readonly YieldType[] = ['food', 'production', 'g
 export const DIFFICULTY_RIVAL_YIELD_PERCENT: Record<Difficulty, number> = { easy: -5, normal: 0, hard: 6 };
 /** Percent change to unit and building costs for non-human players. */
 export const DIFFICULTY_RIVAL_COST_PERCENT: Record<Difficulty, number> = { easy: 0, normal: 0, hard: -5 };
+/**
+ * Turns an AI waits after warning a human player — first contact or "our borders touch" —
+ * before it may declare war on them (wave 11: a Conqueror declared one turn after its border
+ * warning). Recorded by src/sim/voice.ts as a modifier-free `WAR_WARNING_SOURCE` effect on
+ * the AI; read by src/ai/war.ts.
+ */
+export const WAR_WARNING_TURNS: Record<Difficulty, number> = { easy: 10, normal: 6, hard: 3 };
+export const WAR_WARNING_SOURCE = 'warnedOf:';
 /** Happiness each human-owned settlement adds. */
 export const DIFFICULTY_HUMAN_SETTLEMENT_HAPPINESS: Record<Difficulty, number> = { easy: 1, normal: 0, hard: 0 };

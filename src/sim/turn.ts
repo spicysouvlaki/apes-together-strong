@@ -72,6 +72,7 @@ export const desertForUpkeep = (ctx: SimCtx, player: PlayerId): void => {
   ctx.events.push({
     type: 'notice',
     player,
+    kind: 'treasury',
     text: `${name}${where ? ` in ${where}` : ''} deserted: the treasury is empty and the soldiers went unpaid. Disband units or raise more gold.`,
   });
 };
@@ -104,6 +105,7 @@ export const treasuryNotices = (ctx: SimCtx, player: PlayerId, before: { stock: 
     ctx.events.push({
       type: 'notice',
       player,
+      kind: 'treasury',
       text:
         militaryUpkeep(state, player) > 0
           ? `Your treasury is shrinking: ${soldiers} soldiers cost more than your towns earn.`
@@ -116,6 +118,7 @@ export const treasuryNotices = (ctx: SimCtx, player: PlayerId, before: { stock: 
     ctx.events.push({
       type: 'notice',
       player,
+      kind: 'treasury',
       text: `The treasury will be empty in ${turns === 1 ? 'one turn' : `${turns} turns`}; then unpaid soldiers start to desert.`,
     });
   }

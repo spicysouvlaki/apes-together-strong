@@ -117,7 +117,7 @@ describe('messages', () => {
     const scout = addUnit(state, 'p1', 'scout', at(8, 6), content);
     const r = applyCommand(state, 'p1', { type: 'moveUnit', unit: scout.id, to: at(10, 6) }, content);
     if (!r.ok) throw new Error(r.error);
-    expect(r.events.filter((e) => e.type === 'notice')).toEqual([{ type: 'notice', player: 'p1', text: `The Conqueror of Avarga: “${VOICE.contact.aggressor}”` }]);
+    expect(r.events.filter((e) => e.type === 'notice')).toEqual([{ type: 'notice', player: 'p1', kind: 'firstContact', text: `The Conqueror of Avarga: “${VOICE.contact.aggressor}”` }]);
     const s2 = r.state.units[scout.id]!;
     s2.movesLeft = 3;
     const again = applyCommand(r.state, 'p1', { type: 'moveUnit', unit: scout.id, to: at(9, 7) }, content);

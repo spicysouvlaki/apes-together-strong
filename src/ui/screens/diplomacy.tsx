@@ -28,6 +28,7 @@ import type { ScreenProps } from './index';
 import { ConfirmSheet, CultureChip, Empty, Screen, Section } from './shared/components';
 import { capitalize, describeModifiers } from './shared/describe';
 import { figureCountsByCulture } from './shared/figures';
+import { envoyNeedsConfirm, INFLUENCE_WARNING } from './shared/envoy';
 
 export const DiplomacyScreen = (_: ScreenProps<'diplomacy'>) => {
   const [confirmWar, setConfirmWar] = useState<PlayerId | null>(null);
@@ -44,6 +45,7 @@ export const DiplomacyScreen = (_: ScreenProps<'diplomacy'>) => {
   const influence = Math.floor(p.stock.influence);
   const rivals = g.playerOrder.filter((id) => id !== player).map((id) => g.players[id]).filter((x) => !!x);
   const err = acted ? lastError.value : null;
+  const atWarAny = rivals.some((r) => r.alive && g.wars[warKey(player, r.id)] !== undefined);
 
   const act = (key: string, cmd: Parameters<typeof dispatch>[0]) => {
     setActed(key);
@@ -164,14 +166,23 @@ export const DiplomacyScreen = (_: ScreenProps<'diplomacy'>) => {
                       </p>
                       <div class="scr-actions">
                         <button
-                          class="btn"
+                          class="btn btn-primary"
                           disabled={!turn || influence < cost}
-                          onClick={() => setConfirmEnvoy(cs.id)}
-                          aria-label={`Send an envoy to ${def.name} for ${cost} influence`}
+                          onClick={() =>
+                            // One tap spends it (the price is on the button); ask only when it would
+                            // leave too little influence to buy peace in a war (wave 11).
+                            envoyNeedsConfirm(influence, cost, atWarAny) ? setConfirmEnvoy(cs.id) : act(`envoy:${cs.id}`, { type: 'sendEnvoy', cityState: cs.id })
+                          }
+                          aria-label={`Send an envoy to ${def.name} now for ${cost} influence`}
                         >
                           <Icon name="envoy" /> Send envoy <Cost n={cost} />
                         </button>
                       </div>
+                      {acted === `envoy:${cs.id}` && !err && (
+                        <p class="small scr-good" role="status">
+                          Envoy sent. You have {mine} {mine === 1 ? 'envoy' : 'envoys'} in {def.name}.
+                        </p>
+                      )}
                       {influence < cost && turn && (
                         <p class="small muted">
                           Needs {cost} influence; you have {influence}
@@ -232,6 +243,9 @@ export const DiplomacyScreen = (_: ScreenProps<'diplomacy'>) => {
                   : left <= 0
                     ? ` and become its suzerain: ${describeModifiers(def.suzerainModifiers, lookup).join('; ')}.`
                     : `; ${left} more to become suzerain.`}
+              </p>
+              <p class="small scr-bad">
+                You are at war: this leaves {Math.max(0, influence - cost)} influence, under the {INFLUENCE_WARNING} that peace costs.
               </p>
               <p class="small muted">Each envoy to the same city-state costs more than the last.</p>
             </ConfirmSheet>

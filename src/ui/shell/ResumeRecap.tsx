@@ -8,6 +8,7 @@ import { buildPeople } from '../screens/shared/people';
 import { PlayerBanner } from '../art/game-art';
 import { Icon } from '../art/Icon';
 import { recapLines, resumeRecap } from './resume-recap';
+import { AutoFocusButton } from './AutoFocusButton';
 
 const AGE_NAME: Record<string, string> = { ancient: 'Ancient', classical: 'Classical', exploration: 'Exploration', modern: 'Modern' };
 
@@ -49,14 +50,14 @@ export function ResumeRecap() {
           <ul class="recap-lines">
             {lines.map((l) => (
               <li key={`${l.turn}:${l.text}`}>
-                <span class="recap-turn tnum">T{l.turn}</span> {l.text}
+                <span class="recap-turn tnum" aria-label={`Turn ${l.turn}:`}>T{l.turn}</span> {l.text}
               </li>
             ))}
           </ul>
         )}
-        <button class="btn btn-primary recap-go" onClick={close}>
+        <AutoFocusButton class="btn btn-primary recap-go" onClick={close}>
           <Icon name="play" /> Back to it
-        </button>
+        </AutoFocusButton>
       </section>
     </div>
   );

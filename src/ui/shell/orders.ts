@@ -13,7 +13,11 @@ import { compareIds, tileIndexOf } from './hexutil';
  * `recall`: a figure walking home; once it stands in the settlement the runner recalls it
  * (Recall only works inside an own settlement, so "walk back" is one tap, not two).
  */
-export type StandingOrder = { kind: 'goto'; to: Hex; recall?: true } | { kind: 'explore' };
+/**
+ * `trade`: a merchant sent to a trade partner with one "Send" (wave 11); the runner opens the
+ * route as soon as the partner is in reach.
+ */
+export type StandingOrder = { kind: 'goto'; to: Hex; recall?: true; trade?: string } | { kind: 'explore' };
 export type Orders = Readonly<Record<UnitId, StandingOrder>>;
 
 export interface OrderDeps {
@@ -232,7 +236,10 @@ const parseOrderMap = (raw: unknown): Record<UnitId, StandingOrder> => {
     if (ord?.kind === 'explore') out[id] = { kind: 'explore' };
     else if (ord?.kind === 'goto' && isHex(ord.to)) {
       const to = { q: ord.to.q, r: ord.to.r };
-      out[id] = (ord as { recall?: unknown }).recall === true ? { kind: 'goto', to, recall: true } : { kind: 'goto', to };
+      const trade = (ord as { trade?: unknown }).trade;
+      const g: StandingOrder = (ord as { recall?: unknown }).recall === true ? { kind: 'goto', to, recall: true } : { kind: 'goto', to };
+      if (typeof trade === 'string' && trade) g.trade = trade;
+      out[id] = g;
     }
   }
   return out;
@@ -257,6 +264,15 @@ export const storeOrders = (raw: unknown, seed: number, orders: Readonly<Record<
   return { games };
 };
 
-/** A unit type that may explore on its own: the scout, or a civilian with long sight. */
+/**
+ * A unit type that may explore on its own: the scout, a civilian with long sight, or a land
+ * soldier (wave 11 playtest: an early warrior sent to scout far away had to be re-ordered every
+ * two turns; exploring stops by itself when an enemy comes near). Never founders, traders, ships.
+ */
 export const canExplore = (def: { id: string; unitClass: string; vision?: number; canFound?: boolean; canTrade?: boolean } | undefined): boolean =>
-  !!def && (def.id === 'scout' || (def.unitClass === 'civilian' && (def.vision ?? 0) >= 3 && !def.canFound));
+  !!def &&
+  !def.canFound &&
+  !def.canTrade &&
+  (def.id === 'scout' || (def.unitClass === 'civilian' && (def.vision ?? 0) >= 3) || MILITARY_EXPLORERS.has(def.unitClass));
+
+const MILITARY_EXPLORERS: ReadonlySet<string> = new Set(['infantry', 'ranged', 'cavalry']);

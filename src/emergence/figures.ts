@@ -20,7 +20,7 @@ import { speak } from '../sim/voice';
 import { cultureWeights } from './queries';
 import { baseAtHome, slotAccepts, slotIdOfKey, vacateSeat } from './cabinet';
 import * as K from './constants';
-import { dropOffer, markPassedOver } from './offers';
+import { dropOffer, markPassedOver, refillOrWithdraw } from './offers';
 import { figureDef, getPlayer, homeSettlement, ownSettlementAt, ownSettlements, tileIndex } from './util';
 
 type FigureCommand = Extract<
@@ -338,7 +338,7 @@ const recruit = (ctx: SimCtx, player: PlayerId, offer: Offer, figureId: FigureId
     ctx.events.push({ type: 'figureJoinedRival', figure: figureId, player: other.player, rival: player });
     // Sparse: a rival only remarks on a figure of the culture it holds dearest (its heaviest).
     if (heaviestCultureOf(state, other.player, content) === def.culture) speak(ctx, other.player, player, 'figureWanted', { f: def.name });
-    if (other.candidates.length === 0) dropOffer(state, other.id, true);
+    if (other.candidates.length === 0) refillOrWithdraw(ctx, other);
   }
 };
 

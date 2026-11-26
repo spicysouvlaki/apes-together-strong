@@ -1,7 +1,7 @@
 /** Great-people points, offers, legends, deeds (GDD §4). */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ContentBundle } from '@contracts/content-schemas';
-import type { GameState } from '@contracts/sim-api';
+import type { GameState, Offer } from '@contracts/sim-api';
 import { loadContent } from '../src/content';
 import { emergenceTick, handleFigureCommand } from '../src/emergence';
 import * as K from '../src/emergence/constants';
@@ -289,21 +289,54 @@ describe('choosing offers', () => {
     expect(state.offers).toHaveLength(0);
   });
 
-  it('a figure recruited by one player leaves rivals’ offers ("joined a rival"); empty offers refund', () => {
+  it('invitations are exclusive: a figure in one court’s open offer is not drawn for another', () => {
     const state = world();
     const o1 = offerFor(state, 'p1', 'military');
-    const o2 = offerFor(state, 'p2', 'military');
-    // Force both offers to share figures (pool of 3 generals, 3 candidates each).
-    expect(o1.candidates.slice().sort()).toEqual(o2.candidates.slice().sort());
-    o2.candidates = [o1.candidates[0] as string];
-    const fig = o2.candidates[0] as string;
+    // The pool has 3 generals and p1's offer holds all of them, so p2 gets no military offer.
+    expect(o1.candidates).toHaveLength(3);
+    expect(() => offerFor(state, 'p2', 'military')).toThrow('no offer');
+  });
+
+  /** A rival offer sharing `fig` with p1's (only possible in saves from before exclusivity). */
+  const sharedOffer = (state: GameState, o1: Offer, fig: string): Offer => {
+    const o2: Offer = { ...o1, id: 'o_rival', player: 'p2', candidates: [fig], reasons: { [fig]: 'drawn by x' } };
+    state.offers.push(o2);
+    return o2;
+  };
+
+  it('a figure recruited by one player leaves rivals’ offers ("joined a rival"); an emptied offer is refilled', () => {
+    const state = world();
+    const o1 = offerFor(state, 'p1', 'military');
+    const fig = o1.candidates[0] as string;
+    const o2 = sharedOffer(state, o1, fig);
+    const before = state.players.p2!.gp.military;
+    const ctx = makeCtx(state, content);
+    expect(handleFigureCommand(ctx, 'p1', { type: 'chooseOffer', offer: o1.id, figure: fig })).toBeNull();
+    expect(ctx.events).toContainEqual({ type: 'figureJoinedRival', figure: fig, player: 'p2', rival: 'p1' });
+    // The two generals p1 passed over are free again: p2's offer is refilled with them.
+    const left = state.offers.find((o) => o.id === o2.id);
+    expect(left?.candidates.slice().sort()).toEqual(o1.candidates.filter((c) => c !== fig).sort());
+    for (const c of left?.candidates ?? []) expect(left?.reasons[c]).toBeTruthy();
+    expect(state.players.p2!.gp.military).toBe(before);
+    expect(ctx.events.some((e) => e.type === 'notice' && e.kind === 'offerWithdrawn')).toBe(false);
+  });
+
+  it('an emptied offer with nothing left to draw is withdrawn, refunded and announced', () => {
+    const state = world();
+    const o1 = offerFor(state, 'p1', 'military');
+    const fig = o1.candidates[0] as string;
+    const o2 = sharedOffer(state, o1, fig);
+    // Every other general is already taken.
+    for (const c of o1.candidates.slice(1)) {
+      state.figures[c] = { id: c, owner: 'p1', recruitedTurn: 1, recruitedAge: 'ancient', reason: '', activated: false, location: { state: 'based', settlement: 'cap1' } };
+    }
     const p2 = state.players.p2!;
     const before = p2.gp.military;
     const ctx = makeCtx(state, content);
     expect(handleFigureCommand(ctx, 'p1', { type: 'chooseOffer', offer: o1.id, figure: fig })).toBeNull();
-    expect(ctx.events).toContainEqual({ type: 'figureJoinedRival', figure: fig, player: 'p2', rival: 'p1' });
     expect(state.offers.find((o) => o.id === o2.id)).toBeUndefined();
     expect(p2.gp.military).toBeCloseTo(before + p2.gpThreshold.military / K.GP_THRESHOLD_GROWTH, 10);
+    expect(ctx.events.filter((e) => e.type === 'notice' && e.kind === 'offerWithdrawn' && e.player === 'p2')).toHaveLength(1);
   });
 
   it('a rival’s figure still left in an offer cannot be accepted', () => {

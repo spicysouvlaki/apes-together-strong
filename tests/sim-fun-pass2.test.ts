@@ -10,7 +10,7 @@ import { RAIDER_PLAYER, type GameSetup, type Tile } from '@contracts/sim-api';
 import { loadContent } from '../src/content';
 import { figureActions } from '../src/emergence';
 import { sim } from '../src/sim';
-import { RAIDER_PILLAGE_GOLD } from '../src/sim/constants';
+import { RAIDER_PILLAGE_GOLD_CAP } from '../src/sim/constants';
 import { closeRoutesOverCapacity } from '../src/sim/diplomacy';
 import { generateMap } from '../src/sim/mapgen';
 import { isUndefended, pillage, pillageTarget } from '../src/sim/raids';
@@ -42,12 +42,13 @@ describe('crisis raiders (src/sim/raids.ts)', () => {
     expect(town.population).toBe(2);
     expect(town.foodStored).toBe(0);
     expect(town.production.progress).toBe(0);
-    expect(state.players.p1!.stock.gold).toBe(100 - RAIDER_PILLAGE_GOLD);
+    expect(state.players.p1!.stock.gold).toBe(100 - RAIDER_PILLAGE_GOLD_CAP); // 25% of 100, at the cap
     expect(state.units[r1.id]).toBeUndefined(); // they scatter with the loot
     const notice = ctx.events.find((e) => e.type === 'notice');
     expect(notice?.type === 'notice' && notice.text).toMatch(/^Raiders pillaged .*garrison or walls/);
     expect(notice?.type === 'notice' && notice.text).not.toMatch(/\d/);
-    // A second raid in the same crisis takes stores again but no more people.
+    // A second raid in the same crisis (on a later turn) takes stores again but no more people.
+    state.turn++;
     town.foodStored = 5;
     const r2 = addUnit(state, RAIDER_PLAYER, 'warrior', at(6, 5), content);
     pillage(ctx, r2, town);

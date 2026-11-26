@@ -222,10 +222,13 @@ describe('standing orders', () => {
 });
 
 describe('explore automation', () => {
-  it('only scout-like units explore', () => {
+  it('scouts and land soldiers explore; founders, traders and ships do not (wave 11)', () => {
     expect(canExplore(content.units.find((u) => u.id === 'scout'))).toBe(true);
     expect(canExplore(content.units.find((u) => u.id === 'settler'))).toBe(false);
-    expect(canExplore(content.units.find((u) => u.id === 'warrior_band'))).toBe(false);
+    expect(canExplore(content.units.find((u) => u.id === 'merchant'))).toBe(false);
+    expect(canExplore(content.units.find((u) => u.id === 'warrior_band'))).toBe(true);
+    expect(canExplore(content.units.find((u) => u.id === 'war_canoe'))).toBe(false);
+    expect(canExplore(content.units.find((u) => u.id === 'ram'))).toBe(false);
   });
 
   it('heads for the nearest explored land touching the unknown, and reveals new tiles', () => {

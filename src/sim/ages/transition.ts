@@ -10,6 +10,8 @@ import type { Age } from '@contracts/content-schemas';
 import type { PlayerId, TransitionRecap } from '@contracts/sim-api';
 import { onAgeStarted, retireFigures, syncCabinet } from '../../emergence';
 import type { SimCtx } from '../ctx';
+import { disperseRaiders } from '../raids';
+import { carryWonders } from '../settlements';
 import {
   CATCH_UP_RP,
   RP_CARRY_FRACTION,
@@ -47,6 +49,9 @@ export const beginTransition = (ctx: SimCtx): void => {
     p.crisisChoices = [];
     p.effects = p.effects.filter((e) => e.untilTurn !== -1);
   }
+  // The crisis is over, so are its raiders; wonders begun in the old age may be finished.
+  disperseRaiders(ctx);
+  carryWonders(ctx, from);
   // Scores before figures retire (seated figures still count), for the catch-up test.
   for (const p of living) p.score = score(state, p.id, content);
   const med = median(living.map((p) => p.score));

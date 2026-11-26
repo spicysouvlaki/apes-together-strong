@@ -18,6 +18,11 @@ export interface ToastSpec {
   threat?: boolean;
   /** A culture whisper (GDD §4 "hidden affinity"): "Your people" lists these as the voices that reached you. */
   whisper?: boolean;
+  /**
+   * Never folded under "+N more updates" (wave 11: a raider warning and a lost wonder race hid
+   * there). Ranked with the rest, but always shown.
+   */
+  keep?: boolean;
 }
 
 export interface EventNames {
@@ -41,6 +46,12 @@ export interface EventNames {
    * reported as "our walls were breached").
    */
   unitAt?(hex: Hex, owner: PlayerId): string | null;
+  /** Name of `owner`'s settlement nearest to a hex ("captured near Gadir"). */
+  nearestSettlement?(hex: Hex, owner: PlayerId): string | null;
+  /** Item a settlement is producing in this snapshot (a queued follow-on that just started). */
+  producing?(settlement: string): string | null;
+  /** Why a new settlement has its name ("Named in the Iberian fashion, your strongest strand."). */
+  namingLine?(settlement: string): string | null;
 }
 
 /** "Raiders’ warrior", "Rome’s warrior". */
@@ -49,6 +60,16 @@ export const possessive = (name: string): string => (/s$/i.test(name) ? `${name}
 /** Combat seen by the human: what happened to our unit (or walls), in plain words. */
 const combatToast = (ev: Extract<SimEvent, { type: 'combat' }>, me: PlayerId, n: EventNames): ToastSpec | null => {
   const unitName = (id: string | null): string => (id ? (n.unit?.(id) ?? 'unit') : 'walls');
+  if (ev.capturedUnitDef && !ev.defender) {
+    // A civilian seized without a fight (wave 11: say what and where, from the event itself).
+    const what = n.item(ev.capturedUnitDef);
+    if (ev.defenderOwner === me) {
+      const near = n.nearestSettlement?.(ev.at, me) ?? null;
+      return { text: `${n.owner(ev.attackerOwner)} captured our ${what}${near ? ` near ${near}` : ''}.`, tone: 'bad', action: null, at: ev.at };
+    }
+    if (ev.attackerOwner === me) return { text: `We captured ${possessive(n.owner(ev.defenderOwner))} ${what}.`, tone: 'good', action: null, at: ev.at };
+    return null;
+  }
   if (ev.attackerOwner === me) {
     const target = `${possessive(n.owner(ev.defenderOwner))} ${ev.defender ? unitName(ev.defender) : 'walls'}`;
     const plural = !ev.defender; // "walls"
@@ -155,8 +176,10 @@ const eventToToastRaw = (ev: SimEvent, me: PlayerId, n: EventNames): ToastSpec |
     case 'productionCompleted': {
       if (ev.player !== me) return null;
       const s = n.settlement(ev.settlement);
+      // A queued follow-on started at once: say so, so the line is not read as "pick something".
+      const next = n.producing?.(ev.settlement) ?? null;
       return {
-        text: `${s?.name ?? 'A city'} finished ${n.item(ev.item)}.`,
+        text: next ? `${s?.name ?? 'A city'} finished ${n.item(ev.item)}; now building ${n.item(next)}.` : `${s?.name ?? 'A city'} finished ${n.item(ev.item)}.`,
         tone: 'good',
         action: { kind: 'city', settlement: ev.settlement },
       };
@@ -169,8 +192,15 @@ const eventToToastRaw = (ev: SimEvent, me: PlayerId, n: EventNames): ToastSpec |
       const s = n.settlement(ev.settlement);
       return s && s.owner === me ? withAt({ text: `${s.name} grew to ${ev.population}.`, tone: 'info', action: null }, s.at) : null;
     }
-    case 'settlementFounded':
-      return null; // the founder saw it happen; rivals' foundings are not news
+    case 'settlementFounded': {
+      // The founder saw it happen and rivals' foundings are not news, but the name needs its why
+      // (wave 11: "Gadir" came from the heaviest culture with no word of explanation).
+      if (ev.player !== me) return null;
+      const st = n.settlement(ev.settlement);
+      const why = n.namingLine?.(ev.settlement) ?? null;
+      if (!st || !why) return null;
+      return withAt({ text: `${st.name} was founded. ${why}`, tone: 'culture', action: { kind: 'city', settlement: ev.settlement } }, st.at);
+    }
     case 'settlementCaptured': {
       const st = n.settlement(ev.settlement);
       const name = st?.name ?? 'A settlement';
@@ -203,7 +233,7 @@ const eventToToastRaw = (ev: SimEvent, me: PlayerId, n: EventNames): ToastSpec |
         ? { text: 'Our people have been conquered.', tone: 'bad', action: null }
         : { text: `${n.owner(ev.player)} has fallen.`, tone: 'info', action: null };
     case 'notice':
-      return ev.player === null || ev.player === me ? { text: ev.text, tone: noticeTone(ev.text), action: null } : null;
+      return ev.player === null || ev.player === me ? noticeToast(ev, n) : null;
     case 'tradeRouteOpened': {
       if (ev.player !== me) return null;
       const to = n.settlement(ev.to);
@@ -233,6 +263,48 @@ export const milestoneSentence = (desc: string): string => {
   if (!m || !m[1] || !m[2]) return `Milestone reached: ${desc.replace(/\.$/, '')}.`;
   const label = m[1].charAt(0).toLowerCase() + m[1].slice(1);
   return `Milestone reached: ${m[2]} ${label}.`;
+};
+
+/**
+ * A notice, by its machine-readable `kind` when the sim gives one (wave 11 contract), else by
+ * the old wording match. Pillage names the town and the gold lost; raider warnings and a lost
+ * wonder race are always shown; first contact opens Nations.
+ */
+export const noticeToast = (ev: Extract<SimEvent, { type: 'notice' }>, n: EventNames): ToastSpec => {
+  const st = ev.settlement ? n.settlement(ev.settlement) : null;
+  const city = (t: ToastSpec): ToastSpec => withAt(t, st?.at);
+  switch (ev.kind) {
+    case 'pillaged': {
+      const where = st?.name ?? null;
+      const gold = ev.amount !== undefined && ev.amount > 0 ? Math.round(ev.amount) : null;
+      // The sim's sentence wins when it already names both; otherwise say them ourselves.
+      const says = (!where || ev.text.includes(where)) && (gold === null || ev.text.includes(`${gold} gold`));
+      const text = says
+        ? ev.text
+        : `Raiders pillaged ${where ?? 'one of our towns'}${gold !== null ? ` and carried off ${gold} gold` : ''}. A garrison or walls would keep them out.`;
+      return city({ text, tone: 'bad', action: null, keep: true });
+    }
+    case 'raiderWarning':
+      return city({ text: ev.text, tone: 'bad', action: null, keep: true });
+    case 'wonderLost':
+      // Production may come back as progress elsewhere; the city needs a new pick, so open it.
+      return city({ text: ev.text, tone: 'bad', action: ev.settlement ? { kind: 'city', settlement: ev.settlement } : null, keep: true });
+    case 'wonderCarried':
+      return city({ text: ev.text, tone: 'good', action: ev.settlement ? { kind: 'city', settlement: ev.settlement } : null });
+    case 'treasury':
+      return { text: ev.text, tone: 'bad', action: null, keep: true };
+    case 'firstContact':
+      return { text: ev.text, tone: 'culture', action: { kind: 'diplomacy' }, keep: true };
+    case 'queueSkipped':
+      return city({ text: ev.text, tone: 'info', action: ev.settlement ? { kind: 'city', settlement: ev.settlement } : null });
+    case 'offerWithdrawn':
+      return { text: ev.text, tone: 'info', action: null };
+    default: {
+      // No kind (older sim) or 'other': the wording fallback.
+      const tone = noticeTone(ev.text);
+      return { text: ev.text, tone, action: null, ...(tone === 'bad' ? { keep: true } : {}) };
+    }
+  }
 };
 
 /**
@@ -331,8 +403,11 @@ export const rankToasts = (specs: readonly ToastSpec[], max: number = MAX_TOASTS
   const threats = sorted.filter((t) => t.threat);
   const news = sorted.filter((t) => !t.threat);
   if (news.length <= max) return [...threats, ...news];
-  const shown = news.slice(0, Math.max(0, max - 1));
+  // Kept news is never folded; it takes slots first, the rest fill what is left.
+  let room = Math.max(0, max - 1 - news.filter((t) => t.keep).length);
+  const shown = news.filter((t) => t.keep || room-- > 0);
   const rest = news.length - shown.length;
+  if (rest === 0) return [...threats, ...shown];
   return [...threats, ...shown, { text: `+${rest} more ${rest === 1 ? 'update' : 'updates'} this turn.`, tone: 'info', action: { kind: 'log' } }];
 };
 

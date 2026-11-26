@@ -1,7 +1,7 @@
 /** The Chronicle (GDD §8): the story of a nation that never existed, age by age. */
 import { useState } from 'preact/hooks';
 import { closeModal, content, game, lookup, me, modal, ownerName, q, route } from '../store';
-import { ageSummary, closingLine, openingLine, type StoryInput } from './shared/chronicle-story';
+import { ageSummary, storyFacts, storyParagraphs, type StoryInput } from './shared/chronicle-story';
 import { weightRows } from './shared/figures';
 import { ShareButtons } from './chronicle-share';
 import type { ScreenProps } from './index';
@@ -26,6 +26,7 @@ export const ChronicleScreen = (_: ScreenProps<'chronicle'>) => {
           .slice(0, 3)
           .map((r) => lookup.cultures[r.culture]?.adjective ?? r.culture),
         named: !!g.players[shown]?.civName,
+        facts: storyFacts(g, shown, content, ownerName),
       }
     : null;
   const ended = g.phase === 'ended';
@@ -94,9 +95,7 @@ export const ChronicleScreen = (_: ScreenProps<'chronicle'>) => {
             <div class="fleuron" aria-hidden="true">
               <Icon name="legend" size="sm" />
             </div>
-            {story && <p class="scr-chron-opening scr-dropcap">{openingLine(story)}</p>}
           </div>
-
           {/* The verdict first: at the end of a game the player opens this to learn who won. */}
           {g.result && (
             <section class={`card scr-result${view.result?.won ? ' won' : ''}`} style={{ margin: '4px 0 16px' }}>
@@ -118,18 +117,21 @@ export const ChronicleScreen = (_: ScreenProps<'chronicle'>) => {
               </ul>
             </section>
           )}
+          {story?.facts && (
+            <div class="scr-chron-story" aria-label="The story">
+              {storyParagraphs(story, story.facts, ended, g.turn).map((para, i) => (
+                <p class={i === 0 ? 'scr-chron-opening scr-dropcap' : 'scr-chron-para'} key={i}>
+                  {para}
+                </p>
+              ))}
+            </div>
+          )}
+
+          {view.ages.length > 0 && <div class="section-title">The books</div>}
           {view.ages.length === 0 && <Empty icon="chronicle">The story has not begun.</Empty>}
           {view.ages.map((a, i) => (
             <AgeSection age={a} n={i} />
           ))}
-          {view.ages.length > 0 && (
-            <>
-              <div class="fleuron" aria-hidden="true">
-                <Icon name="legend" size="sm" />
-              </div>
-              <p class="scr-chron-closing">{closingLine(view, ended, view.ages[view.ages.length - 1]?.age ?? null, g.turn)}</p>
-            </>
-          )}
 
         </>
       )}
@@ -142,7 +144,22 @@ const cap = (s: string): string => (s ? s.charAt(0).toUpperCase() + s.slice(1) :
 
 const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI'];
 
-const AgeSection = ({ age: a, n }: { age: ChronicleAge; n: number }) => (
+/** Figure id -> the earlier figure in this book who came for the very same reason (wave 11: one reason six times). */
+const sameReason = (a: ChronicleAge): Record<string, string> => {
+  const first = new Map<string, string>();
+  const out: Record<string, string> = {};
+  for (const f of a.figures) {
+    const why = f.text.startsWith(f.name) ? f.text.slice(f.name.length) : f.text;
+    const prev = first.get(why);
+    if (prev) out[f.id] = prev;
+    else first.set(why, f.name.replace(/\s*\([^)]*\)\s*$/, ''));
+  }
+  return out;
+};
+
+const AgeSection = ({ age: a, n }: { age: ChronicleAge; n: number }) => {
+  const sameAs = sameReason(a);
+  return (
   <section class="scr-chron-age">
     <div class="scr-chron-book">Book {ROMAN[n] ?? n + 1}</div>
     <h3>The {ageLabel(a.age)} Age</h3>
@@ -178,7 +195,7 @@ const AgeSection = ({ age: a, n }: { age: ChronicleAge; n: number }) => (
                 </div>
               </div>
               <p class="scr-chron-line small">{bioText(f.bio)}</p>
-              <p class="scr-history">{f.text}</p>
+              <p class="scr-history">{sameAs[f.id] ? `Came for the same reason as ${sameAs[f.id]}.` : f.text}</p>
             </li>
           ))}
         </ul>
@@ -246,4 +263,5 @@ const AgeSection = ({ age: a, n }: { age: ChronicleAge; n: number }) => (
       </>
     )}
   </section>
-);
+  );
+};

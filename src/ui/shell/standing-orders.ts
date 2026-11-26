@@ -117,6 +117,20 @@ let queue: UnitId[] = [];
 let awaiting = false;
 /** A figure whose walk home ends with this move: recalled once the move's snapshot arrives. */
 let recallAfter: string | null = null;
+/** A merchant whose move may bring its trade partner in reach: open the route after the snapshot. */
+let tradeAfter: UnitId | null = null;
+
+/** Open a merchant's ordered route if the partner is in reach now; true when the command was sent. */
+const tradeNow = (unit: UnitId): boolean => {
+  const g = game.value;
+  const order = orders.value[unit];
+  if (!g || !order || order.kind !== 'goto' || !order.trade || !g.units[unit]) return false;
+  if (!q.tradeTargets(g, unit, content).includes(order.trade)) return false;
+  setOrder(unit, null);
+  awaiting = true;
+  dispatch({ type: 'openTradeRoute', unit, to: order.trade });
+  return true;
+};
 
 /** Recall a figure standing in an own settlement; true when the command was sent. */
 const recallNow = (figure: string): boolean => {
@@ -161,6 +175,8 @@ const pump = (): void => {
       if (recallNow(walker)) return;
       continue;
     }
+    // A merchant with its partner in reach opens the route instead of walking on.
+    if (order.kind === 'goto' && order.trade && tradeNow(id)) return;
     const step = stepOrder(g, my, id, order, deps);
     if (step.kind === 'wait') continue;
     if (step.kind === 'done') {
@@ -169,9 +185,11 @@ const pump = (): void => {
       setOrder(id, null);
       continue;
     }
-    if (step.arrives) setOrder(id, null);
+    // A trade order outlives arrival: the route opens once the snapshot puts the partner in reach.
+    if (step.arrives && !(order.kind === 'goto' && order.trade)) setOrder(id, null);
     // After this move's snapshot: recall if the figure now stands where Recall works.
     if (walker) recallAfter = walker;
+    if (order.kind === 'goto' && order.trade) tradeAfter = id;
     awaiting = true;
     dispatch({ type: 'moveUnit', unit: id, to: step.to });
     return;
@@ -183,6 +201,7 @@ export const runStandingOrders = (): void => {
   queue = Object.keys(orders.value);
   awaiting = false;
   recallAfter = null;
+  tradeAfter = null;
   pump();
 };
 
@@ -202,6 +221,9 @@ export const continueStandingOrders = (): void => {
   awaiting = false;
   const fig = recallAfter;
   recallAfter = null;
+  const trader = tradeAfter;
+  tradeAfter = null;
+  if (trader && tradeNow(trader)) return;
   if (fig && recallNow(fig)) {
     // Recalled: the figure's unit is gone, and so is its order.
     for (const [id, o] of Object.entries(orders.peek())) if (o.kind === 'goto' && o.recall && game.peek()?.units[id]?.figure === fig) setOrder(id, null);

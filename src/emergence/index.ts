@@ -65,7 +65,8 @@ export const emergenceTick = (ctx: SimCtx, player: PlayerId): void => {
   const measures = measurePlayer(state, player, content);
   const contributions = signalContributions(state, player, content, measures);
   updateAffinity(ctx, player, contributions);
-  accrueGp(state, player, gpGain(state, player, content, measures));
+  const gains = gpGain(state, player, content, measures);
+  accrueGp(state, player, gains);
   devoteFaith(state, player);
   // A player without a settlement cannot host a figure (`chooseOffer` needs a home), and an
   // offer it cannot accept would block `endTurn` forever. So: no offers or deeds while
@@ -77,7 +78,7 @@ export const emergenceTick = (ctx: SimCtx, player: PlayerId): void => {
     return;
   }
   checkDeeds(ctx, player);
-  createPointsOffers(ctx, player, contributions);
+  createPointsOffers(ctx, player, contributions, gains);
   maybeOfferLegend(ctx, player, contributions);
   tickSeatedTurns(state, player, content);
 };

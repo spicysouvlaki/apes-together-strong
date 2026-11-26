@@ -38,21 +38,28 @@ export const REASON_FAMILY: Record<SignalMeasure, ReasonFamily> = {
   exploredPercent: 'learning',
 };
 
-/** `{h}` is the signal hint ("your herds"). Every phrase must read after "X joined the court, ". */
+/**
+ * `{h}` is the signal hint ("your herds"). Every phrase must read both on the offer card and
+ * after "X joined the court, " (wave 11: "joined the court, come to learn from…" did not), so
+ * each is a participle phrase that can stand after a comma.
+ */
 export const REASON_TEMPLATES: Record<ReasonFamily, readonly string[]> = {
   land: ['drawn by {h}', 'following tales of {h}', 'curious to see {h} with their own eyes'],
-  goods: ['drawn by {h}', 'following word of {h}', 'come for {h} and minded to stay'],
+  goods: ['drawn by {h}', 'following word of {h}', 'lured by {h} and minded to stay'],
   towns: ['drawn by {h}', 'seeking a place in {h}', 'having heard of {h} from passing traders'],
   arms: ['drawn by {h}', 'stirred by the songs of {h}', 'drawn by tales of {h}'],
   ties: ['drawn by {h}', 'arriving in the wake of {h}', 'won over by {h}'],
-  learning: ['drawn by {h}', 'inspired by {h}', 'come to learn from {h}'],
+  learning: ['drawn by {h}', 'inspired by {h}', 'eager to learn from {h}'],
 };
 
+/** Last resort: no signal the player has adds to the figure's culture (offers.ts `offerReason`). */
 export const WANDERER_REASONS = [
   'a wanderer who heard of your people',
   'a traveller seeking a new home',
   'a stranger drawn by rumours of your people',
 ] as const;
+/** Age-opening offers recall the hint that promised them (offers.ts `offerAgeOpening`). */
+export const AGE_OPENING_REASON = 'arriving at last, drawn by the old tales of {h}';
 export const PARTNER_REASONS = ['drawn by your ties with their people', 'sent by kin who know your people well'] as const;
 export const TALES_REASONS = ['drawn by the tales of your people', 'drawn by stories told of your people'] as const;
 

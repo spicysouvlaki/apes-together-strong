@@ -487,3 +487,68 @@ input[type='range'] { min-height: var(--tap); accent-color: var(--woad); }
 .tile-city-link { display: flex; align-items: center; gap: 8px; width: 100%; min-height: var(--tap); text-align: left; font: inherit; color: inherit; cursor: pointer; }
 /* A Buy waiting for its second tap: gold-leafed so the choice reads at a glance. */
 .buy.is-armed { background: var(--gold-leaf); color: var(--ink); font-weight: 700; }
+
+/* --- Wave 11 ------------------------------------------------------------- */
+/* Build queue: a ruled strip under the current item, "Then" in rubric. */
+.queue-strip {
+  margin-top: 6px; padding: 4px 6px 4px 10px; border-left: 3px solid var(--woad);
+  background: linear-gradient(90deg, rgba(46, 77, 109, 0.08), rgba(46, 77, 109, 0));
+}
+.queue-label {
+  font-family: var(--font-display); font-size: 0.78rem; font-weight: 650; letter-spacing: 0.1em;
+  font-variant-caps: all-small-caps; text-transform: lowercase; color: var(--madder);
+}
+.queue-list { list-style: none; margin: 0; padding: 0; }
+.queue-item { display: flex; align-items: center; gap: 4px; min-height: var(--tap); border-bottom: 1px dotted var(--line); }
+.queue-n {
+  flex: none; width: 1.5em; height: 1.5em; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
+  font-size: 0.74rem; font-weight: 700; color: var(--accent-ink); background: var(--woad);
+}
+.queue-name { font-family: var(--font-display); font-weight: 600; font-size: 0.92rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.queue-btn {
+  flex: none; width: var(--tap); height: var(--tap); border: 0; background: transparent; color: var(--ink-soft);
+  display: inline-flex; align-items: center; justify-content: center; border-radius: var(--radius); cursor: pointer;
+}
+.queue-btn:active:not(:disabled) { background: rgba(120, 90, 40, 0.12); }
+.queue-btn:disabled { opacity: 0.3; }
+.queue-up .icon { transform: rotate(90deg); }
+.queue-add { min-height: var(--tap); padding: 0 6px; font-size: 0.88rem; color: var(--woad); }
+/* "Suggestion": a labelled one-tap pick on an idle city (never chosen for the player). */
+.suggest-chip {
+  width: 100%; margin-top: 6px; justify-content: flex-start; text-align: left; padding: 6px 12px; gap: 10px;
+  border-style: dashed; border-color: rgba(46, 77, 109, 0.6);
+}
+.suggest-kicker {
+  flex: none; font-size: 0.7rem; letter-spacing: 0.1em; font-variant-caps: all-small-caps; text-transform: lowercase;
+  color: var(--woad); border: 1px solid rgba(46, 77, 109, 0.5); border-radius: 2px; padding: 0 5px;
+}
+.suggest-text { font-family: var(--font-text); font-weight: 400; line-height: 1.25; }
+.suggest-text strong { font-family: var(--font-display); font-weight: 650; }
+.city-named { font-style: italic; margin-top: 2px; }
+.upgrade-why { font-style: italic; }
+.idle-item { display: flex; gap: 6px; align-items: stretch; }
+.idle-item .idle-row { flex: 1; min-width: 0; }
+.idle-suggest { flex: none; max-width: 46%; padding: 0 10px; font-size: 0.82rem; border-style: dashed; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.idle-suggest .suggest-kicker { font-size: 0.62rem; }
+/* Trade destinations: one row each, the route's yield and a single Send. */
+.trade-dests { margin-top: 6px; display: flex; flex-direction: column; gap: 6px; }
+.trade-dest { display: flex; align-items: stretch; gap: 6px; }
+.trade-dest-main {
+  flex: 1; min-width: 0; min-height: var(--tap); display: flex; align-items: center; gap: 8px; padding: 0 10px; text-align: left;
+  border: 1px solid var(--line); border-radius: var(--radius); background: rgba(248, 240, 220, 0.6); font: inherit; color: inherit; cursor: pointer;
+}
+.trade-dest-main b { font-family: var(--font-display); font-weight: 650; }
+.trade-yield { flex: none; color: var(--ochre); font-weight: 700; font-size: 0.88rem; }
+.trade-send { flex: none; padding: 0 14px; }
+/* Final-age goals: a gilt-edged slip of what still counts before the Chronicle. */
+.endgame-goals {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 1px; width: 100%; text-align: left; cursor: pointer;
+  margin: 0 0 6px; padding: 6px 12px; border: 1px solid rgba(154, 109, 22, 0.55); border-left: 4px solid var(--gold); border-radius: 2px;
+  background: var(--grain), linear-gradient(#fbf4e2, #efe0bd); box-shadow: var(--shadow-plate); font: inherit; color: var(--ink);
+}
+.endgame-kicker {
+  display: inline-flex; align-items: center; gap: 5px; color: #9a6d16;
+  font-family: var(--font-display); font-size: 0.74rem; font-weight: 650; letter-spacing: 0.08em; font-variant-caps: all-small-caps; text-transform: lowercase;
+}
+.endgame-text { font-size: 0.86rem; line-height: 1.3; }
+.endgame-goals:active { filter: brightness(0.95); }

@@ -95,7 +95,8 @@ describe('age end → transition', () => {
     expect(state.transition?.recap['p1']?.nameOptions).toEqual([
       'the Hellenic Pax',
       'the Hellenic-Sinic Pax',
-      'Hellenic Pax',
+      // "Hellenic Pax" is the first name without its article: a near-duplicate, skipped (wave 11).
+      'the Sinic Pax',
     ]);
     expect(state.transition?.recap['p2']?.nameOptions).toEqual(['the Pax', 'the Pax of Leader A', 'the First Pax']);
   });
@@ -107,7 +108,7 @@ describe('age end → transition', () => {
     expect(nameOptions(state, 'p1', fixtureContent())).toEqual([
       'the Sinic Pax',
       'the Pax of Silk Road',
-      'Sinic Pax',
+      'the Pax',
     ]);
   });
 
