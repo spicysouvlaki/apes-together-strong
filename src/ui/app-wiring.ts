@@ -13,6 +13,7 @@ import { requestPersistentStorage } from '../platform/saves';
 import {
   bindClient,
   content,
+  freshToasts,
   game,
   lastError,
   lastEvents,
@@ -27,13 +28,15 @@ import {
   route,
   saves,
   thinking,
+  toasts,
 } from './store';
-import { eventFlash, eventToToast, rankToasts, type EventNames, type FlashKindSpec, type ToastSpec } from './shell/event-toasts';
+import { dedupeByScreen, eventFlash, eventToToast, rankToasts, summarizeAttacks, type EventNames, type FlashKindSpec, type ToastSpec } from './shell/event-toasts';
 import { tileIndexOf } from './shell/hexutil';
 import { isThreat } from './shell/ticker';
 import { endTurnSent, enemyConfirmedTurn, idleSheetTurn, lastTap, loading, pushLog, settings, turnLog, skipped, updateReady } from './shell/shell-state';
 import { continueStandingOrders, initStandingOrders, runStandingOrders } from './shell/standing-orders';
 import { initGuide } from './shell/guide-state';
+import { resumeRecap, shouldRecap } from './shell/resume-recap';
 import { idleSheetOpen } from './shell/IdleSheet';
 import { audio, setAudioPlanOptions } from '../audio';
 import { commandSound, initUiAudio } from './ui-audio';
@@ -68,6 +71,14 @@ const eventNames = (state: GameState, prev: GameState | null): EventNames => ({
   },
   crisis: (id) => lookup.crises[id]?.name ?? 'A crisis',
   deed: (id) => lookup.deeds[id]?.name ?? id,
+  settlementAt: (hex) => {
+    const at = (s: GameState | null) => (s ? Object.values(s.settlements).find((x) => x.at.q === hex.q && x.at.r === hex.r) : undefined);
+    return (at(state) ?? at(prev))?.name ?? null;
+  },
+  unitAt: (hex, owner) => {
+    const u = prev ? Object.values(prev.units).find((x) => x.owner === owner && x.at.q === hex.q && x.at.r === hex.r) : undefined;
+    return u ? ((u.figure ? lookup.figures[u.figure]?.name : undefined) ?? lookup.units[u.type]?.name ?? null) : null;
+  },
 });
 
 let pendingUpdateApply = false;
@@ -81,6 +92,9 @@ const isMyTurnStart = (prev: GameState | null, next: GameState, my: PlayerId | n
 const onState = (state: GameState, events: SimEvent[]): void => {
   const prev = game.value;
   if (!prev || prev.seed !== state.seed) turnLog.value = [];
+  // A resumed save gets "the story so far" (playtest 4); a new game starts with the guide.
+  if (shouldRecap(prev?.seed ?? null, state.seed, state.turn) && state.phase === 'playing') resumeRecap.value = { seed: state.seed, turn: state.turn };
+  else if (resumeRecap.value && resumeRecap.value.seed !== state.seed) resumeRecap.value = null;
   game.value = state;
   lastEvents.value = events;
   // Lets the planner tell whose settlement grew, so your own growth gets its soft tick.
@@ -95,6 +109,8 @@ const onState = (state: GameState, events: SimEvent[]): void => {
 
   const turnStart = isMyTurnStart(prev, state, my);
   if (turnStart) {
+    // Last turn's news has had its moment; it stays in the log (playtest 4: stale lines piled up).
+    toasts.value = freshToasts(toasts.value, state.turn);
     skipped.value = new Set();
     lastTap.value = null;
     idleSheetOpen.value = false;
@@ -108,12 +124,18 @@ const onState = (state: GameState, events: SimEvent[]): void => {
   // One ranked batch per snapshot: most important first, overflow folded into one line.
   const names = eventNames(state, prev);
   const specs: ToastSpec[] = [];
+  const { summaries, folded } = summarizeAttacks(events, my, names);
+  for (const t of summaries) specs.push({ ...t, threat: true });
+  // "Jelling Stones is complete!" already says it: skip the matching "Hàojīng finished Jelling Stones."
+  const wonderDone = new Set(events.flatMap((ev) => (ev.type === 'wonderBuilt' ? [`${ev.settlement}:${ev.wonder}`] : [])));
   for (const ev of events) {
+    if (folded.has(ev)) continue;
+    if (ev.type === 'productionCompleted' && wonderDone.has(`${ev.settlement}:${ev.item}`)) continue;
     const t = eventToToast(ev, my, names);
     if (t) specs.push(isThreat(ev, my) ? { ...t, threat: true } : t);
   }
-  pushToasts(rankToasts(specs));
-  pushLog(state.turn, specs);
+  pushToasts(rankToasts(specs).map((t) => ({ ...t, turn: state.turn })));
+  pushLog(state.turn, dedupeByScreen(specs));
 
   // Standing orders: start this turn's moves, or continue a run waiting on this snapshot.
   if (turnStart) runStandingOrders();

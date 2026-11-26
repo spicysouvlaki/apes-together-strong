@@ -103,3 +103,15 @@ export const firstFounder = (state: GameState, me: PlayerId, canFoundType: (type
     .sort((a, b) => compareIds(a.id, b.id))[0];
   return u ? u.id : null;
 };
+
+/** Our settlements in a stable order: the capital, then cities, then towns, each by founding (id). */
+export const ownSettlementRing = (g: { settlements: Record<string, { id: string; owner: string; isCapital: boolean; kind: string }> }, my: string): string[] =>
+  Object.values(g.settlements)
+    .filter((x) => x.owner === my)
+    .sort(
+      (a, b) =>
+        Number(b.isCapital) - Number(a.isCapital) ||
+        Number(a.kind !== 'city') - Number(b.kind !== 'city') ||
+        a.id.localeCompare(b.id, undefined, { numeric: true }),
+    )
+    .map((x) => x.id);

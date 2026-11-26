@@ -156,10 +156,20 @@ function TopBar() {
   );
 }
 
+/**
+ * When the bottom stack grows (a route preview opens "Go, or tap the tile again") the End Turn
+ * button rises under the finger that is about to tap the map again. A tap that lands within this
+ * window after such a shift is not taken as End Turn (playtest 4: a second tap on a far tile hit
+ * End Turn).
+ */
+const SHIFT_GUARD_MS = 800;
+let hudShiftAt = -Infinity;
+
 const endTurn = (): void => {
   const g = game.value;
   const my = me.value;
   if (!g || !my || !myTurn.value || endTurnSent.value) return;
+  if (performance.now() - hudShiftAt < SHIFT_GUARD_MS) return;
   const pl = plan.value;
   if (pl.mode === 'next' && pl.next) {
     openDecision(pl.next);
@@ -397,7 +407,11 @@ function BottomStack({ children }: { children: preact.ComponentChildren }) {
     const el = ref.current;
     if (!el || typeof ResizeObserver === 'undefined') return undefined;
     const ro = new ResizeObserver(() => {
-      hudBottomPx.value = Math.round(el.getBoundingClientRect().height);
+      const h = Math.round(el.getBoundingClientRect().height);
+      // Only growth with a unit in hand moves End Turn up under a finger aimed at a tile (the
+      // route preview); a sheet closing and the controls coming back must not block a tap.
+      if (h > hudBottomPx.peek() && selection.peek().unit !== null) hudShiftAt = performance.now();
+      hudBottomPx.value = h;
     });
     ro.observe(el);
     return () => {

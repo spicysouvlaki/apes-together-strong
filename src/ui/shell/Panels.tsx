@@ -112,7 +112,8 @@ export function MenuPanel() {
 }
 
 const describe = (m: SaveMeta): string => {
-  const who = m.civName ?? `${lookup.leaders[m.leader]?.name ?? 'Leader'}`;
+  // Civ names are stored lower-case for sentences ("the Iberian Pax"); a list line starts with a capital.
+  const who = m.civName ? m.civName.charAt(0).toUpperCase() + m.civName.slice(1) : `${lookup.leaders[m.leader]?.name ?? 'Leader'}`;
   const when = new Date(m.savedAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
   return `${who} · Turn ${m.turn} · ${AGE_NAME[m.age]} · ${when}`;
 };

@@ -14,6 +14,7 @@ import { SLIP_DURATION_MS, splitToasts, tickerDuration, tickerMore } from './tic
 import { MenuPanel, SavesPanel, SettingsPanel } from './Panels';
 import { TileInfo } from './TileInfo';
 import { Icon } from '../art/Icon';
+import { recruitReveal } from './recruit-reveal';
 
 /** Act on a toast: center the map where it happened and/or open what it points at. */
 const actOn = (t: Toast): void => {
@@ -119,6 +120,9 @@ export function Toasts() {
   // back when the screen closes, so "war declared on us" survives a long decision screen.
   const m = modal.value;
   if (m && !SHEET_KINDS.has(m.kind)) return null;
+  // The recruit reveal covers the screen too: hold news under it, or its timers run out unseen
+  // (playtest 4: "Crisis: Collapse has begun" expired behind a welcome ceremony).
+  if (recruitReveal.value) return null;
   // Once the player has a unit in hand they are answering the threat: the slips fold into the
   // one-line ticker so they no longer cover the raiders the unit is about to strike (playtest 3).
   const answering = selection.value.unit !== null;

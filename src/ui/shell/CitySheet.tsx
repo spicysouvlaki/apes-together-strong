@@ -3,7 +3,7 @@
  * SimQueries: yields, growth, production options with cost/turns/gold cost. Picks send
  * `setProduction` / `buyItem` / `upgradeSettlement`; the sim validates them.
  */
-import { useState } from 'preact/hooks';
+import { useEffect, useState } from 'preact/hooks';
 import type { ProductionOption } from '@contracts/sim-api';
 import type { YieldType } from '@contracts/content-schemas';
 import { closeModal, content, dispatch, game, lookup, me, myTurn, openModal, q } from '../store';
@@ -12,6 +12,7 @@ import { FOOD_PER_POP, UNREST_THRESHOLD } from '../../sim/constants';
 import { Icon } from '../art/Icon';
 import { FigurePortrait } from '../art/game-art';
 import { GlossText } from './GlossarySheet';
+import { ownSettlementRing } from './hexutil';
 
 const CITY_YIELDS: readonly YieldType[] = ['food', 'production', 'gold', 'science', 'culture', 'faith', 'influence', 'happiness'];
 
@@ -43,6 +44,13 @@ export function CitySheet({ settlement }: { settlement: string }) {
   const g = game.value;
   const my = me.value;
   const [picking, setPicking] = useState(false);
+  // The Buy button that was tapped once and waits for its second tap (see below).
+  const [armed, setArmed] = useState<string | null>(null);
+  useEffect(() => {
+    if (!armed) return undefined;
+    const t = setTimeout(() => setArmed(null), 5000);
+    return () => clearTimeout(t);
+  }, [armed]);
   const s = g?.settlements[settlement];
   if (!g || !my || !s) {
     return (
@@ -69,6 +77,14 @@ export function CitySheet({ settlement }: { settlement: string }) {
   const figures = Object.values(g.figures).filter(
     (f) => f.owner === my && f.location.state === 'based' && f.location.settlement === s.id,
   );
+  // Step through our settlements without panning the map (playtest 4: reaching a far town meant
+  // dragging across the map, and a slow drag could open tile info instead).
+  const ring = mine ? ownSettlementRing(g, my) : [];
+  const at = ring.indexOf(s.id);
+  const step = (d: number): void => {
+    const next = ring[(at + d + ring.length) % ring.length];
+    if (next && next !== s.id) openModal({ kind: 'city', settlement: next });
+  };
 
   return (
     <section class="sheet city-sheet" aria-label={`${s.name} city panel`}>
@@ -86,6 +102,16 @@ export function CitySheet({ settlement }: { settlement: string }) {
             {capitalize(s.kind)} · Population {s.population} · Walls {Math.round(s.hp)}/{s.maxHp}
           </div>
         </div>
+        {ring.length > 1 && at >= 0 && (
+          <>
+            <button class="btn btn-ghost btn-icon" aria-label={`Previous settlement: ${g.settlements[ring[(at - 1 + ring.length) % ring.length] ?? '']?.name ?? ''}`} onClick={() => step(-1)}>
+              <Icon name="back" />
+            </button>
+            <button class="btn btn-ghost btn-icon" aria-label={`Next settlement: ${g.settlements[ring[(at + 1) % ring.length] ?? '']?.name ?? ''}`} onClick={() => step(1)}>
+              <Icon name="next" />
+            </button>
+          </>
+        )}
         <button class="btn btn-ghost btn-icon" aria-label="Close city panel" onClick={closeModal}>
           <Icon name="close" />
         </button>
@@ -189,12 +215,25 @@ export function CitySheet({ settlement }: { settlement: string }) {
                         </button>
                         {o.goldCost > 0 && (
                           <button
-                            class="btn buy"
+                            class={`btn buy${armed === o.item ? ' is-armed' : ''}`}
                             disabled={!canAct || gold < o.goldCost}
-                            aria-label={`Buy ${itemName(o.item)} for ${o.goldCost} gold`}
-                            onClick={() => dispatch({ type: 'buyItem', settlement: s.id, item: o.item })}
+                            aria-label={armed === o.item ? `Tap again to buy ${itemName(o.item)} for ${o.goldCost} gold` : `Buy ${itemName(o.item)} for ${o.goldCost} gold`}
+                            onClick={() => {
+                              // Two taps: the Buy column sits where End Turn usually is, and one
+                              // stray tap spent 60-80 gold twice in playtest 4.
+                              if (armed !== o.item) {
+                                setArmed(o.item);
+                                return;
+                              }
+                              setArmed(null);
+                              dispatch({ type: 'buyItem', settlement: s.id, item: o.item });
+                            }}
                           >
-                            Buy <Icon name="gold" size="sm" /> {o.goldCost}
+                            {armed === o.item ? (
+                              <>Sure? <Icon name="gold" size="sm" /> {o.goldCost}</>
+                            ) : (
+                              <>Buy <Icon name="gold" size="sm" /> {o.goldCost}</>
+                            )}
                           </button>
                         )}
                       </div>

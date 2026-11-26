@@ -61,6 +61,10 @@ export const resolveTap = (input: TapInput): TapIntent => {
   const settlement = settlementAt(state, hex);
   const mySettlement = settlement && settlement.owner === me ? settlement : null;
   const units = unitsAt(state, hex, me);
+  // With a unit in hand, our own empty settlement out of reach is where it should march (to
+  // garrison it), not a reason to open the city sheet (playtest 4: sending a warrior to guard a
+  // pillaged town opened the town instead). Deselect first to open the city.
+  if (sel && mySettlement && units.length === 0 && !hexEquals(sel.at, hex)) return { kind: 'plan', unit: sel.id, to: hex };
   const entries: ({ kind: 'city'; id: SettlementId } | { kind: 'unit'; id: UnitId })[] = [];
   if (mySettlement) entries.push({ kind: 'city', id: mySettlement.id });
   for (const u of units) entries.push({ kind: 'unit', id: u.id });

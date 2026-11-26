@@ -63,6 +63,12 @@ export interface Toast {
   at?: Hex;
   /** A threat to answer now (shell/ticker.ts): shown as a slip; everything else runs in the ticker. */
   threat?: boolean;
+  /**
+   * Game turn the news belongs to. At the start of the player's next turn older news leaves the
+   * ticker (it stays in the turn log): playtest 4 found T29 lines still queued at T31 and
+   * Ancient-age raider warnings showing in the Classical age.
+   */
+  turn?: number;
 }
 
 export interface Selection {
@@ -191,6 +197,9 @@ export const pushToasts = (batch: readonly Omit<Toast, 'id'>[]): void => {
   toasts.value = [...fresh, ...kept].slice(0, TOAST_QUEUE_MAX);
 };
 export const TOAST_QUEUE_MAX = 6;
+/** Drops news stamped before `turn` (pure; unstamped toasts, e.g. UI tips, are kept). */
+export const freshToasts = <T extends { turn?: number }>(list: readonly T[], turn: number): T[] =>
+  list.filter((t) => t.turn === undefined || t.turn >= turn);
 export const dismissToast = (id: number): void => {
   toasts.value = toasts.value.filter((t) => t.id !== id);
 };

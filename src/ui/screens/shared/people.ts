@@ -30,7 +30,17 @@ export interface PeopleView {
   cultures: PeopleCulture[];
   /** "Mostly Greek, with an Egyptian strand." */
   becoming: string;
-  figureGroups: { culture: string; name: string; figures: PeopleFigure[] }[];
+  figureGroups: {
+    culture: string;
+    name: string;
+    figures: PeopleFigure[];
+    /**
+     * Why this culture's people came, newest first, each with who said it ("Following tales of
+     * your wide plains." / An Atlantic Bronze Age trader). At most two, no repeats: the answer to
+     * "who are my people and why?" in their own words (playtest 4 pillar check).
+     */
+    why: { text: string; figure: string }[];
+  }[];
   traditions: { id: string; name: string; culture: string; tier: string }[];
   hybrids: { id: string; name: string; cultures: string[] }[];
   /** Count of figures in the Hall of Ancestors (retired). */
@@ -71,18 +81,34 @@ export const buildPeople = (state: GameState, player: PlayerId, weights: Readonl
 
   const mine = Object.values(state.figures).filter((f) => f.owner === player && f.location.state !== 'consumed');
   const groups = new Map<string, PeopleFigure[]>();
+  const whys = new Map<string, { text: string; figure: string; turn: number }[]>();
   for (const f of mine) {
     const def = figures.get(f.id);
     if (!def) continue;
     const list = groups.get(def.culture) ?? [];
     list.push({ id: f.id, name: def.name, state: f.location.state });
     groups.set(def.culture, list);
+    const reason = f.reason?.trim();
+    if (reason) {
+      const w = whys.get(def.culture) ?? [];
+      w.push({ text: /[.!?]$/.test(reason) ? reason : `${reason}.`, figure: def.name, turn: f.recruitedTurn });
+      whys.set(def.culture, w);
+    }
   }
+  const whyOf = (culture: string): { text: string; figure: string }[] => {
+    const seen = new Set<string>();
+    return (whys.get(culture) ?? [])
+      .sort((a, b) => b.turn - a.turn || a.figure.localeCompare(b.figure))
+      .filter((w) => !seen.has(w.text.toLowerCase()) && !!seen.add(w.text.toLowerCase()))
+      .slice(0, 2)
+      .map(({ text, figure }) => ({ text: text.charAt(0).toUpperCase() + text.slice(1), figure }));
+  };
   const figureGroups = [...groups.entries()]
     .map(([culture, list]) => ({
       culture,
       name: cultures.get(culture)?.name ?? culture,
       figures: list.sort((x, y) => (ORDER[x.state] ?? 9) - (ORDER[y.state] ?? 9) || x.name.localeCompare(y.name)),
+      why: whyOf(culture),
     }))
     .sort((x, y) => (rank.get(x.culture) ?? 99) - (rank.get(y.culture) ?? 99) || y.figures.length - x.figures.length || x.name.localeCompare(y.name));
 

@@ -120,8 +120,14 @@ h1, h2, h3 { font-family: var(--font-display); font-weight: 600; font-variation-
   position: fixed; inset: 0; z-index: 30; background: var(--paper-bg); background-color: var(--paper);
   display: flex; flex-direction: column;
   padding-top: var(--safe-top); padding-bottom: var(--safe-bottom);
-  animation: screen-in 240ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
+/*
+ * The sheet itself is opaque from its first frame; only the ink settles in. Fading the whole
+ * screen let the HUD and map show through it, and on a busy turn (snapshot + renderer rebuild on
+ * the main thread, or a throttled tab) the half-faded state lingered 1-2 s with HUD numbers over
+ * ceremony titles (playtests 3 and 4).
+ */
+.screen > * { animation: screen-in 240ms cubic-bezier(0.2, 0.8, 0.2, 1) backwards; }
 .screen::before {
   /* Darkened, worn margins like an old page. */
   content: ''; position: absolute; inset: 0; pointer-events: none; z-index: -1;

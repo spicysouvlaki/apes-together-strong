@@ -27,7 +27,9 @@ export const openingLine = ({ view, cultures, named }: StoryInput): string => {
   const who = named ? view.civName : 'a people yet unnamed';
   const dream = view.dream ? `, who carried the dream “${view.dream.meaning}”` : '';
   const roots = cultures.length > 0 ? ` Their ways grew from ${listAnd(cultures.slice(0, 3))} roots.` : ' No one yet knew what they would become.';
-  return `This is the chronicle of ${who}, led by ${view.leader}${dream}.${roots}`;
+  // Leader archetypes are titled "The Merchant"; mid-sentence it is "led by the Merchant".
+  const leader = view.leader.replace(/^The /, 'the ');
+  return `This is the chronicle of ${who}, led by ${leader}${dream}.${roots}`;
 };
 
 /** One line for a book: who joined, what was kept, what was built, what was fought. */

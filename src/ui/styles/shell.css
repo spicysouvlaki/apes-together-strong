@@ -483,3 +483,7 @@ input[type='range'] { min-height: var(--tap); accent-color: var(--woad); }
 .term:active { background: rgba(155, 52, 38, 0.12); border-radius: 2px; }
 .reduce-motion .toast:active, .reduce-motion .scr-node:active, .reduce-motion .prod-main:active,
 .reduce-motion .hud-banner:active, .reduce-motion .swatch:active { transform: none; }
+/* Tile info: our own settlement row opens its sheet. */
+.tile-city-link { display: flex; align-items: center; gap: 8px; width: 100%; min-height: var(--tap); text-align: left; font: inherit; color: inherit; cursor: pointer; }
+/* A Buy waiting for its second tap: gold-leafed so the choice reads at a glance. */
+.buy.is-armed { background: var(--gold-leaf); color: var(--ink); font-weight: 700; }

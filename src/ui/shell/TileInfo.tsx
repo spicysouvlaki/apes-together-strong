@@ -4,7 +4,7 @@
  */
 import type { Hex } from '@contracts/hex';
 import type { Yields } from '@contracts/content-schemas';
-import { closeModal, content, game, lookup, me, ownerName, q } from '../store';
+import { closeModal, content, game, lookup, me, openModal, ownerName, q } from '../store';
 import { YIELD_ICON, YIELD_NAME, capitalize } from './format';
 import { Icon } from '../art/Icon';
 import { settlementAt, tileIndexOf, unitsAt } from './hexutil';
@@ -75,14 +75,30 @@ export function TileInfo({ hex }: { hex: Hex }) {
       )}
       <div class="small muted mt8">{t.owner ? `Territory of ${ownerName(t.owner)}` : 'Unclaimed'}</div>
       {!visible && <div class="small muted">Not in sight right now.</div>}
-      {settlement && (
-        <div class="card mt8">
-          <strong>{settlement.name}</strong>{' '}
-          <span class="small muted">
-            {capitalize(settlement.kind)} of {ownerName(settlement.owner)} · pop {settlement.population}
-          </span>
-        </div>
-      )}
+      {settlement &&
+        (settlement.owner === my ? (
+          // Our own town opens its sheet (playtest 4: the row looked tappable and was not).
+          <button
+            class="card mt8 tile-city-link"
+            onClick={() => openModal({ kind: 'city', settlement: settlement.id })}
+            aria-label={`Open ${settlement.name}`}
+          >
+            <span class="grow">
+              <strong>{settlement.name}</strong>{' '}
+              <span class="small muted">
+                {capitalize(settlement.kind)} of {ownerName(settlement.owner)} · pop {settlement.population}
+              </span>
+            </span>
+            <Icon name="chevron" size="sm" />
+          </button>
+        ) : (
+          <div class="card mt8">
+            <strong>{settlement.name}</strong>{' '}
+            <span class="small muted">
+              {capitalize(settlement.kind)} of {ownerName(settlement.owner)} · pop {settlement.population}
+            </span>
+          </div>
+        ))}
       {units.map((u) => (
         <div class="card mt8" key={u.id}>
           {u.figure ? (lookup.figures[u.figure]?.name ?? 'Figure') : (lookup.units[u.type]?.name ?? u.type)}{' '}

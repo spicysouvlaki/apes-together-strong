@@ -56,12 +56,32 @@ export interface LogEntry {
   turn: number;
   text: string;
   tone: 'info' | 'good' | 'bad' | 'culture';
+  /** A culture whisper ("Hellenic peoples speak of…"), as opposed to other culture-toned news. */
+  whisper?: boolean;
 }
 export const LOG_MAX = 50;
 export const turnLog = signal<LogEntry[]>([]);
-export const pushLog = (turn: number, entries: readonly { text: string; tone: LogEntry['tone'] }[]): void => {
+/**
+ * One line per sentence: three raiders pillaging the same town in one turn read as one entry
+ * with a count, not the same sentence three times (playtest 4). Pure; keeps first-seen order.
+ */
+export const foldRepeats = <T extends { text: string }>(entries: readonly T[]): T[] => {
+  const counts = new Map<string, number>();
+  for (const e of entries) counts.set(e.text, (counts.get(e.text) ?? 0) + 1);
+  const seen = new Set<string>();
+  const out: T[] = [];
+  for (const e of entries) {
+    if (seen.has(e.text)) continue;
+    seen.add(e.text);
+    const n = counts.get(e.text) ?? 1;
+    out.push(n > 1 ? { ...e, text: `${e.text} (${n} times)` } : e);
+  }
+  return out;
+};
+
+export const pushLog = (turn: number, entries: readonly { text: string; tone: LogEntry['tone']; whisper?: boolean }[]): void => {
   if (entries.length === 0) return;
-  turnLog.value = [...turnLog.value, ...entries.map((e) => ({ turn, text: e.text, tone: e.tone }))].slice(-LOG_MAX);
+  turnLog.value = [...turnLog.value, ...foldRepeats(entries).map((e) => ({ turn, text: e.text, tone: e.tone, ...(e.whisper ? { whisper: true } : {}) }))].slice(-LOG_MAX);
 };
 
 /** Height (CSS px) of the bottom HUD stack (advice, controls, unit sheet), for the camera's safe area. */

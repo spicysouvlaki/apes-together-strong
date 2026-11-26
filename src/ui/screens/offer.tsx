@@ -1,6 +1,6 @@
 /** Figure offer (GDD §4): the heart of the game. Pick one of up to three, or send them on. */
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { closeModal, content, dispatch, game, lookup, me, myTurn, openModal } from '../store';
+import { closeModal, content, dispatch, game, lookup, me, myTurn, openModal, ownerName } from '../store';
 import type { ScreenProps } from './index';
 import { cultureName, Empty, FigureCard, Screen } from './shared/components';
 import { inSentence } from './shared/describe';
@@ -48,7 +48,16 @@ export const OfferScreen = ({ modal }: ScreenProps<'offer'>) => {
   const view = offerView(offer, content);
   const pos = offerPosition(g.offers, player, offer.id);
   // A deed offer's reason is the deed's story, already shown above.
-  const items = deckItems(offer, lookup.figures, lookup, view.tone !== 'deed');
+  // A rival can recruit a candidate before we answer (figures are unique worldwide, GDD §3); the
+  // offer may still list them until our next command. Never let Welcome pick someone already
+  // gone (playtest 4: "Welcome Hua Mulan" played the reveal, then "joined a rival").
+  const takenBy = (id: string): string | null => {
+    const f = g.figures[id];
+    return f && f.owner !== player ? f.owner : null;
+  };
+  const allItems = deckItems(offer, lookup.figures, lookup, view.tone !== 'deed');
+  const items = allItems.filter((x) => takenBy(x.id) === null);
+  const gone = allItems.filter((x) => takenBy(x.id) !== null).map((x) => ({ name: lookup.figures[x.id]?.name ?? 'Someone', by: takenBy(x.id) ?? '' }));
   const i = clampIndex(index, items.length);
   const current = items[i];
   const chosenDef = current ? lookup.figures[current.id] : undefined;
@@ -200,6 +209,11 @@ export const OfferScreen = ({ modal }: ScreenProps<'offer'>) => {
           ))}
         </div>
       )}
+      {gone.map((x) => (
+        <p class="small muted scr-decline-note" key={x.name}>
+          {x.name} already joined {ownerName(x.by)}.
+        </p>
+      ))}
       <p class="small muted scr-decline-note">{view.declineNote}</p>
       {!canAct && <p class="small muted scr-decline-note">You can answer on your turn.</p>}
     </Screen>

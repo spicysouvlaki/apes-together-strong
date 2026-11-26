@@ -26,7 +26,9 @@ export const PeopleScreen = (_: ScreenProps<'people'>) => {
   if (!g || !player || !p) return <Screen title="Your people" label="Your people"><Empty icon="people">No game in progress.</Empty></Screen>;
   const v = buildPeople(g, player, q.cultureWeights(g, player, content), content);
   if (!v) return null;
-  const whisper = [...turnLog.value].reverse().find((e) => e.tone === 'culture');
+  // Only true whispers ("Hellenic peoples speak of…"): offers share the culture tone but are not
+  // voices (playtest 4 showed "Someone famous wants to join you." as the Spanish whisper).
+  const whispers = [...turnLog.value].reverse().filter((e) => e.whisper).slice(0, 3);
 
   return (
     <Screen
@@ -90,12 +92,17 @@ export const PeopleScreen = (_: ScreenProps<'people'>) => {
             </ul>
           </>
         )}
-        {whisper && (
-          <blockquote class="ppl-whisper">
-            <span class="scr-reason-mark" aria-hidden="true">“</span>
-            {whisper.text}
-            <span class="ppl-whisper-turn">turn {whisper.turn}</span>
-          </blockquote>
+        {whispers.length > 0 && (
+          <div class="ppl-voices" aria-label="Voices that reached you">
+            <div class="ppl-voices-head">Voices that reached you</div>
+            {whispers.map((w, i) => (
+              <blockquote class={`ppl-whisper${i > 0 ? ' older' : ''}`} key={`${w.turn}:${w.text}`}>
+                <span class="scr-reason-mark" aria-hidden="true">“</span>
+                {w.text}
+                <span class="ppl-whisper-turn">turn {w.turn}</span>
+              </blockquote>
+            ))}
+          </div>
         )}
       </section>
 
@@ -109,6 +116,11 @@ export const PeopleScreen = (_: ScreenProps<'people'>) => {
               <div class="ppl-court-head">
                 <CultureCrest culture={grp.culture} size={18} /> {grp.name}
               </div>
+              {grp.why.map((w) => (
+                <p class="ppl-why" key={w.figure}>
+                  <i>{w.text}</i> <span class="ppl-why-who">· {shortName(w.figure)}</span>
+                </p>
+              ))}
               <div class="ppl-medals">
                 {grp.figures.map((f) => (
                   <button

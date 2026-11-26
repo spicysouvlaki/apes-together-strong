@@ -10,6 +10,7 @@ import { GlossarySheet } from './shell/GlossarySheet';
 import { CombatSheet } from './shell/CombatSheet';
 import { RecruitReveal } from './shell/RecruitReveal';
 import { LongPressTip } from './shell/LongPressTip';
+import { ResumeRecap } from './shell/ResumeRecap';
 import { Setup } from './shell/Setup';
 import { Title } from './shell/Title';
 
@@ -29,6 +30,7 @@ export function App() {
       <Toasts />
       <ModalHost />
       {r === 'game' && <RecruitReveal />}
+      {r === 'game' && <ResumeRecap />}
       <GlossarySheet />
       <ConfirmDialog />
       <LongPressTip />

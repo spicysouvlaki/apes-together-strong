@@ -16,6 +16,8 @@ export interface ToastSpec {
   at?: Hex;
   /** A threat to answer now (ticker.ts isThreat): a prominent slip instead of a ticker line. */
   threat?: boolean;
+  /** A culture whisper (GDD §4 "hidden affinity"): "Your people" lists these as the voices that reached you. */
+  whisper?: boolean;
 }
 
 export interface EventNames {
@@ -31,6 +33,14 @@ export interface EventNames {
   deed(id: string): string;
   /** Display name of a unit by id (it may have died: look in the previous snapshot too). */
   unit?(id: string): string | null;
+  /** Name of the settlement standing on a hex, if any (walls hit in combat name their city). */
+  settlementAt?(hex: Hex): string | null;
+  /**
+   * Name of a unit of `owner` that stood on a hex before this snapshot. A civilian captured in
+   * combat arrives with `defender: null`, like walls (playtest 4: lost scouts and merchants were
+   * reported as "our walls were breached").
+   */
+  unitAt?(hex: Hex, owner: PlayerId): string | null;
 }
 
 /** "Raiders’ warrior", "Rome’s warrior". */
@@ -49,7 +59,11 @@ const combatToast = (ev: Extract<SimEvent, { type: 'combat' }>, me: PlayerId, n:
     return { text: `${result}${cost}.`, tone: ev.attackerDied ? 'bad' : 'good', action: null, at: ev.at };
   }
   if (ev.defenderOwner === me) {
-    const ours = ev.defender ? `our ${unitName(ev.defender)}` : 'our walls';
+    // "Raiders attacked: our walls were breached" did not say where (playtest 4): name the city.
+    const city = ev.defender ? null : (n.settlementAt?.(ev.at) ?? null);
+    const civilian = !ev.defender && !city ? (n.unitAt?.(ev.at, me) ?? null) : null;
+    if (civilian) return { text: `${n.owner(ev.attackerOwner)} captured our ${civilian}.`, tone: 'bad', action: null, at: ev.at };
+    const ours = ev.defender ? `our ${unitName(ev.defender)}` : city ? `the walls of ${city}` : 'our walls';
     const what = ev.defenderDied
       ? `${ours} ${ev.defender ? 'was destroyed' : 'were breached'}`
       : `${ours} lost ${Math.round(ev.damageToDefender)} HP`;
@@ -57,6 +71,52 @@ const combatToast = (ev: Extract<SimEvent, { type: 'combat' }>, me: PlayerId, n:
     return { text: `${n.owner(ev.attackerOwner)} attacked: ${what}.${back}`, tone: 'bad', action: null, at: ev.at };
   }
   return null;
+};
+
+/**
+ * Several attacks on us by one attacker in one batch become one threat line ("The Conqueror's
+ * people attacked 4 times: a Warrior band destroyed, 3 units hurt.") instead of a stack of
+ * near-identical slips (playtest 4: five slips in one turn of war). Returns the summary toasts
+ * and the attacks they replace; groups of one or two keep their own sentences. Pure.
+ */
+export const summarizeAttacks = (
+  events: readonly SimEvent[],
+  me: PlayerId,
+  n: EventNames,
+  min = 3,
+): { summaries: ToastSpec[]; folded: Set<SimEvent> } => {
+  const by = new Map<string, Extract<SimEvent, { type: 'combat' }>[]>();
+  for (const ev of events) {
+    if (ev.type !== 'combat' || ev.defenderOwner !== me || ev.attackerOwner === me) continue;
+    const list = by.get(ev.attackerOwner) ?? [];
+    list.push(ev);
+    by.set(ev.attackerOwner, list);
+  }
+  const summaries: ToastSpec[] = [];
+  const folded = new Set<SimEvent>();
+  for (const [owner, list] of by) {
+    if (list.length < min) continue;
+    const lost = list.filter((e) => e.defender && e.defenderDied).map((e) => (e.defender ? (n.unit?.(e.defender) ?? 'unit') : 'unit'));
+    const noUnit = list.filter((e) => !e.defender);
+    const wallCities = noUnit.map((e) => n.settlementAt?.(e.at) ?? null).filter((x): x is string => !!x);
+    const walls = wallCities.length;
+    const cities = [...new Set(wallCities)];
+    const taken = noUnit.length - walls;
+    const hurt = list.length - lost.length - noUnit.length;
+    const parts: string[] = [];
+    if (lost.length === 1) parts.push(`${/^[aeiou]/i.test(lost[0] ?? '') ? 'an' : 'a'} ${lost[0]} destroyed`);
+    else if (lost.length > 1) parts.push(`${lost.length} units destroyed`);
+    if (hurt > 0) parts.push(`${hurt} ${hurt === 1 ? 'unit' : 'units'} hurt`);
+    const whose = cities.length === 1 ? `the walls of ${cities[0]}` : 'walls';
+    if (walls > 0) parts.push(walls === 1 ? `${whose} struck` : `${whose} struck ${walls} times`);
+    if (taken > 0) parts.push(taken === 1 ? 'a civilian captured' : `${taken} civilians captured`);
+    const last = list[list.length - 1];
+    const who = n.owner(owner);
+    const text = `${who.charAt(0).toUpperCase()}${who.slice(1)} attacked ${list.length} times: ${parts.join(', ')}.`;
+    summaries.push({ text, tone: 'bad', action: null, ...(last ? { at: last.at } : {}) });
+    for (const e of list) folded.add(e);
+  }
+  return { summaries, folded };
 };
 
 /** A toast is a sentence: civ names are stored lower-case ("the Norse Thing declared war"). */
@@ -70,7 +130,9 @@ const eventToToastRaw = (ev: SimEvent, me: PlayerId, n: EventNames): ToastSpec |
     case 'combat':
       return combatToast(ev, me, n);
     case 'cultureHint':
-      return ev.player === me ? { text: ev.text, tone: 'culture', action: null } : null;
+      // Tapping a whisper opens "Your people", where it joins the voices that shaped you: the
+      // feedback loop from play to identity (playtest 4: whispers scrolled past unexplained).
+      return ev.player === me ? { text: ev.text, tone: 'culture', action: { kind: 'people' }, whisper: true } : null;
     case 'offerCreated':
       return ev.player === me
         ? { text: 'Someone famous wants to join you.', tone: 'culture', action: { kind: 'offer', offer: ev.offer } }
@@ -127,7 +189,7 @@ const eventToToastRaw = (ev: SimEvent, me: PlayerId, n: EventNames): ToastSpec |
       }
       return null;
     case 'milestoneReached':
-      return ev.player === me ? { text: `Milestone: ${n.milestone(ev.milestone)}.`, tone: 'good', action: { kind: 'legacy' } } : null;
+      return ev.player === me ? { text: milestoneSentence(n.milestone(ev.milestone)), tone: 'good', action: { kind: 'legacy' } } : null;
     case 'crisisStarted':
       return { text: `Crisis: ${n.crisis(ev.crisis)} has begun.`, tone: 'bad', action: { kind: 'crisis' } };
     case 'crisisStage':
@@ -135,13 +197,13 @@ const eventToToastRaw = (ev: SimEvent, me: PlayerId, n: EventNames): ToastSpec |
     case 'deedCompleted':
       return ev.player === me
         ? { text: `Deed done: ${n.deed(ev.deed)}. ${n.figure(ev.figure)} takes notice.`, tone: 'culture', action: null }
-        : { text: `${n.owner(ev.player)} achieved ${n.deed(ev.deed)}.`, tone: 'info', action: null };
+        : { text: `${n.owner(ev.player)} achieved ${n.deed(ev.deed).replace(/^The /, 'the ')}.`, tone: 'info', action: null };
     case 'playerEliminated':
       return ev.player === me
         ? { text: 'Our people have been conquered.', tone: 'bad', action: null }
         : { text: `${n.owner(ev.player)} has fallen.`, tone: 'info', action: null };
     case 'notice':
-      return ev.player === null || ev.player === me ? { text: ev.text, tone: 'info', action: null } : null;
+      return ev.player === null || ev.player === me ? { text: ev.text, tone: noticeTone(ev.text), action: null } : null;
     case 'tradeRouteOpened': {
       if (ev.player !== me) return null;
       const to = n.settlement(ev.to);
@@ -160,6 +222,40 @@ const eventToToastRaw = (ev: SimEvent, me: PlayerId, n: EventNames): ToastSpec |
     default:
       return null;
   }
+};
+
+/**
+ * "Figures recruited: 3" (a legacy description) reads as a form field in a sentence; say it the
+ * way a chronicler would: "Milestone reached: 3 figures recruited." Other shapes pass through.
+ */
+export const milestoneSentence = (desc: string): string => {
+  const m = /^(.+?):\s*(\d+%?)$/.exec(desc.trim());
+  if (!m || !m[1] || !m[2]) return `Milestone reached: ${desc.replace(/\.$/, '')}.`;
+  const label = m[1].charAt(0).toLowerCase() + m[1].slice(1);
+  return `Milestone reached: ${m[2]} ${label}.`;
+};
+
+/**
+ * Notices are plain sentences from the sim. Raider warnings and pillage are losses the player can
+ * still prevent, so they rank with the bad news instead of folding under "+N more updates"
+ * (playtest 4: "Raiders are a day from Toletum" hid behind "Adopted Craftsmanship"). UI-side
+ * wording match until notices carry a kind (proposal in the playtest report).
+ */
+export const noticeTone = (text: string): Toast['tone'] => (/\b(raiders?|pillag|no one guards)|by another people first/i.test(text) ? 'bad' : 'info');
+
+/**
+ * The same thing said twice in one batch ("Crisis: Collapse has begun", "Collapse deepens
+ * (stage 1)") is one line: keeps the first toast per offer or crisis screen. Pure.
+ */
+export const dedupeByScreen = (specs: readonly ToastSpec[]): ToastSpec[] => {
+  const seen = new Set<string>();
+  return specs.filter((t) => {
+    if (!t.action || (t.action.kind !== 'crisis' && t.action.kind !== 'offer')) return true;
+    const k = JSON.stringify(t.action);
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
 };
 
 const AGE_WORD: Record<string, string> = { ancient: 'Ancient', classical: 'Classical', exploration: 'Exploration', modern: 'Modern' };
@@ -228,15 +324,7 @@ export const MAX_TOASTS = 3;
  */
 export const rankToasts = (specs: readonly ToastSpec[], max: number = MAX_TOASTS): ToastSpec[] => {
   // Two toasts that open the same screen say the same thing ("crisis began", "stage 1"): keep the first.
-  const seen = new Set<string>();
-  const unique = specs.filter((t) => {
-    if (!t.action || (t.action.kind !== 'crisis' && t.action.kind !== 'offer')) return true;
-    const k = JSON.stringify(t.action);
-    if (seen.has(k)) return false;
-    seen.add(k);
-    return true;
-  });
-  const sorted = unique
+  const sorted = dedupeByScreen(specs)
     .map((t, i) => ({ t, i }))
     .sort((a, b) => toastPriority(a.t) - toastPriority(b.t) || a.i - b.i)
     .map((x) => x.t);

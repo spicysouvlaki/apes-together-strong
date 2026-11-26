@@ -197,6 +197,9 @@ export const TreeScreen = ({ modal }: ScreenProps<'tree'>) => {
                   setDetail(null);
                   // "Pick one in each tree" (guide): go straight on to the other tree if it is idle.
                   if (idle(otherTree)) openModal({ kind: 'tree', tree: otherTree });
+                  // Nothing else to pick: back to the map, where the next decision waits
+                  // (playtest 4: "Back to the map" after every pick, about 20 extra taps a game).
+                  else closeModal();
                 }}
                 aria-label={`${tree === 'tech' ? 'Research' : 'Adopt'} ${node.name}`}
               >

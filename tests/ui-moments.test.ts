@@ -352,7 +352,8 @@ describe('Chronicle as a story', () => {
     const story = { view, cultures: ['Greek', 'Egyptian'], named: true };
     const open = openingLine(story);
     expect(open).toContain(view.civName);
-    expect(open).toContain(view.leader);
+    // The archetype title reads lower-case mid-sentence ("led by the Merchant").
+    expect(open).toContain(`led by ${view.leader.replace(/^The /, 'the ')}`);
     expect(open).toContain('Greek and Egyptian roots');
     expect(open).not.toMatch(BAD);
     expect(openingLine({ ...story, named: false })).toContain('a people yet unnamed');

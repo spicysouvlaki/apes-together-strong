@@ -74,7 +74,13 @@ export function RecruitReveal() {
   const g = game.value;
   const p = myPlayer.value;
   const my = me.value;
-  if (!r || !g || !p || !my) return null;
+  // A rival got them first (the snapshot says so): no celebration for someone who did not come;
+  // the ticker already says "joined a rival" (playtest 4, Hua Mulan).
+  const takenByRival = !!r && !!g && !!my && !!g.figures[r.figure] && g.figures[r.figure]?.owner !== my;
+  useEffect(() => {
+    if (takenByRival) closeRecruitReveal();
+  }, [takenByRival]);
+  if (!r || !g || !p || !my || takenByRival) return null;
   const def = lookup.figures[r.figure];
   if (!def) return null;
   const fs = g.figures[r.figure];

@@ -115,6 +115,20 @@ describe('tap intent', () => {
     expect(wrap.kind).toBe('openCity');
   });
 
+  it('marches a selected unit to our own empty settlement instead of opening it', () => {
+    const s = newGame();
+    const settler = unitOf(s, 'settler');
+    const warrior = unitOf(s, 'warrior_band');
+    const founded = structuredClone(apply(s, { type: 'foundSettlement', unit: settler.id }));
+    // The warrior stands away from the new city (playtest 4: a guard sent to a pillaged town).
+    const away = { q: warrior.at.q + 3, r: warrior.at.r };
+    founded.units[warrior.id]!.at = away;
+    const base = { state: founded, me: 'p1', hex: settler.at, reachable: [], attackable: [], lastTap: null, atWar: atPeace };
+    expect(resolveTap({ ...base, selectedUnit: warrior.id })).toEqual({ kind: 'plan', unit: warrior.id, to: settler.at });
+    // With nothing in hand the same tap still opens the city.
+    expect(resolveTap({ ...base, selectedUnit: null }).kind).toBe('openCity');
+  });
+
   it('deselects on empty tiles', () => {
     const s = newGame();
     const empty = s.map.tiles.find((t) => !Object.values(s.units).some((u) => u.at.q === t.q && u.at.r === t.r) && !t.settlement)!;
@@ -185,10 +199,12 @@ describe('event toasts', () => {
   });
 
   it('shows my own news with the right tone and action', () => {
+    // A whisper opens "Your people" and is marked as a whisper for its list of voices.
     expect(t({ type: 'cultureHint', player: 'p1', culture: 'greek', text: 'Greek sailors talk of you.' })).toEqual({
       text: 'Greek sailors talk of you.',
       tone: 'culture',
-      action: null,
+      action: { kind: 'people' },
+      whisper: true,
     });
     expect(t({ type: 'offerCreated', offer: 'o1', player: 'p1' })?.action).toEqual({ kind: 'offer', offer: 'o1' });
     expect(t({ type: 'productionCompleted', settlement: 'mine', item: 'warrior_band', player: 'p1' })).toMatchObject({
