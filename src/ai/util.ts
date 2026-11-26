@@ -57,7 +57,8 @@ export const UNREACHABLE = 1 << 29;
 /**
  * Land movement cost from every tile to the nearest of `sources` (Dijkstra with a bucket
  * queue; costs are small integers). Foreign settlements block passage but can be sources.
- * Tiles further than `maxCost` stay UNREACHABLE.
+ * Tiles further than `maxCost` stay UNREACHABLE. With `waterCost` > 0 water tiles are
+ * passable at that cost (land units that can embark, e.g. settlers crossing to new shores).
  */
 export const landField = (
   state: GameState,
@@ -65,7 +66,9 @@ export const landField = (
   sources: readonly number[],
   maxCost = 200,
   owner?: string,
+  waterCost = 0,
 ): Int32Array => {
+  const stepCost = (t: Tile): number => landStepCost(t, content) || (waterCost > 0 && isWaterTile(t, content) ? waterCost : 0);
   const map = state.map;
   const n = map.tiles.length;
   const dist = new Int32Array(n).fill(UNREACHABLE);
@@ -85,24 +88,53 @@ export const landField = (
       const tile = map.tiles[i];
       if (!tile) continue;
       // Leaving a tile we cannot stand on (a foreign settlement source) is fine; it costs its neighbours' entry.
-      const enter = landStepCost(tile, content);
-      const stepCost = enter > 0 ? enter : 1;
+      const enter = stepCost(tile);
+      const leave = enter > 0 ? enter : 1;
       for (let k = 0; k < 6; k++) {
         const m = nb[i * 6 + k] as number;
         if (m < 0) continue;
         const mt = map.tiles[m];
-        if (!mt || landStepCost(mt, content) === 0) continue;
+        if (!mt || stepCost(mt) === 0) continue;
         if (mt.settlement && owner !== undefined) {
           const s = state.settlements[mt.settlement];
           if (s && s.owner !== owner) continue;
         }
-        const nd = c + stepCost;
+        const nd = c + leave;
         if (nd < (dist[m] as number) && nd <= maxCost) {
           dist[m] = nd;
           (buckets[nd] ??= []).push(m);
         }
       }
     }
+  }
+  return dist;
+};
+
+/** Movement cost over water only (ships), from every tile to the nearest of `sources`. */
+export const waterField = (state: GameState, content: ContentBundle, sources: readonly number[], maxCost = 60): Int32Array => {
+  const map = state.map;
+  const n = map.tiles.length;
+  const dist = new Int32Array(n).fill(UNREACHABLE);
+  const nb = neighborTable(map);
+  let frontier: number[] = [];
+  for (const s of sources) {
+    if (s < 0 || s >= n) continue;
+    dist[s] = 0;
+    frontier.push(s);
+  }
+  for (let c = 0; c < maxCost && frontier.length > 0; c++) {
+    const next: number[] = [];
+    for (const i of frontier) {
+      for (let k = 0; k < 6; k++) {
+        const m = nb[i * 6 + k] as number;
+        if (m < 0 || (dist[m] as number) <= c + 1) continue;
+        const mt = map.tiles[m];
+        if (!mt || !isWaterTile(mt, content)) continue;
+        dist[m] = c + 1;
+        next.push(m);
+      }
+    }
+    frontier = next;
   }
   return dist;
 };

@@ -4,7 +4,7 @@
  */
 import type { ContentBundle, Modifier } from '@contracts/content-schemas';
 import { hexDistance, type Hex } from '@contracts/hex';
-import type { CultureId, GameState, PlayerId, Settlement, SettlementId, UnitId } from '@contracts/sim-api';
+import { isCityStateOwner, type CultureId, type GameState, type PlayerId, type Settlement, type SettlementId, type UnitId } from '@contracts/sim-api';
 import { addAffinity, cultureWeights } from '../emergence';
 import { addAgeProgress } from './ages';
 import { addChronicle } from './chronicle';
@@ -28,6 +28,7 @@ import { capitalOf, ci, isCoastalHex, isWater, tileAt, tilesInRange } from './lo
 import { applyCostPercent, buildingModifiers, conditionMatches, costPercentIn, empireModifiers, type CondEnv } from './modifiers';
 import { pick } from './rng';
 import { removeUnit, revealAround, spawnUnit } from './units';
+import { announceWonder, borderNeighbours, contactsOf, greetNewContacts, hasHuman, noteBordersTouch } from './voice';
 import { growthCost, resourceRevealed, type YieldRecord } from './yields';
 
 // --- Founding ------------------------------------------------------------------
@@ -142,6 +143,8 @@ export const foundSettlement = (ctx: SimCtx, player: PlayerId, unitId: UnitId): 
   if (siteError) return siteError;
   const first = !capitalOf(state, player);
   const culture = namingCulture(state, player, content);
+  const voiced = hasHuman(state);
+  const neighboursBefore = voiced ? borderNeighbours(state, player) : {};
   const s = createSettlement(state, player, unit.at, {
     name: pickName(state, culture, content),
     namedFor: culture ?? '',
@@ -151,7 +154,12 @@ export const foundSettlement = (ctx: SimCtx, player: PlayerId, unitId: UnitId): 
   });
   removeUnit(ctx, unitId);
   const p = state.players[player];
+  const contactsBefore = voiced ? contactsOf(state, player) : {};
   if (p) revealAround(state, p.explored, s.at, SETTLEMENT_VISION);
+  if (voiced) {
+    greetNewContacts(ctx, player, contactsBefore);
+    noteBordersTouch(ctx, s, neighboursBefore);
+  }
   ctx.events.push({ type: 'settlementFounded', settlement: s.id, player });
   addChronicle(state, player, 'founding', s.id, `${s.name} was founded.`);
   return null;
@@ -276,6 +284,7 @@ export const completeItem = (ctx: SimCtx, s: Settlement, item: string): boolean 
     if (p) p.stats.wondersBuilt++;
     addAffinity(ctx, s.owner, def.culture, def.affinity);
     addAgeProgress(ctx, WONDER_AGE_PROGRESS);
+    announceWonder(ctx, s, def.name);
     addChronicle(state, s.owner, 'wonder', item, `${def.name} was completed in ${s.name}.`);
     ctx.events.push({ type: 'wonderBuilt', wonder: item, player: s.owner, settlement: s.id });
     // Anyone else building it loses the item (progress stays banked).
@@ -350,7 +359,10 @@ export const growSettlement = (ctx: SimCtx, s: Settlement, y: YieldRecord, happi
   if (s.foodStored >= cost) {
     s.foodStored = Math.round((s.foodStored - cost) * 100) / 100;
     s.population++;
+    const voiced = hasHuman(ctx.state) && !isCityStateOwner(s.owner);
+    const before = voiced ? borderNeighbours(ctx.state, s.owner) : {};
     claimTiles(ctx.state, s, borderRadius(s.population));
+    if (voiced) noteBordersTouch(ctx, s, before);
     ctx.events.push({ type: 'settlementGrew', settlement: s.id, population: s.population });
   } else if (s.foodStored < 0) {
     if (s.population > 1) s.population--;

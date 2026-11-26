@@ -46,7 +46,7 @@ import type { SimCtx } from './ctx';
 import { ci, isCivilian, isWater, playerSettlements, tileAt, tilesInRange, unitsAt } from './lookup';
 import { combatBonus } from './modifiers';
 import { nextRange } from './rng';
-import { removeUnit, terrainAllows, unitEnv, unitModifiers } from './units';
+import { auraModifiers, removeUnit, terrainAllows, unitEnv, unitModifiers } from './units';
 
 /** Raiders are hostile to everyone; otherwise hostility needs a declared war (GDD §7). */
 export const isHostile = (state: GameState, a: PlayerId, b: PlayerId): boolean => {
@@ -66,58 +66,107 @@ const isEmbarked = (state: GameState, u: Unit, content: ContentBundle): boolean 
   return !!t && !t.settlement && isWater(t, content);
 };
 
-const tileDefense = (state: GameState, at: Hex, content: ContentBundle): number => {
-  const t = tileAt(state.map, at);
-  if (!t) return 0;
-  return (ci(content).terrain[t.terrain]?.defense ?? 0) + (t.feature ? (FEATURE_DEFENSE[t.feature] ?? 0) : 0);
-};
-
 export interface AttackTarget {
   at: Hex;
   unitClass: UnitClass | null;
   settlement: boolean;
 }
 
-export const attackStrength = (state: GameState, u: Unit, target: AttackTarget, ranged: boolean, content: ContentBundle): number => {
+/** One plain-words strength modifier ("Hills +3"); shared by resolution and the preview. */
+export interface StrengthFactor {
+  label: string;
+  value: number;
+}
+
+/** A strength = base + Σ factors. The ONE computation behind attacks and `combatPreview`. */
+export interface StrengthBreakdown {
+  base: number;
+  factors: StrengthFactor[];
+  total: number;
+}
+
+const breakdown = (base: number, raw: StrengthFactor[]): StrengthBreakdown => {
+  const factors = raw.filter((f) => f.value !== 0);
+  return { base, factors, total: factors.reduce((t, f) => t + f.value, base) };
+};
+
+/**
+ * `combat` modifier bonuses, grouped: the commander aura apart from everything else (leader,
+ * dream, government, cabinet, traditions, hybrids, buildings, timed effects).
+ */
+const bonusFactors = (state: GameState, u: Unit, vs: UnitClass | null, content: ContentBundle): StrengthFactor[] => {
+  const env = unitEnv(state, u, content);
+  const total = combatBonus(unitModifiers(state, u, content), env, vs);
+  const aura = combatBonus(auraModifiers(state, u, content), env, vs);
+  return [
+    { label: 'Commander nearby', value: aura },
+    { label: 'Leader, government and traditions', value: total - aura },
+  ];
+};
+
+const woundFactor = (u: Unit): StrengthFactor => ({ label: 'Wounds', value: -hpPenalty(u.hp) });
+
+const tileFactors = (state: GameState, at: Hex, content: ContentBundle): StrengthFactor[] => {
+  const t = tileAt(state.map, at);
+  if (!t) return [];
+  const terrain = ci(content).terrain[t.terrain];
+  const out: StrengthFactor[] = [{ label: terrain?.name ?? 'Terrain', value: terrain?.defense ?? 0 }];
+  if (t.feature) out.push({ label: t.feature.charAt(0).toUpperCase() + t.feature.slice(1), value: FEATURE_DEFENSE[t.feature] ?? 0 });
+  return out;
+};
+
+const embarkedBreakdown = (base: number): StrengthBreakdown => breakdown(base, [{ label: 'Embarked on water', value: EMBARKED_STRENGTH - base }]);
+
+export const attackBreakdown = (state: GameState, u: Unit, target: AttackTarget, ranged: boolean, content: ContentBundle): StrengthBreakdown => {
   const def = ci(content).units[u.type];
-  if (!def) return 0;
-  if (isEmbarked(state, u, content)) return EMBARKED_STRENGTH;
-  let s = ranged ? (def.rangedStrength ?? def.strength) : def.strength;
-  s += combatBonus(unitModifiers(state, u, content), unitEnv(state, u, content), target.unitClass);
-  s -= hpPenalty(u.hp);
-  if (target.settlement) s += def.siegeBonus;
+  if (!def) return breakdown(0, []);
+  const base = ranged ? (def.rangedStrength ?? def.strength) : def.strength;
+  if (isEmbarked(state, u, content)) return embarkedBreakdown(base);
+  const f: StrengthFactor[] = [...bonusFactors(state, u, target.unitClass, content), woundFactor(u)];
+  if (target.settlement) f.push({ label: 'Siege bonus against walls', value: def.siegeBonus });
   if (!ranged) {
+    let flank = 0;
     for (const n of hexNeighbors(target.at)) {
       if (n.q === u.at.q && n.r === u.at.r) continue;
-      if (unitsAt(state, n).some((o) => o.owner === u.owner && !isCivilian(o))) s += FLANKING_PER_UNIT;
+      if (unitsAt(state, n).some((o) => o.owner === u.owner && !isCivilian(o))) flank += FLANKING_PER_UNIT;
     }
+    f.push({ label: 'Flanking', value: flank });
     const from = tileAt(state.map, u.at);
     const to = tileAt(state.map, target.at);
-    if (from?.river || to?.river) s -= RIVER_CROSSING_PENALTY;
+    if (from?.river || to?.river) f.push({ label: 'River crossing', value: -RIVER_CROSSING_PENALTY });
   }
-  return s;
+  return breakdown(base, f);
 };
 
-export const defenseStrength = (state: GameState, u: Unit, attackerClass: UnitClass, content: ContentBundle): number => {
+export const attackStrength = (state: GameState, u: Unit, target: AttackTarget, ranged: boolean, content: ContentBundle): number =>
+  attackBreakdown(state, u, target, ranged, content).total;
+
+export const defenseBreakdown = (state: GameState, u: Unit, attackerClass: UnitClass, content: ContentBundle): StrengthBreakdown => {
   const def = ci(content).units[u.type];
-  if (!def) return 0;
-  if (isEmbarked(state, u, content)) return EMBARKED_STRENGTH;
-  let s = def.strength + tileDefense(state, u.at, content);
-  if (u.fortified) s += FORTIFY_BONUS;
-  s += combatBonus(unitModifiers(state, u, content), unitEnv(state, u, content), attackerClass);
-  s -= hpPenalty(u.hp);
+  if (!def) return breakdown(0, []);
+  if (isEmbarked(state, u, content)) return embarkedBreakdown(def.strength);
+  const f: StrengthFactor[] = [...tileFactors(state, u.at, content)];
+  if (u.fortified) f.push({ label: 'Fortified', value: FORTIFY_BONUS });
+  f.push(...bonusFactors(state, u, attackerClass, content), woundFactor(u));
   const t = tileAt(state.map, u.at);
   const home = t?.settlement ? state.settlements[t.settlement] : undefined;
-  if (home && home.owner === u.owner && home.hp > 0) s += GARRISON_BONUS;
-  return s;
+  if (home && home.owner === u.owner && home.hp > 0) f.push({ label: 'Behind walls', value: GARRISON_BONUS });
+  return breakdown(def.strength, f);
 };
 
+export const defenseStrength = (state: GameState, u: Unit, attackerClass: UnitClass, content: ContentBundle): number =>
+  defenseBreakdown(state, u, attackerClass, content).total;
+
 /** A settlement's own defense: scales with age and population, plus wall buildings and terrain. */
+export const settlementBreakdown = (state: GameState, s: Settlement, content: ContentBundle): StrengthBreakdown =>
+  breakdown(SETTLEMENT_STRENGTH_BY_AGE[state.age], [
+    { label: 'Population', value: SETTLEMENT_STRENGTH_PER_POP * s.population },
+    { label: 'Wall buildings', value: Math.floor(Math.max(0, s.maxHp - WALL_BASE_HP) / SETTLEMENT_STRENGTH_WALL_DIVISOR) },
+    ...tileFactors(state, s.at, content),
+  ]);
+
 export const settlementStrength = (state: GameState, s: Settlement, content: ContentBundle): number =>
-  SETTLEMENT_STRENGTH_BY_AGE[state.age] +
-  SETTLEMENT_STRENGTH_PER_POP * s.population +
-  Math.floor(Math.max(0, s.maxHp - WALL_BASE_HP) / SETTLEMENT_STRENGTH_WALL_DIVISOR) +
-  tileDefense(state, s.at, content);
+  settlementBreakdown(state, s, content).total;
 
 const roll = (state: GameState): number => nextRange(state, COMBAT_RANDOM_MIN, COMBAT_RANDOM_MAX);
 
@@ -252,8 +301,12 @@ export interface AttackPlan {
   civilians: Unit[];
 }
 
-/** What attacking `target` with `u` would hit, or an error. Shared by the command and the query. */
-export const planAttack = (state: GameState, u: Unit, target: Hex, content: ContentBundle): AttackPlan | string => {
+/**
+ * What attacking `target` with `u` would hit, or an error. Shared by the command and the
+ * queries. `assumeWar` skips the war requirement (the combat preview shows what a declaration
+ * would lead to).
+ */
+export const planAttack = (state: GameState, u: Unit, target: Hex, content: ContentBundle, assumeWar = false): AttackPlan | string => {
   const def = ci(content).units[u.type];
   if (!def) return 'That unit no longer exists.';
   if (u.hasAttacked) return 'This unit has already attacked this turn.';
@@ -272,7 +325,7 @@ export const planAttack = (state: GameState, u: Unit, target: Hex, content: Cont
   const settlement = sRaw && sRaw.owner !== u.owner ? sRaw : null;
   const enemyOwner = defender?.owner ?? settlement?.owner ?? civilians[0]?.owner;
   if (enemyOwner === undefined) return 'There is nothing to attack there.';
-  if (!isHostile(state, u.owner, enemyOwner)) return 'You are not at war with them; declare war first.';
+  if (!assumeWar && !isHostile(state, u.owner, enemyOwner)) return 'You are not at war with them; declare war first.';
   if (!defender && !settlement && canRanged) return 'Ranged units cannot capture civilians; use a melee unit.';
   if (settlement && !defender && settlement.hp <= 0 && canRanged) return 'The walls are down: only a melee unit can take the city.';
   return { ranged: canRanged, defender, settlement, civilians };

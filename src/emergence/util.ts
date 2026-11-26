@@ -1,6 +1,5 @@
 /** Small shared helpers for the emergence engine. Pure; no state mutation. */
-import type { ContentBundle, Figure, FigureKind, GpKind } from '@contracts/content-schemas';
-import { FIGURE_KIND_TO_GP } from '@contracts/content-schemas';
+import { AGES, FIGURE_KIND_TO_GP, type Age, type ContentBundle, type Figure, type FigureKind, type GpKind } from '@contracts/content-schemas';
 import { axialToOffset, hexEquals, hexNeighbors, type Hex } from '@contracts/hex';
 import type {
   CultureId,
@@ -23,6 +22,29 @@ export const figureDef = (content: ContentBundle, id: string): Figure | undefine
     figureIndexCache.set(content.figures, index);
   }
   return index[id];
+};
+
+const ageCultureCache = new WeakMap<readonly Figure[], Partial<Record<Age, Record<CultureId, true>>>>();
+
+/** Cultures with at least one figure (of any kind, deeds included) in `age`. Cached per bundle. */
+export const culturesWithFiguresIn = (content: ContentBundle, age: Age): Record<CultureId, true> => {
+  let byAge = ageCultureCache.get(content.figures);
+  if (!byAge) {
+    byAge = {};
+    for (const f of content.figures) (byAge[f.age] ??= {})[f.culture] = true;
+    ageCultureCache.set(content.figures, byAge);
+  }
+  return byAge[age] ?? {};
+};
+
+/**
+ * A culture is dormant in `age` when none of its figures belong to that age but some belong
+ * to a later one: the player can be drawn to it now, but its people only arrive later (e.g.
+ * no Inuit figure predates the Classical age).
+ */
+export const isDormantCulture = (content: ContentBundle, culture: CultureId, age: Age): boolean => {
+  if (culturesWithFiguresIn(content, age)[culture]) return false;
+  return AGES.slice(AGES.indexOf(age) + 1).some((a) => culturesWithFiguresIn(content, a)[culture] === true);
 };
 
 export const getPlayer = (state: GameState, id: PlayerId): PlayerState => {

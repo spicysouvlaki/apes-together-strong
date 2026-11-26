@@ -10,14 +10,21 @@ import { attackStrength, defenseStrength, planAttack, settlementStrength } from 
 import { tradeRouteCap } from '../sim/diplomacy';
 import { ci, tileIndex } from '../sim/lookup';
 import { queries } from '../sim/queries';
+import { posture } from '../sim/voice';
 import { exec, me, type AiCtx } from './ctx';
-import type { EmpirePlan } from './economy';
+import { settlesOverseas, type EmpirePlan } from './economy';
 import { pickWarTarget } from './war';
 import { aiSiteScorer, siteLegal } from './sites';
-import { UNREACHABLE, landField, landStepCost } from './util';
-import { enemiesAtWar, hostilesNear, isMilitary, ownSettlements, ownUnits } from './world';
+import { UNREACHABLE, isWaterTile, landField, landStepCost, waterField } from './util';
+import { enemiesAtWar, hostilesNear, isMilitary, ownSettlements, ownUnits, warFoes } from './world';
 
 const unitById = (ai: AiCtx, id: string): Unit | undefined => ai.state.units[id];
+
+/** A trader's merchant treats a human city as this many tiles closer than it is. */
+export const TRADER_HUMAN_PULL = 5;
+
+/** Field cost of a water tile for an embarking settler (dearer than land: embarked units are weak). */
+export const SETTLER_WATER_COST = 2;
 
 /**
  * Move a unit one turn along `field` (lower is closer). Never ends on a tile with field below
@@ -94,8 +101,9 @@ export const moveSettlers = (ai: AiCtx, plan: EmpirePlan): void => {
       if (!t?.settlement) moveAlong(ai, u.id, ownSettlementField(ai));
       continue;
     }
-    // Best unclaimed site by score minus travel.
-    const fromHere = landField(ai.state, content, [idxOf(ai, u.at)], 40);
+    // Best unclaimed site by score minus travel (over water too, for seafaring settlers).
+    const water = settlesOverseas(ai) ? SETTLER_WATER_COST : 0;
+    const fromHere = landField(ai.state, content, [idxOf(ai, u.at)], 40, undefined, water);
     let target = -1;
     let bestScore = -Infinity;
     for (const site of plan.sites) {
@@ -118,7 +126,7 @@ export const moveSettlers = (ai: AiCtx, plan: EmpirePlan): void => {
       exec(ai, { type: 'foundSettlement', unit: u.id });
       continue;
     }
-    moveAlong(ai, u.id, landField(ai.state, content, [target], 60));
+    moveAlong(ai, u.id, landField(ai.state, content, [target], 60, undefined, water));
     const after = unitById(ai, u.id);
     if (after && idxOf(ai, after.at) === target) exec(ai, { type: 'foundSettlement', unit: u.id });
   }
@@ -156,6 +164,7 @@ const merchantDestination = (ai: AiCtx, u: Unit): Settlement | null => {
   const { state, player } = ai;
   const home = ownSettlements(state, player);
   const enemies = enemiesAtWar(state, player);
+  const trader = posture(state, player, ai.content) === 'trader';
   let best: Settlement | null = null;
   let bestD = Infinity;
   for (const id of Object.keys(state.settlements)) {
@@ -163,7 +172,8 @@ const merchantDestination = (ai: AiCtx, u: Unit): Settlement | null => {
     if (!s || s.owner === player || enemies.includes(s.owner)) continue;
     if (state.tradeRoutes.some((r) => r.owner === player && r.to === s.id)) continue;
     if (!home.some((h) => hexDistance(h.at, s.at) <= 10)) continue;
-    const d = hexDistance(u.at, s.at);
+    // A trading posture seeks out the human's markets first (src/sim/voice.ts).
+    const d = hexDistance(u.at, s.at) - (trader && state.players[s.owner]?.isHuman === true ? TRADER_HUMAN_PULL : 0);
     if (d < bestD) {
       bestD = d;
       best = s;
@@ -252,9 +262,34 @@ const fortifyIfIdle = (ai: AiCtx, u: Unit): void => {
   if (cur && !cur.fortified && cur.movesLeft > 0 && cur.unitClass !== 'commander') exec(ai, { type: 'fortify', unit: u.id });
 };
 
+/**
+ * Ships (GDD §7 naval column): strike what they safely can, then chart unexplored waters
+ * (exploration points, the seafaring deeds); with nothing left to chart they return home.
+ */
+export const moveNavy = (ai: AiCtx): void => {
+  const ships = ownUnits(ai.state, ai.player).filter((u) => u.unitClass === 'naval');
+  if (ships.length === 0) return;
+  const explored = me(ai).explored;
+  const unexplored: number[] = [];
+  ai.state.map.tiles.forEach((t, i) => {
+    if (!explored[i] && isWaterTile(t, ai.content)) unexplored.push(i);
+  });
+  const chart = unexplored.length ? waterField(ai.state, ai.content, unexplored) : null;
+  let home: Int32Array | null = null;
+  for (const s of ships) {
+    tryAttack(ai, s.id);
+    const u = unitById(ai, s.id);
+    if (!u || u.movesLeft <= 0) continue;
+    if (u.hp >= 50 && chart && (chart[idxOf(ai, u.at)] ?? UNREACHABLE) < UNREACHABLE && moveAlong(ai, u.id, chart)) continue;
+    home ??= waterField(ai.state, ai.content, ownSettlements(ai.state, ai.player).map((x) => idxOf(ai, x.at)));
+    moveAlong(ai, u.id, home);
+  }
+};
+
 export const moveMilitary = (ai: AiCtx, plan?: EmpirePlan): void => {
   const { state, player, content } = ai;
-  const mine = (): Unit[] => ownUnits(ai.state, player).filter(isMilitary);
+  // Ships keep to the water (moveNavy); everything below is the land army.
+  const mine = (): Unit[] => ownUnits(ai.state, player).filter((u) => isMilitary(u) && u.unitClass !== 'naval');
   // Ranged first so melee can finish what they soften.
   const order = mine().sort((a, b) => {
     const ar = ci(content).units[a.type]?.rangedStrength ? 0 : 1;
@@ -304,7 +339,7 @@ export const moveMilitary = (ai: AiCtx, plan?: EmpirePlan): void => {
       .sort((a, b) => hexDistance(a.at, t.at) - hexDistance(b.at, t.at) || (a.id < b.id ? -1 : 1));
     for (const u of free.slice(0, 2)) respond.set(u.id, t);
   }
-  const enemies = enemiesAtWar(ai.state, player);
+  const enemies = warFoes(ai.state, player);
   // The war goal is the same settlement the war was declared for (src/ai/war.ts), re-scored
   // each turn from public information, so the whole army converges on one place.
   const goal = enemies.length > 0 ? pickWarTarget(ai, enemies) : null;

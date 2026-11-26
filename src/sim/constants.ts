@@ -32,8 +32,12 @@ export const GROWTH_EXPONENT = 1.4;
 export const CITY_CENTER_MIN_YIELDS: Yields = { food: 2, production: 2 };
 /** Flat yields every city (not town) adds; towns convert production into gold instead. */
 export const CITY_BASE_YIELDS: Yields = { science: 1, culture: 1 };
-/** Extra flat yields of the capital. */
-export const CAPITAL_YIELDS: Yields = { science: 2, culture: 1, gold: 2, influence: 2 };
+/**
+ * Extra flat yields of the capital. Production and culture tuned up from 0/1 by the fun audit
+ * (scripts/fun-audit.ts): the first build and first civic took 12+ turns, leaving turns 2–7
+ * without a decision (target: first build by turn ~5, first tech by ~7).
+ */
+export const CAPITAL_YIELDS: Yields = { science: 2, culture: 2, gold: 2, influence: 2, production: 1 };
 /** Per-citizen yields (fractional, rounded at the empire level). */
 export const POP_YIELDS: Yields = { science: 0.5, culture: 0.3 };
 /** Towns turn this share of their production into gold (GDD §7: "production → gold"). */

@@ -20,7 +20,7 @@ import { makePlan, manageProduction, sendEnvoys, spendGold } from './economy';
 import { activateFigures, consumeLeftovers, fieldGenerals, seatFigures } from './figures';
 import { makePersona } from './persona';
 import { runTransition } from './transition';
-import { moveMerchants, moveMilitary, moveScouts, moveSettlers } from './units';
+import { moveMerchants, moveMilitary, moveNavy, moveScouts, moveSettlers } from './units';
 import { considerPeace, considerWar } from './war';
 import { hostilesNear, ownSettlements } from './world';
 
@@ -92,6 +92,7 @@ const playTurn = (ai: AiCtx): void => {
 
   // Units.
   step(ai, (a) => moveMilitary(a, plan ?? undefined));
+  step(ai, moveNavy);
   step(ai, moveScouts);
   step(ai, moveMerchants);
   // Activations that needed this turn's production choice (rush a wonder just started).

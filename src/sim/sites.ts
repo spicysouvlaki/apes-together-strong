@@ -8,7 +8,7 @@
  * Only public information is used: tile terrain and resources, borders, settlements, wars.
  */
 import { YIELDS, type ContentBundle, type Modifier } from '@contracts/content-schemas';
-import { hexDistance, type Hex } from '@contracts/hex';
+import { hexDistance, hexNeighbors, type Hex } from '@contracts/hex';
 import type { GameState, PlayerId, Unit } from '@contracts/sim-api';
 import { isHostile } from './combat';
 import {
@@ -25,9 +25,10 @@ import {
   SITE_WEIGHTS,
   type SiteWeights,
 } from './constants';
-import { ci, hexOfIndex, isWater, round2, tileIndex } from './lookup';
+import { ci, hexOfIndex, isCivilian, isWater, round2, tileIndex } from './lookup';
 import { empireModifiers } from './modifiers';
 import { canFoundAt } from './settlements';
+import { canEmbarkPlayer, terrainAllows, visibleTileSet } from './units';
 import { tileYield } from './yields';
 
 /** Luxury resource ids already inside the player's borders. */
@@ -132,8 +133,54 @@ export const siteScorer = (
 };
 
 /**
- * Legal sites the owner has explored within SETTLE_SITE_RANGE of a settler-type unit, best
- * first (ties: map order), at most SETTLE_SITE_MAX. Empty for units that cannot found.
+ * Where a settler could get to and stand (the same terrain, exploration and stacking rules as
+ * `planPath`, without the per-target search, so the hints stay cheap): explored tiles its
+ * terrain rules connect to `start`, not through or onto a foreign unit its owner can see,
+ * and — for the destination — not onto another own unit of the same stacking layer.
+ */
+const reachableSites = (state: GameState, unit: Unit, start: number, content: ContentBundle): Uint8Array => {
+  const n = state.map.tiles.length;
+  const ok = new Uint8Array(n);
+  const def = ci(content).units[unit.type];
+  const explored = state.players[unit.owner]?.explored;
+  if (!def || !explored || start < 0) return ok;
+  const embark = def.unitClass !== 'naval' && canEmbarkPlayer(state, unit.owner, content);
+  const visible = new Uint8Array(n);
+  for (const i of visibleTileSet(state, unit.owner, content)) visible[i] = 1;
+  const foreign = new Uint8Array(n);
+  const sameLayer = new Uint8Array(n);
+  const civilian = isCivilian(unit);
+  for (const id of Object.keys(state.units)) {
+    const u = state.units[id];
+    if (!u || u.id === unit.id) continue;
+    const i = tileIndex(state.map, u.at);
+    if (i < 0) continue;
+    if (u.owner !== unit.owner) {
+      if (visible[i]) foreign[i] = 1;
+    } else if (isCivilian(u) === civilian) sameLayer[i] = 1;
+  }
+  const seen = new Uint8Array(n);
+  const stack = [start];
+  seen[start] = 1;
+  while (stack.length > 0) {
+    const i = stack.pop() as number;
+    if (!sameLayer[i]) ok[i] = 1;
+    for (const nh of hexNeighbors(hexOfIndex(state.map, i))) {
+      const ni = tileIndex(state.map, nh);
+      if (ni < 0 || seen[ni] || !explored[ni] || foreign[ni]) continue;
+      const tile = state.map.tiles[ni];
+      if (!tile || !terrainAllows(state, unit.owner, def, tile, content, embark)) continue;
+      seen[ni] = 1;
+      stack.push(ni);
+    }
+  }
+  return ok;
+};
+
+/**
+ * Legal sites the owner has explored within SETTLE_SITE_RANGE of a settler-type unit that it
+ * can reach and stand on (the rules of `queries.pathTo`), best first (ties: map order),
+ * at most SETTLE_SITE_MAX. Empty for units that cannot found.
  */
 export const settleSitesFor = (state: GameState, unit: Unit, content: ContentBundle): { hex: Hex; score: number }[] => {
   const p = state.players[unit.owner];
@@ -151,5 +198,16 @@ export const settleSitesFor = (state: GameState, unit: Unit, content: ContentBun
     }
   }
   found.sort((a, b) => b.score - a.score || a.idx - b.idx);
-  return found.slice(0, SETTLE_SITE_MAX).map(({ hex, score: s }) => ({ hex, score: s }));
+  // Only sites the settler can actually reach and stand on (playtest: tiles held by another
+  // unit of the same layer, or land with no route, were ranked). Its own tile always counts.
+  // A route found here is one `pathTo` finds too (same terrain, exploration and unit rules).
+  const start = tileIndex(state.map, unit.at);
+  const reach = reachableSites(state, unit, start, content);
+  const out: { hex: Hex; score: number }[] = [];
+  for (const f of found) {
+    if (out.length >= SETTLE_SITE_MAX) break;
+    if (f.idx !== start && !reach[f.idx]) continue;
+    out.push({ hex: f.hex, score: f.score });
+  }
+  return out;
 };

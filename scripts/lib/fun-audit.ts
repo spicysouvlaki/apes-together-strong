@@ -73,6 +73,12 @@ export interface AuditReport {
   capturesCs: number;
   eliminations: { player: string; age: Age }[];
   wars: number;
+  /** Human total population at crisis start and at age end, per age with a crisis. */
+  crisisPop: { age: Age; start: number; end: number; gold: number; goldEnd: number; lost: number; lostEnd: number }[];
+  wonders: number;
+  humanWonders: number;
+  /** Rival postures (from src/sim/voice) and notice counts by kind of speaker. */
+  voiceNotices: number;
 }
 
 const ageStart: Record<string, number> = {};
@@ -110,7 +116,9 @@ export const auditGame = (
     finalScores: {}, spread: null, leadChanges: 0, leaderAt60: null,
     deeds: [], hintsWithoutFigures: 0, ageOpeningOffers: [], startClimate: {}, polarShareT25: {}, rank: {},
     navalBuilt: {}, overseasSettlements: {}, capturesPvp: 0, capturesCs: 0, eliminations: [], wars: 0,
+    crisisPop: [], wonders: 0, humanWonders: 0, voiceNotices: 0,
   };
+  const humanPop = (): number => Object.values(state.settlements).filter((s) => s.owner === HUMAN).reduce((a, s) => a + s.population, 0);
   ageStart.current = 1;
   let lastOfferSource: string | null = null;
   let settlementsFounded = 0;
@@ -211,7 +219,23 @@ export const auditGame = (
       if (e.type === 'cultureHint') {
         if (!figuresInAge(state.age).has(e.culture)) r.hintsWithoutFigures++;
       }
-      if (e.type === 'notice' && (e.player === HUMAN || e.player === null)) r.notices.push(`t${state.turn}: ${e.text}`);
+      if (e.type === 'notice' && (e.player === HUMAN || e.player === null)) {
+        r.notices.push(`t${state.turn}: ${e.text}`);
+        if (e.text.includes(': “')) r.voiceNotices++;
+      }
+      if (e.type === 'crisisStarted') r.crisisPop.push({ age: state.age, start: humanPop(), end: 0, gold: state.players[HUMAN]?.stock.gold ?? 0, goldEnd: 0, lost: state.players[HUMAN]?.stats.unitsLost ?? 0, lostEnd: 0 });
+      if (e.type === 'ageEnded') {
+        const c = r.crisisPop[r.crisisPop.length - 1];
+        if (c && c.age === e.age) {
+          c.end = humanPop();
+          c.goldEnd = state.players[HUMAN]?.stock.gold ?? 0;
+          c.lostEnd = state.players[HUMAN]?.stats.unitsLost ?? 0;
+        }
+      }
+      if (e.type === 'wonderBuilt') {
+        r.wonders++;
+        if (e.player === HUMAN) r.humanWonders++;
+      }
       if (e.type === 'transitionStarted' && r.transition === null) {
         const counts: Record<string, number> = {};
         let n = 0;
@@ -403,6 +427,12 @@ export const summarize = (rs: AuditReport[], content: ContentBundle): string => 
   const distinctTops = rs.map((r) => new Set(r.rivalTopCulturesT30.filter((x) => x !== null)).size / Math.max(1, r.rivalTopCulturesT30.length));
   L.push(`E rivals with distinct top culture at t30: ${avg(distinctTops.map((x) => x * 100))}%; notices to human per game ${avg(rs.map((r) => r.notices.length))}`);
   L.push(`  sample notices: ${[...new Set(rs.flatMap((r) => r.notices.map((x) => x.replace(/^t\d+: /, ''))))].slice(0, 12).join(' | ')}`);
+  const cp = rs.flatMap((r) => r.crisisPop);
+  for (const age of ['ancient', 'classical'] as const) {
+    const xs = cp.filter((c) => c.age === age);
+    L.push(`F crisis (${age}): human pop at crisis start ${avg(xs.map((c) => c.start))} → age end ${avg(xs.map((c) => c.end))}; games with a pop drop ${pct(xs.filter((c) => c.end < c.start).length, xs.length)}; units lost during crisis ${avg(xs.map((c) => c.lostEnd - c.lost))}; pillaged ${rs.reduce((s, r) => s + r.notices.filter((n) => n.includes('pillaged')).length, 0)}`);
+  }
+  L.push(`  wonders per game ${avg(rs.map((r) => r.wonders))} (human ${avg(rs.map((r) => r.humanWonders))}); rival voice notices per game ${avg(rs.map((r) => r.voiceNotices))}`);
   const spreads = nn(rs.map((r) => r.spread));
   L.push(`F spread last/first: avg ${avg(spreads.map((x) => x * 100))}%, games ≥60%: ${pct(spreads.filter((x) => x >= 0.6).length, spreads.length)}`);
   L.push(`H lead changes after t20: avg ${avg(rs.map((r) => r.leadChanges))}; leader at t60 = winner: ${pct(rs.filter((r) => r.leaderAt60 !== null && r.leaderAt60 === r.winner).length, rs.length)}; human won ${pct(rs.filter((r) => r.winner === 'p1').length, n)}`);

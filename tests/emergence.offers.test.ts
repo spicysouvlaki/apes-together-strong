@@ -92,8 +92,12 @@ describe('great-people points', () => {
     p.gp.statesman = 500;
     p.gp.military = 500;
     p.gp.thought = 500;
-    emergenceTick(makeCtx(state, content), 'p1');
-    expect(state.offers.filter((o) => o.player === 'p1')).toHaveLength(K.MAX_OPEN_OFFERS);
+    // At most one points offer per turn (offer pacing), so the cap is reached over turns.
+    for (let i = 0; i < K.MAX_OPEN_OFFERS + 1; i++) {
+      emergenceTick(makeCtx(state, content), 'p1');
+      expect(state.offers.filter((o) => o.player === 'p1').length).toBe(Math.min(i + 1, K.MAX_OPEN_OFFERS));
+      state.turn++;
+    }
     expect(p.gp.thought).toBe(500); // banked (already above the bank ceiling, so no growth)
   });
 
@@ -377,7 +381,7 @@ describe('legends and deeds', () => {
     fakeStats['p1:siegeTurnsHeld:'] = 5;
     state.players.p1!.gp.statesman = 500;
     state.players.p1!.gp.military = 500;
-    emergenceTick(makeCtx(state, content), 'p1');
+    for (let i = 0; i < K.MAX_OPEN_OFFERS; i++) emergenceTick(makeCtx(state, content), 'p1');
     expect(state.offers.filter((o) => o.deed === null)).toHaveLength(K.MAX_OPEN_OFFERS);
     expect(state.offers.filter((o) => o.deed !== null)).toHaveLength(1);
   });

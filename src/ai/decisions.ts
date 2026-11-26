@@ -5,7 +5,7 @@
  * the player's own culture weights, open cabinet seats) just like a human would.
  */
 import type { ContentBundle, Figure, LegacyTrack, Modifier } from '@contracts/content-schemas';
-import { LEGACY_TRACKS } from '@contracts/content-schemas';
+import { AGES, LEGACY_TRACKS } from '@contracts/content-schemas';
 import type { CultureId, Offer } from '@contracts/sim-api';
 import { queries } from '../sim/queries';
 import { exec, me, type AiCtx } from './ctx';
@@ -64,6 +64,9 @@ const openSeatKinds = (ai: AiCtx): string[] => {
   return out;
 };
 
+/** Offer-score bonus for a figure that brings a planned hybrid's second culture toward its weight. */
+export const HYBRID_PLAN_BONUS = 1.4;
+
 /** Offer-score bonus per culture-hint threshold crossed (50, 100). */
 export const HINT_LEAN = 0.9;
 
@@ -83,14 +86,19 @@ export const offerFigureScore = (
   // play attracts — the same cue a human gets. It never reads the hidden affinity numbers.
   const hint = me(ai).hintsShown[def.culture] ?? 0;
   s += hint >= 100 ? HINT_LEAN * 2 : hint >= 50 ? HINT_LEAN : 0;
+  // Plan a hybrid (GDD §6): a figure of a culture that pairs with one we already hold, while
+  // that culture is still short of the hybrid's weight, is worth more than another figure of
+  // our heaviest culture (AI civs become hybrid cultures too, GDD §9).
+  const ageIdx = AGES.indexOf(ai.state.age);
+  let plan = 0;
   for (const h of ai.content.hybrids) {
-    if (!h.cultures.includes(def.culture)) continue;
+    if (!h.cultures.includes(def.culture) || AGES.indexOf(h.age) > ageIdx + 1) continue;
     const other = h.cultures[0] === def.culture ? h.cultures[1] : h.cultures[0];
-    if ((weights[other] ?? 0) >= 1) {
-      s += 0.6 * (1 + pe.w.collector);
-      break;
-    }
+    if ((weights[other] ?? 0) < 1) continue;
+    const short = (weights[def.culture] ?? 0) < h.minWeight;
+    plan = Math.max(plan, (short ? HYBRID_PLAN_BONUS : 0.6) * (1 + 0.5 * pe.w.collector));
   }
+  s += plan;
   if (def.uses.includes('cabinet') && seatKinds.includes(def.kind)) s += 0.8;
   s += def.consumeValue * 0.1;
   s += hash01(`${ai.state.seed}|${ai.player}|fig|${def.id}`) * 0.3;

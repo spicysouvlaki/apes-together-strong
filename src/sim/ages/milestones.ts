@@ -3,7 +3,7 @@ import type { ContentBundle, LegacyMilestone } from '@contracts/content-schemas'
 import type { GameState, MilestoneProgress, PlayerId } from '@contracts/sim-api';
 import type { SimCtx } from '../ctx';
 import { statValue } from '../stats';
-import { LEGACY_POINTS_PER_TIER, METER_PER_MILESTONE } from './constants';
+import { LAST_CHANCE_LEGACY_MULT, LAST_CHANCE_METER, LEGACY_POINTS_PER_TIER, METER_PER_MILESTONE } from './constants';
 import { addAgeProgress } from './meter';
 import { score } from './score';
 
@@ -43,6 +43,9 @@ const achievedTiers = (milestones: readonly string[], id: string): number => {
   return n;
 };
 
+/** True in the closing stretch of the final age, when milestones count extra (LAST_CHANCE_METER). */
+export const isLastChance = (state: GameState): boolean => state.age === state.finalAge && state.ageProgress >= LAST_CHANCE_METER;
+
 /** Legacy points a milestone entry `${id}:${tier}` is worth. */
 export const legacyPointsFor = (entry: string): number => {
   const tier = Number(entry.slice(entry.lastIndexOf(':') + 1));
@@ -62,7 +65,8 @@ export const updateMilestones = (ctx: SimCtx, player: PlayerId): void => {
         const threshold = m.thresholds[tier - 1] as number;
         if (value < threshold || p.milestones.includes(key)) continue;
         p.milestones.push(key);
-        p.legacyPoints += LEGACY_POINTS_PER_TIER[tier - 1] ?? 0;
+        const points = LEGACY_POINTS_PER_TIER[tier - 1] ?? 0;
+        p.legacyPoints += isLastChance(state) ? Math.round(points * LAST_CHANCE_LEGACY_MULT) : points;
         ctx.events.push({ type: 'milestoneReached', player, milestone: key, track: m.track });
         addAgeProgress(ctx, METER_PER_MILESTONE);
       }

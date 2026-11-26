@@ -4,12 +4,19 @@
  * a focused player reaches ~100 affinity in their main culture by mid-age, the first offer
  * arrives around turn 8, and a normal player sees roughly 8–12 offers per ~50-turn age.
  */
-import type { ActivateEffect, Age, FigureKind, YieldType } from '@contracts/content-schemas';
+import type { ActivateEffect, Age, FigureKind, StatMeasure, YieldType } from '@contracts/content-schemas';
 
 // --- Affinity (GDD §4 "Affinity engine") ---
 
 /** A[c] ← DECAY · A[c] + gain. */
 export const AFFINITY_DECAY = 0.98;
+/**
+ * Decay for a "dormant" culture: one with no figures in the current age but some in a later
+ * one (e.g. no Inuit figure exists before the Classical age, per docs/CONTENT_GUIDELINES.md).
+ * Its affinity cannot pay off this age, so it is banked rather than wasted: equilibrium is
+ * gain / (1 − decay), twice the normal level, and it carries into the age where they arrive.
+ */
+export const AFFINITY_DECAY_DORMANT = 0.99;
 /**
  * Global multiplier on Σ w·x. Signals count dozens of tiles, so raw sums are large; this
  * keeps signal weights in content readable (≈1 per tile) while hitting ~100 by mid-age.
@@ -19,6 +26,11 @@ export const AFFINITY_SCALE = 0.07;
 export const HINT_THRESHOLDS = [50, 100] as const;
 /** Below this affinity an offer reason uses the "wanderer" fallback. */
 export const REASON_MIN_AFFINITY = 3;
+/**
+ * Offer reasons name a second signal too ("drawn by your herds and your open grasslands")
+ * when it adds at least this share of the strongest signal's contribution.
+ */
+export const REASON_SECOND_SIGNAL_SHARE = 0.6;
 
 // --- Great-people points (GDD §4 "Great-people points") ---
 
@@ -29,6 +41,17 @@ export const GP_THRESHOLD_GROWTH = 1.4;
  * who has never had a points offer gets one from their fullest pool even below threshold.
  */
 export const FIRST_OFFER_TURN = 8;
+/**
+ * Offer pacing (fun audit: after the turn-8 offer the next came ~turn 27, then six arrived in
+ * six turns as every pool crossed its threshold together). Two rules smooth this:
+ * - drought: a player with no open offer who has recruited nobody for this many turns gets an
+ *   offer from their fullest pool once it is at least OFFER_DROUGHT_MIN_FILL of its threshold;
+ * - flood: at most one points offer per turn, and none within OFFER_MIN_GAP_TURNS of the
+ *   player's last recruit (points keep banking meanwhile).
+ */
+export const OFFER_DROUGHT_TURNS = 6;
+export const OFFER_DROUGHT_MIN_FILL = 0.45;
+export const OFFER_MIN_GAP_TURNS = 2;
 /**
  * A pool banks at most this many times its threshold. Points keep accruing while a pool has
  * no eligible figures or offers are capped; without a ceiling they would flood the next age.
@@ -79,6 +102,19 @@ export const PARTNER_WEIGHT_MULT = 2;
 export const TOP_CULTURES_GUARANTEED = 3;
 /** Points-offers (incl. legends) a player may have open at once; further points bank. */
 export const MAX_OPEN_OFFERS = 2;
+/**
+ * Draw weight multiplier for a figure whose only use is a cabinet seat that the player's
+ * government cannot give them (no seat accepts their kind): still drawable, rarely offered.
+ */
+export const UNSEATABLE_WEIGHT_MULT = 0.25;
+/**
+ * Age-opening offer (GDD §4 hints keep their promise): on the first turn of an age, a player
+ * who was told a culture would come ("one day its people will find you") is offered up to
+ * this many of that culture's figures at once.
+ */
+export const AGE_OPENING_CANDIDATES = 3;
+/** ...if that culture is among the player's top this-many affinity cultures (and a hint was shown). */
+export const AGE_OPENING_TOP_N = 2;
 
 // --- Legend slot (GDD §3: one per age) ---
 
@@ -134,3 +170,13 @@ export const ACTIVATE_DEFAULT_AMOUNT: Record<ActivateEffect, number> = {
  * several can already be met when an age starts; spacing keeps them story beats, not a flood.
  */
 export const DEED_SPACING_TURNS = 8;
+/**
+ * Deeds whose measure can only change at an age transition (refinement purchases) would
+ * otherwise always fire on the first turn of the next age, lost in the transition's flood of
+ * news. They wait this many turns into the age, so they land as their own story beat.
+ */
+export const DEED_TRANSITION_MEASURE_DELAY = 5;
+/** Measures that only change during a transition (see DEED_TRANSITION_MEASURE_DELAY). */
+export const TRANSITION_ONLY_MEASURES: readonly StatMeasure[] = ['culturesRefined', 'hybridsAdopted', 'traditionsAdopted'];
+/** No deed fires in the first turns of a new age (the opening offer and recap come first). */
+export const DEED_AGE_OPENING_QUIET_TURNS = 2;

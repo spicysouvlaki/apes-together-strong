@@ -1,6 +1,6 @@
 /** The shared age meter (GDD §5 "Age meter"). */
 import type { SimCtx } from '../ctx';
-import { AGE_METER_MAX, METER_PER_TURN, METER_PRECISION, METER_REFERENCE_PLAYERS } from './constants';
+import { AGE_METER_MAX, LAST_CHANCE_METER, LAST_CHANCE_TEXT, METER_PER_TURN, METER_PRECISION, METER_REFERENCE_PLAYERS } from './constants';
 import { livingPlayers } from './util';
 
 const round = (v: number): number => Math.round(v * METER_PRECISION) / METER_PRECISION;
@@ -10,8 +10,12 @@ const bump = (ctx: SimCtx, amount: number): void => {
   if (state.phase !== 'playing') return;
   const next = round(Math.min(AGE_METER_MAX, Math.max(0, state.ageProgress + amount)));
   if (next === state.ageProgress) return;
+  const before = state.ageProgress;
   state.ageProgress = next;
   ctx.events.push({ type: 'ageProgress', value: next });
+  if (state.age === state.finalAge && before < LAST_CHANCE_METER && next >= LAST_CHANCE_METER && next < AGE_METER_MAX) {
+    ctx.events.push({ type: 'notice', player: null, text: LAST_CHANCE_TEXT });
+  }
 };
 
 /**

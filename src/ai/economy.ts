@@ -15,7 +15,10 @@ import { buildingValue, figureOf } from './decisions';
 import { modifiersScore } from './persona';
 import { aiSiteScorer, siteLegal } from './sites';
 import { aggression, pickWarTarget, warPreparation, type WarTarget } from './war';
-import { enemiesAtWar, hostilesNear, isMilitary, militaryPower, ownSettlements, ownUnits } from './world';
+import { enemiesAtWar, hostilesNear, isMilitary, militaryPower, ownSettlements, ownUnits, warFoes } from './world';
+import { canEmbarkPlayer } from '../sim/units';
+import { posture } from '../sim/voice';
+import { tileAt } from '../sim/lookup';
 
 /** Sites scoring below this are not worth a settler. */
 export const MIN_SITE_SCORE = 14;
@@ -27,6 +30,27 @@ const GOLD_RESERVE = 40;
 const MAX_WONDER_TURNS = 40;
 /** Buildings slower than this are skipped unless nothing else fits. */
 const MAX_BUILDING_TURNS = 30;
+/**
+ * Opening (GDD §11 onboarding pace, mirrored by the AI): the capital first builds the cheapest
+ * building when it finishes within this many turns, before its first settler.
+ */
+export const OPENING_BUILD_MAX_TURNS = 6;
+/** Ships per seafarer agenda point (a seafarer leader with a seafarer agenda wants two). */
+export const NAVY_PER_SEAFARER = 1;
+/** Hard cap on an AI's ships (upkeep is paid like any military unit). */
+export const NAVY_MAX = 3;
+/**
+ * Overseas settling (after Sailing unlocks embarking): seafarers and expansionists consider
+ * sites on other landmasses up to this much further than MAX_SITE_DISTANCE, and value them
+ * this much more (new shores, harbors, the "colony over the sea" deed).
+ */
+export const OVERSEAS_EXTRA_DISTANCE = 4;
+export const OVERSEAS_SITE_BONUS = 3;
+/** Rivals and aggressors settle toward the human: bonus per tile closer than this to them. */
+export const TOWARD_HUMAN_RADIUS = 10;
+export const TOWARD_HUMAN_PER_TILE = 0.4;
+/** Envoy score bonus for a rival contesting a city-state where the human leads or ties. */
+export const RIVAL_ENVOY_RACE = 2.5;
 
 export interface Site {
   idx: number;
@@ -41,6 +65,9 @@ export interface EmpirePlan {
   settlersQueued: number;
   military: number;
   militaryQueued: number;
+  /** Ships owned and in production, and how many this personality wants. */
+  naval: number;
+  navalTarget: number;
   armyTarget: number;
   scouts: number;
   merchants: number;
@@ -71,6 +98,10 @@ export const ageTurnsLeft = (ai: AiCtx): number =>
 
 const unitDef = (content: ContentBundle, id: string | null): UnitDef | undefined => (id ? ci(content).units[id] : undefined);
 
+/** May this AI send settlers over water (embark unlocked, and a seafaring or expansive personality)? */
+export const settlesOverseas = (ai: AiCtx): boolean =>
+  (ai.persona.w.seafarer > 0 || ai.persona.w.expansionist > 0) && canEmbarkPlayer(ai.state, ai.player, ai.content);
+
 /** Candidate settlement sites near our empire, best first. */
 export const findSites = (ai: AiCtx): Site[] => {
   const { state, player, content } = ai;
@@ -79,18 +110,34 @@ export const findSites = (ai: AiCtx): Site[] => {
   if (origins.length === 0) return [];
   const scoreOf = aiSiteScorer(state, player, content, ai.persona);
   const explored = me(ai).explored;
+  // Landmasses we already stand on; sites elsewhere need ships (embarking) to reach.
+  const homeLand = new Set<number>();
+  for (const o of origins) homeLand.add(tileAt(state.map, o)?.continent ?? -1);
+  const overseas = settlesOverseas(ai);
+  // Rivals and aggressors settle toward the human (GDD §9 "legible opponents").
+  const pose = posture(state, player, content);
+  const humanTowns =
+    pose === 'rival' || pose === 'aggressor'
+      ? Object.values(state.settlements).filter((s) => s.owner !== player && state.players[s.owner]?.isHuman === true)
+      : [];
   const out: Site[] = [];
   const n = state.map.tiles.length;
   for (let i = 0; i < n; i++) {
     if (!explored[i]) continue;
     const tile = state.map.tiles[i];
     if (!tile) continue;
+    const abroad = !homeLand.has(tile.continent);
+    if (abroad && !overseas) continue;
     let near = Infinity;
     for (const o of origins) near = Math.min(near, hexDistance(o, tile));
-    if (near > MAX_SITE_DISTANCE) continue;
+    if (near > MAX_SITE_DISTANCE + (abroad ? OVERSEAS_EXTRA_DISTANCE : 0)) continue;
     if (!siteLegal(state, player, i, content)) continue;
-    const score = scoreOf(i);
+    let score = scoreOf(i);
     if (score < MIN_SITE_SCORE) continue;
+    if (abroad) score += OVERSEAS_SITE_BONUS;
+    let toHuman = Infinity;
+    for (const h of humanTowns) toHuman = Math.min(toHuman, hexDistance(h.at, tile));
+    if (toHuman < TOWARD_HUMAN_RADIUS) score += (TOWARD_HUMAN_RADIUS - toHuman) * TOWARD_HUMAN_PER_TILE;
     // Prefer compact empires: distance beyond 5 costs a little.
     out.push({ idx: i, score: score - Math.max(0, near - 5) * 1.5 });
   }
@@ -120,6 +167,7 @@ export const makePlan = (ai: AiCtx, focus: LegacyTrack): EmpirePlan => {
   const idx = ci(content);
   let settlersQueued = 0;
   let militaryQueued = 0;
+  let navalQueued = 0;
   let wondersQueued = 0;
   const wonderItems: string[] = [];
   for (const s of own) {
@@ -127,18 +175,19 @@ export const makePlan = (ai: AiCtx, focus: LegacyTrack): EmpirePlan => {
     if (!item) continue;
     const u = idx.units[item];
     if (u?.canFound) settlersQueued++;
+    else if (u && u.unitClass === 'naval') navalQueued++;
     else if (u && u.unitClass !== 'civilian') militaryQueued++;
     if (idx.wonders[item]) {
       wondersQueued++;
       wonderItems.push(item);
     }
   }
-  const military = units.filter((u) => isMilitary(u) && !u.figure).length;
-  const enemies = enemiesAtWar(state, player);
-  const atWar = enemies.length > 0;
+  const military = units.filter((u) => isMilitary(u) && !u.figure && u.unitClass !== 'naval').length;
+  const foes = warFoes(state, player);
+  const atWar = foes.length > 0;
   const pe = ai.persona;
   const prep = atWar ? null : warPreparation(ai);
-  const warGoal = atWar ? pickWarTarget(ai, enemies) : prep;
+  const warGoal = atWar ? pickWarTarget(ai, foes) : prep;
   // Deterrence: a neighbour (settlements within 12) whose army is 1.4× ours.
   const myPower = militaryPower(state, player, content);
   let threatened = false;
@@ -168,6 +217,8 @@ export const makePlan = (ai: AiCtx, focus: LegacyTrack): EmpirePlan => {
     settlersQueued,
     military,
     militaryQueued,
+    naval: units.filter((u) => u.unitClass === 'naval').length + navalQueued,
+    navalTarget: Math.min(NAVY_MAX, NAVY_PER_SEAFARER * pe.w.seafarer + (pe.w.seafarer > 0 && pe.w.expansionist > 0 ? 1 : 0)),
     armyTarget,
     scouts: units.filter((u) => {
       const d = idx.units[u.type];
@@ -247,6 +298,14 @@ export const chooseProduction = (ai: AiCtx, s: Settlement, plan: EmpirePlan): st
     if (m) return m.item;
   }
 
+  // 1b. Opening: a quick first building in a brand-new capital (a monument before the settler).
+  if (s.isCapital && s.buildings.length === 0 && state.turn <= 3 && hostiles.length === 0) {
+    const quick = opts
+      .filter((o) => o.kind === 'building' && o.turns !== null && o.turns <= OPENING_BUILD_MAX_TURNS)
+      .sort((a, b) => a.cost - b.cost || (a.item < b.item ? -1 : 1))[0];
+    if (quick) return quick.item;
+  }
+
   // 2. Expansion (GDD §7 settlement cap; happiness pays for going over).
   const expansionWanted =
     plan.settlements + plan.settlersOwned + plan.settlersQueued < plan.cap &&
@@ -288,6 +347,17 @@ export const chooseProduction = (ai: AiCtx, s: Settlement, plan: EmpirePlan): st
     if (mc) {
       plan.merchants++;
       return mc.item;
+    }
+  }
+
+  // 4b. A seafaring navy: explorers of the coast, escorts, and the naval deeds and signals.
+  if (plan.naval < plan.navalTarget && hostiles.length === 0 && (plan.goldIncome > 1 || plan.naval === 0)) {
+    const ship = opts
+      .filter((o) => o.kind === 'unit' && unitDef(content, o.item)?.unitClass === 'naval')
+      .sort((a, b) => a.cost - b.cost || (a.item < b.item ? -1 : 1))[0];
+    if (ship) {
+      plan.naval++;
+      return ship.item;
     }
   }
 
@@ -431,6 +501,7 @@ export const sendEnvoys = (ai: AiCtx): void => {
   const keep = enemiesAtWar(state, player).length > 0 ? 45 : 10;
   const weights = queries.cultureWeights(state, player, content);
   const own = ownSettlements(state, player);
+  const racer = posture(state, player, content) === 'rival';
   for (let guard = 0; guard < 3; guard++) {
     let best: string | null = null;
     let bestScore = -Infinity;
@@ -449,6 +520,12 @@ export const sendEnvoys = (ai: AiCtx): void => {
       else if (mine + 1 >= 3 && mine + 1 > rival) s += 4;
       else s += 1 - Math.max(0, rival - mine) * 0.7;
       s += Math.min(4, weights[def.culture] ?? 0) * (0.3 + 0.5 * ai.persona.w.collector);
+      // A rival races the human for the same city-states (src/sim/voice.ts posture).
+      if (racer) {
+        let human = 0;
+        for (const [pid, n] of Object.entries(cs.envoys)) if (ai.state.players[pid]?.isHuman) human = Math.max(human, n);
+        if (human > 0 && human >= mine) s += RIVAL_ENVOY_RACE;
+      }
       let dist = Infinity;
       for (const o of own) dist = Math.min(dist, hexDistance(o.at, settlement.at));
       s -= Math.min(20, dist) * 0.1;

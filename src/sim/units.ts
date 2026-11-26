@@ -18,6 +18,7 @@ import {
   UNIT_MAX_HP,
 } from './constants';
 import { mintId, type SimCtx } from './ctx';
+import { contactsOf, greetNewContacts, hasHuman } from './voice';
 import { ci, hexOfIndex, isCivilian, isWater, playerSettlements, tileAt, tileIndex, unitPositions } from './lookup';
 import { canEmbark, empireModifiers, unitAdd, type CondEnv } from './modifiers';
 
@@ -452,7 +453,10 @@ export const moveUnit = (ctx: SimCtx, player: PlayerId, unitId: UnitId, to: Hex)
   const p = state.players[player];
   if (p) {
     const vr = visionRadius(state, unit, content);
+    const voiced = hasHuman(state);
+    const before = voiced ? contactsOf(state, player) : {};
     for (const idx of path) revealAround(state, p.explored, hexOfIndex(state.map, idx), vr);
+    if (voiced) greetNewContacts(ctx, player, before);
   }
   return null;
 };

@@ -1,7 +1,7 @@
 /** Read-only views of the world the AI needs every turn (public information only). */
 import type { ContentBundle } from '@contracts/content-schemas';
 import { hexDistance, type Hex } from '@contracts/hex';
-import { RAIDER_PLAYER, warKey, type GameState, type PlayerId, type Settlement, type Unit } from '@contracts/sim-api';
+import { CITY_STATE_PREFIX, RAIDER_PLAYER, warKey, type GameState, type PlayerId, type Settlement, type Unit } from '@contracts/sim-api';
 import { ci } from '../sim/lookup';
 
 export const ownSettlements = (state: GameState, player: PlayerId): Settlement[] => {
@@ -33,6 +33,20 @@ export const enemiesAtWar = (state: GameState, player: PlayerId): PlayerId[] => 
   }
   return out;
 };
+
+/** Owner ids (`cs:<id>`) of living city-states this player is at war with. */
+export const cityStatesAtWar = (state: GameState, player: PlayerId): PlayerId[] => {
+  const out: PlayerId[] = [];
+  for (const id of Object.keys(state.cityStates)) {
+    const cs = state.cityStates[id];
+    const owner = CITY_STATE_PREFIX + id;
+    if (cs?.alive && state.wars[warKey(player, owner)] !== undefined) out.push(owner);
+  }
+  return out;
+};
+
+/** Everyone whose settlements are war goals for this player: rivals and city-states at war. */
+export const warFoes = (state: GameState, player: PlayerId): PlayerId[] => [...enemiesAtWar(state, player), ...cityStatesAtWar(state, player)];
 
 export const hostileTo = (state: GameState, player: PlayerId, owner: PlayerId): boolean => {
   if (owner === player) return false;

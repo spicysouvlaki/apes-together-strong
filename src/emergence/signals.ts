@@ -201,3 +201,22 @@ export const topSignal = (contributions: Contributions, culture: CultureId, cont
   }
   return best;
 };
+
+/** The two signals adding the most to `culture` this turn, with their contributions (strongest first). */
+export const topTwoSignals = (
+  contributions: Contributions,
+  culture: CultureId,
+  content: ContentBundle,
+): { signal: Signal; value: number }[] => {
+  const row = contributions[culture];
+  if (!row) return [];
+  const out: { signal: Signal; value: number }[] = [];
+  for (const s of content.signals) {
+    const v = row[s.id] ?? 0;
+    if (v <= 0) continue;
+    out.push({ signal: s, value: v });
+  }
+  // Stable: ties keep content order.
+  out.sort((a, b) => b.value - a.value);
+  return out.slice(0, 2);
+};

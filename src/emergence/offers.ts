@@ -1,14 +1,15 @@
 /**
  * Offer generation (GDD §4 "Offer generation", "Deed figures"; GDD §3 legend slot).
  */
-import { GP_KINDS, type ContentBundle, type Figure, type FigureKind, type GpKind } from '@contracts/content-schemas';
+import { AGES, FIGURE_KIND_TO_GP, GP_KINDS, type ContentBundle, type Figure, type FigureKind, type GpKind } from '@contracts/content-schemas';
 import type { CultureId, FigureId, GameState, Offer, PlayerId } from '@contracts/sim-api';
 import { mintId, type SimCtx } from '../sim/ctx';
 import { weightedIndex } from '../sim/rng';
 import { statValue } from '../sim/stats';
 import * as K from './constants';
-import { topSignal, type Contributions } from './signals';
-import { figureDef, getPlayer, kindsForGp, suzerainByCulture, tradeRoutesByCulture } from './util';
+import { PARTNER_REASONS, REASON_FAMILY, TALES_REASONS, WANDERER_REASONS, pickPhrase, signalReason } from './reasons';
+import { signalContributions, topSignal, topTwoSignals, type Contributions } from './signals';
+import { culturesWithFiguresIn, figureDef, getPlayer, kindsForGp, suzerainByCulture, tradeRoutesByCulture } from './util';
 
 /** Cultures the player has a city-state suzerainty or trade route with (×2 offer weight). */
 export const partnerCultures = (state: GameState, player: PlayerId, content: ContentBundle): Record<CultureId, true> => {
@@ -22,31 +23,54 @@ export const partnerCultures = (state: GameState, player: PlayerId, content: Con
 export const offerWeight = (affinity: number, partner: boolean): number =>
   Math.pow(Math.max(0, affinity) + K.OFFER_WEIGHT_BASE, K.OFFER_WEIGHT_EXPONENT) * (partner ? K.PARTNER_WEIGHT_MULT : 1);
 
-/** The player's top-N cultures by affinity (ties in content order); only cultures with A > 0. */
-export const topCultures = (state: GameState, player: PlayerId, content: ContentBundle): CultureId[] => {
+/**
+ * The player's top-N cultures by affinity (ties in content order); only cultures with A > 0.
+ * With `among`, only those cultures compete: the draw guarantee uses the cultures actually in
+ * the pool, so a culture with no figures this age (a dormant one) never wastes the guarantee.
+ */
+export const topCultures = (
+  state: GameState,
+  player: PlayerId,
+  content: ContentBundle,
+  among?: Record<CultureId, true>,
+): CultureId[] => {
   const p = getPlayer(state, player);
   return content.cultures
     .map((c, i) => ({ id: c.id, a: p.affinity[c.id] ?? 0, i }))
-    .filter((x) => x.a > 0)
+    .filter((x) => x.a > 0 && (!among || among[x.id] === true))
     .sort((x, y) => y.a - x.a || x.i - y.i)
     .slice(0, K.TOP_CULTURES_GUARANTEED)
     .map((x) => x.id);
 };
 
-/** Player-facing "why they came", from the culture's strongest signal for this player. No numbers. */
+/**
+ * Player-facing "why they came", from the culture's strongest signal (and a close second) for
+ * this player, phrased from a small family of templates (reasons.ts). No numbers. `figure`
+ * only varies the phrasing; omit it for the plain "drawn by …" form.
+ */
 export const offerReason = (
   state: GameState,
   player: PlayerId,
   culture: CultureId,
   contributions: Contributions,
   content: ContentBundle,
+  figure = '',
 ): string => {
   const a = getPlayer(state, player).affinity[culture] ?? 0;
-  if (a < K.REASON_MIN_AFFINITY) return 'a wanderer who heard of your people';
-  const signal = topSignal(contributions, culture, content);
-  if (signal) return `drawn by ${signal.hint}`;
-  if (partnerCultures(state, player, content)[culture]) return 'drawn by your ties with their people';
-  return 'drawn by the tales of your people';
+  if (a < K.REASON_MIN_AFFINITY) return figure ? pickPhrase(state, figure, WANDERER_REASONS) : WANDERER_REASONS[0];
+  const [first, second] = topTwoSignals(contributions, culture, content);
+  if (first) {
+    const secondHint =
+      second &&
+      second.signal.hint !== first.signal.hint &&
+      REASON_FAMILY[second.signal.measure] === REASON_FAMILY[first.signal.measure] &&
+      second.value >= K.REASON_SECOND_SIGNAL_SHARE * first.value
+        ? second.signal.hint
+        : null;
+    return figure ? signalReason(state, figure, first.signal.measure, first.signal.hint, secondHint) : `drawn by ${first.signal.hint}`;
+  }
+  if (partnerCultures(state, player, content)[culture]) return figure ? pickPhrase(state, figure, PARTNER_REASONS) : PARTNER_REASONS[0];
+  return figure ? pickPhrase(state, figure, TALES_REASONS) : TALES_REASONS[0];
 };
 
 /** Figures named in the player's open offers (so one player never sees a figure twice). */
@@ -69,10 +93,26 @@ export const offerPool = (state: GameState, player: PlayerId, kinds: readonly Fi
  * GDD §4 steps 2–3: weighted draw of up to 3 without replacement, then guarantee one from
  * the top-3 affinity cultures when the pool has such a figure (replacing the last pick).
  */
+/**
+ * Can a figure that only serves in a cabinet be seated under the player's government? (Any
+ * seat of the current cabinet accepts its kind.) Figures with other uses always count as usable.
+ */
+export const figureUsable = (state: GameState, player: PlayerId, f: Figure, content: ContentBundle): boolean => {
+  if (f.uses.some((u) => u !== 'cabinet')) return true;
+  const p = getPlayer(state, player);
+  for (const key of Object.keys(p.cabinet)) {
+    const slot = content.cabinetSlots.find((s) => s.id === (key.split('#')[0] ?? key));
+    if (slot && slot.accepts.includes(f.kind)) return true;
+  }
+  return false;
+};
+
 export const drawCandidates = (state: GameState, player: PlayerId, pool: readonly Figure[], content: ContentBundle): Figure[] => {
   const p = getPlayer(state, player);
   const partners = partnerCultures(state, player, content);
-  const weightOf = (f: Figure): number => offerWeight(p.affinity[f.culture] ?? 0, partners[f.culture] === true);
+  const weightOf = (f: Figure): number =>
+    offerWeight(p.affinity[f.culture] ?? 0, partners[f.culture] === true) *
+    (figureUsable(state, player, f, content) ? 1 : K.UNSEATABLE_WEIGHT_MULT);
 
   const remaining = pool.slice();
   const drawn: Figure[] = [];
@@ -82,7 +122,9 @@ export const drawCandidates = (state: GameState, player: PlayerId, pool: readonl
     if (f) drawn.push(f);
   }
 
-  const top = topCultures(state, player, content);
+  const inPool: Record<CultureId, true> = {};
+  for (const f of pool) inPool[f.culture] = true;
+  const top = topCultures(state, player, content, inPool);
   if (top.length > 0 && !drawn.some((f) => top.includes(f.culture))) {
     const fromTop = remaining.filter((f) => top.includes(f.culture));
     if (fromTop.length > 0 && drawn.length > 0) {
@@ -126,7 +168,7 @@ const reasonsFor = (
   contributions: Contributions,
 ): Record<FigureId, string> => {
   const reasons: Record<FigureId, string> = {};
-  for (const f of figures) reasons[f.id] = offerReason(ctx.state, player, f.culture, contributions, ctx.content);
+  for (const f of figures) reasons[f.id] = offerReason(ctx.state, player, f.culture, contributions, ctx.content, f.id);
   return reasons;
 };
 
@@ -159,25 +201,49 @@ const neverOffered = (state: GameState, player: PlayerId): boolean => {
   return p.stats.figuresRecruited === 0 && GP_KINDS.every((k) => p.gpThreshold[k] === K.GP_START_THRESHOLD);
 };
 
-/** Pools at or over threshold create offers (one per pool per turn, capped by MAX_OPEN_OFFERS). */
+/** Turn of this player's latest recruit in the current age, or null if none yet. */
+export const lastRecruitTurn = (state: GameState, player: PlayerId): number | null => {
+  let last: number | null = null;
+  for (const id of Object.keys(state.figures)) {
+    const f = state.figures[id];
+    if (f && f.owner === player && f.recruitedAge === state.age && (last === null || f.recruitedTurn > last)) last = f.recruitedTurn;
+  }
+  return last;
+};
+
+/**
+ * Pools create offers (GDD §4 "when a pool crosses its threshold"), paced (see
+ * OFFER_DROUGHT_TURNS): onboarding at FIRST_OFFER_TURN, a drought offer from the fullest pool,
+ * otherwise the first pool at threshold — at most one points offer per turn, capped by
+ * MAX_OPEN_OFFERS, and none right after a recruit.
+ */
 export const createPointsOffers = (ctx: SimCtx, player: PlayerId, contributions: Contributions): void => {
   const { state } = ctx;
   const p = getPlayer(state, player);
-  if (state.turn >= K.FIRST_OFFER_TURN && openOfferCount(state, player) === 0 && neverOffered(state, player)) {
+  const open = openOfferCount(state, player);
+  const fullest = GP_KINDS.slice().sort(
+    (a, b) => p.gp[b] / p.gpThreshold[b] - p.gp[a] / p.gpThreshold[a] || GP_KINDS.indexOf(a) - GP_KINDS.indexOf(b),
+  );
+  if (state.turn >= K.FIRST_OFFER_TURN && open === 0 && neverOffered(state, player)) {
     // Onboarding: the fullest pool (ties in GP_KINDS order) offers early.
-    const order = GP_KINDS.slice().sort((a, b) => p.gp[b] - p.gp[a] || GP_KINDS.indexOf(a) - GP_KINDS.indexOf(b));
-    for (const gp of order) {
+    for (const gp of fullest) {
       if (createDrawnOffer(ctx, player, gp, kindsForGp(gp), contributions)) {
         spendPool(state, player, gp);
-        break;
+        return;
       }
     }
   }
-  for (const gp of GP_KINDS) {
-    if (openOfferCount(state, player) >= K.MAX_OPEN_OFFERS) return;
-    if (p.gp[gp] < p.gpThreshold[gp]) continue;
+  if (open >= K.MAX_OPEN_OFFERS) return;
+  const last = lastRecruitTurn(state, player);
+  if (last !== null && state.turn - last < K.OFFER_MIN_GAP_TURNS) return;
+  const since = state.turn - (last ?? ageStartTurn(state, player));
+  const drought = open === 0 && state.turn >= K.FIRST_OFFER_TURN && since >= K.OFFER_DROUGHT_TURNS;
+  for (const gp of fullest) {
+    const fill = p.gp[gp] / p.gpThreshold[gp];
+    if (fill < 1 && !(drought && fill >= K.OFFER_DROUGHT_MIN_FILL)) continue;
     if (!createDrawnOffer(ctx, player, gp, kindsForGp(gp), contributions)) continue; // keep the points
     spendPool(state, player, gp);
+    return;
   }
 };
 
@@ -217,8 +283,11 @@ export const checkDeeds = (ctx: SimCtx, player: PlayerId): void => {
       break;
     }
   }
+  const intoAge = state.turn - ageStartTurn(state, player);
+  if (state.age !== AGES[0] && intoAge < K.DEED_AGE_OPENING_QUIET_TURNS) return;
   for (const deed of content.deeds) {
     if (state.deedsDone.includes(deed.id)) continue;
+    if (K.TRANSITION_ONLY_MEASURES.includes(deed.trigger.measure) && intoAge < K.DEED_TRANSITION_MEASURE_DELAY) continue;
     const fig = content.figures.find((f) => f.deed === deed.id);
     if (!fig || fig.age !== state.age || state.figures[fig.id]) continue;
     if (statValue(state, player, deed.trigger.measure, deed.trigger.param, content) < deed.trigger.count) continue;
@@ -235,6 +304,75 @@ export const checkDeeds = (ctx: SimCtx, player: PlayerId): void => {
     });
     return;
   }
+};
+
+/**
+ * First turn of the current age for this player, read from their own Chronicle ("The
+ * Classical age began."); turn 1 in the first age.
+ */
+export const ageStartTurn = (state: GameState, player: PlayerId): number => {
+  const p = state.players[player];
+  if (!p) return 1;
+  for (const e of p.chronicle) if (e.kind === 'age' && e.age === state.age && e.ref === state.age) return e.turn;
+  return 1;
+};
+
+/**
+ * The culture whose arrival the player was promised and whose age has now begun: no figures
+ * in the previous age, figures in this one, a hint was shown for it, and it is among the
+ * player's top AGE_OPENING_TOP_N affinity cultures (hints fire for many cultures; the payoff
+ * is for the ones the player's land really leaned toward). Null if none.
+ */
+export const promisedCulture = (state: GameState, player: PlayerId, content: ContentBundle): CultureId | null => {
+  const idx = AGES.indexOf(state.age);
+  const prev = AGES[idx - 1];
+  if (!prev) return null;
+  const p = getPlayer(state, player);
+  const before = culturesWithFiguresIn(content, prev);
+  const now = culturesWithFiguresIn(content, state.age);
+  const top = topCultures(state, player, content).slice(0, K.AGE_OPENING_TOP_N);
+  let best: CultureId | null = null;
+  let bestA = 0;
+  for (const c of content.cultures) {
+    if (before[c.id] || !now[c.id]) continue;
+    const a = p.affinity[c.id] ?? 0;
+    if (a <= 0) continue;
+    const promised = (p.hintsShown[c.id] ?? 0) >= (K.HINT_THRESHOLDS[0] ?? 0) && top.includes(c.id);
+    if (promised && a > bestA) {
+      best = c.id;
+      bestA = a;
+    }
+  }
+  return best;
+};
+
+/**
+ * Age-opening offer: run once per player on the first turn of a new age (lifecycle
+ * `onAgeStarted`). Pays off a dormant culture's hint by offering up to three of its figures
+ * at once (any kind but legends; the offer's pool is the first candidate's kind). Its reason
+ * recalls the old promise. Returns true when an offer was made.
+ */
+export const offerAgeOpening = (ctx: SimCtx, player: PlayerId): boolean => {
+  const { state, content } = ctx;
+  const culture = promisedCulture(state, player, content);
+  if (!culture) return false;
+  const kinds = (Object.keys(FIGURE_KIND_TO_GP) as FigureKind[]).filter((k) => k !== 'legend');
+  const pool = offerPool(state, player, kinds, content).filter((f) => f.culture === culture);
+  if (pool.length === 0) return false;
+  const remaining = pool.slice();
+  const drawn: Figure[] = [];
+  while (drawn.length < K.AGE_OPENING_CANDIDATES && remaining.length > 0) {
+    const [f] = remaining.splice(weightedIndex(state, remaining.map(() => 1)), 1);
+    if (f) drawn.push(f);
+  }
+  const first = drawn[0];
+  if (!first || first.kind === 'legend') return false;
+  const contributions = signalContributions(state, player, content);
+  const hint = topSignal(contributions, culture, content)?.hint ?? 'your people';
+  const reasons: Record<FigureId, string> = {};
+  for (const f of drawn) reasons[f.id] = `come at last, drawn by the old tales of ${hint}`;
+  pushOffer(ctx, player, FIGURE_KIND_TO_GP[first.kind], drawn, reasons, null);
+  return true;
 };
 
 /** Content figure for an id known to exist. */

@@ -17,6 +17,7 @@ import { empireModifiers } from './modifiers';
 import { advanceResearch } from './research';
 import { growSettlement, produceInSettlement } from './settlements';
 import { findPaths, refreshUnitsOf, removeUnit, unitUpkeep, updateExplored } from './units';
+import { contactsOf, greetNewContacts, hasHuman } from './voice';
 import { STOCK_YIELDS, computeEmpire, computeHappiness } from './yields';
 
 const hostileAdjacent = (state: GameState, owner: PlayerId, at: { q: number; r: number }): boolean => {
@@ -92,7 +93,10 @@ export const startOfTurnForPlayer = (ctx: SimCtx, player: PlayerId): void => {
     if (!besieged) s.hp = Math.min(s.maxHp, s.hp + WALL_HEAL_PER_TURN);
   }
 
+  const voiced = hasHuman(state);
+  const contactsBefore = voiced ? contactsOf(state, player) : {};
   updateExplored(state, player, content);
+  if (voiced) greetNewContacts(ctx, player, contactsBefore);
   emergenceTick(ctx, player);
   updateMilestones(ctx, player);
   p.stats.battlesWonThisTurn = 0;

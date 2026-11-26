@@ -7,9 +7,9 @@ import type { ContentBundle, Culture } from '@contracts/content-schemas';
 import type { CultureId, PlayerId } from '@contracts/sim-api';
 import type { SimCtx } from '../sim/ctx';
 import { affinityPercent, playerModifiers } from '../sim/modifiers';
-import { AFFINITY_DECAY, AFFINITY_SCALE, HINT_THRESHOLDS } from './constants';
+import { AFFINITY_DECAY, AFFINITY_DECAY_DORMANT, AFFINITY_SCALE, HINT_THRESHOLDS } from './constants';
 import { topSignal, type Contributions } from './signals';
-import { getPlayer } from './util';
+import { getPlayer, isDormantCulture } from './util';
 
 const gainMultiplier = (percent: number): number => Math.max(0, 1 + percent / 100);
 
@@ -23,7 +23,9 @@ export const updateAffinity = (ctx: SimCtx, player: PlayerId, contributions: Con
     const row = contributions[c.id] ?? {};
     for (const s of content.signals) raw += row[s.id] ?? 0;
     const gain = raw * AFFINITY_SCALE * gainMultiplier(affinityPercent(mods, c.id));
-    p.affinity[c.id] = Math.max(0, AFFINITY_DECAY * (p.affinity[c.id] ?? 0) + gain);
+    // A dormant culture's people cannot come this age: bank its affinity for the age they do.
+    const decay = isDormantCulture(content, c.id, state.age) ? AFFINITY_DECAY_DORMANT : AFFINITY_DECAY;
+    p.affinity[c.id] = Math.max(0, decay * (p.affinity[c.id] ?? 0) + gain);
   }
   fireHints(ctx, player, contributions);
 };
@@ -43,11 +45,19 @@ const FALLBACK_HINT = 'the tales of your people';
 /**
  * Player-facing hint for crossing `threshold`. Built only from content strings (culture
  * adjective, signal hint), never numbers: "Steppe peoples speak of your herds."
+ * For a dormant culture (no figures this age, some later) the hint promises arrival rather
+ * than presence, so it never promises a figure that cannot come yet; the age-opening offer
+ * (offers.ts `offerAgeOpening`) pays the promise off when their age begins.
  */
-export const hintText = (culture: Culture, hint: string, threshold: number): string =>
-  threshold >= (HINT_THRESHOLDS[1] ?? Infinity)
-    ? `${culture.adjective} travellers seek out ${hint}.`
-    : `${culture.adjective} peoples speak of ${hint}.`;
+export const hintText = (culture: Culture, hint: string, threshold: number, dormant = false): string => {
+  const strong = threshold >= (HINT_THRESHOLDS[1] ?? Infinity);
+  if (dormant) {
+    return strong
+      ? `${culture.adjective} peoples beyond the horizon still tell of ${hint}; when a new age dawns, they will come.`
+      : `Word of ${hint} travels far; one day ${culture.adjective} peoples will come to find you.`;
+  }
+  return strong ? `${culture.adjective} travellers seek out ${hint}.` : `${culture.adjective} peoples speak of ${hint}.`;
+};
 
 const fireHints = (ctx: SimCtx, player: PlayerId, contributions: Contributions): void => {
   const { state, content } = ctx;
@@ -58,7 +68,8 @@ const fireHints = (ctx: SimCtx, player: PlayerId, contributions: Contributions):
     for (const threshold of HINT_THRESHOLDS) {
       if (a < threshold || shown >= threshold) continue;
       const hint = topSignal(contributions, c.id, content)?.hint ?? FALLBACK_HINT;
-      ctx.events.push({ type: 'cultureHint', player, culture: c.id, text: hintText(c, hint, threshold) });
+      const dormant = isDormantCulture(content, c.id, state.age);
+      ctx.events.push({ type: 'cultureHint', player, culture: c.id, text: hintText(c, hint, threshold, dormant) });
       p.hintsShown[c.id] = threshold;
     }
   }

@@ -7,6 +7,7 @@ import type { Decision, ProductionOption, SimQueries } from '@contracts/sim-api'
 import { cabinetSeats, cultureWeights, figureActions } from '../emergence';
 import { milestones, refinementOptions, score } from './ages';
 import { attackTargetsOf, isHostile } from './combat';
+import { combatPreview } from './combat-preview';
 import { envoyCostFor, tradeTargetsOf } from './diplomacy';
 import { ci, hexOfIndex, playerSettlements, tileIndex } from './lookup';
 import { empireModifiers } from './modifiers';
@@ -73,8 +74,7 @@ export const queries: SimQueries = {
   envoyCost: (state, player, cityState) => envoyCostFor(state, player, cityState),
   cabinetSeats,
   figureActions,
-  // TODO(sim): implement combatPreview (contracts: added for the attack confirmation UI).
-  combatPreview: () => null,
+  combatPreview: (state, unitId, target, content) => combatPreview(state, unitId, target, content),
   settleSites: (state, unitId, content) => {
     const u = state.units[unitId];
     return u ? settleSitesFor(state, u, content) : [];

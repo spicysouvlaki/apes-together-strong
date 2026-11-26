@@ -16,6 +16,8 @@ import type { SimCtx } from '../sim/ctx';
 import { addAgeProgress } from '../sim/ages';
 import { costPercent, applyCostPercent, playerModifiers } from '../sim/modifiers';
 import { removeUnit, spawnUnit } from '../sim/units';
+import { speak } from '../sim/voice';
+import { cultureWeights } from './queries';
 import { baseAtHome, slotAccepts, slotIdOfKey, vacateSeat } from './cabinet';
 import * as K from './constants';
 import { dropOffer } from './offers';
@@ -49,6 +51,20 @@ const ownedFigure = (state: GameState, player: PlayerId, id: FigureId, content: 
   const def = figureDef(content, id);
   if (!fs || !def || fs.owner !== player) return 'That figure is not in your court.';
   return { fs, def };
+};
+
+/** The culture with the most weight for `player` (ties: content order), or null. */
+const heaviestCultureOf = (state: GameState, player: PlayerId, content: ContentBundle): string | null => {
+  const w = cultureWeights(state, player, content);
+  let best: string | null = null;
+  let bestW = 0;
+  for (const c of content.cultures) {
+    if ((w[c.id] ?? 0) > bestW) {
+      bestW = w[c.id] ?? 0;
+      best = c.id;
+    }
+  }
+  return best;
 };
 
 const isActive = (fs: FigureState): boolean =>
@@ -282,6 +298,8 @@ const chooseOffer = (ctx: SimCtx, player: PlayerId, offerId: string, figureId: F
     other.candidates = other.candidates.filter((c) => c !== figureId);
     delete other.reasons[figureId];
     ctx.events.push({ type: 'figureJoinedRival', figure: figureId, player: other.player, rival: player });
+    // Sparse: a rival only remarks on a figure of the culture it holds dearest (its heaviest).
+    if (heaviestCultureOf(state, other.player, content) === def.culture) speak(ctx, other.player, player, 'figureWanted', { f: def.name });
     if (other.candidates.length === 0) dropOffer(state, other.id, true);
   }
   return null;

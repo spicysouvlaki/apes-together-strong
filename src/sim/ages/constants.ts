@@ -47,8 +47,8 @@ export const METER_PRECISION = 100;
 export const CRISIS_START = 70;
 
 /** Collapse: one raider per living player every N turns, while total raiders stay under the cap. */
-export const RAIDER_SPAWN_INTERVAL = 3;
-export const RAIDER_CAP_PER_PLAYER = 2;
+export const RAIDER_SPAWN_INTERVAL = 2;
+export const RAIDER_CAP_PER_PLAYER = 3;
 /** Raiders appear on unowned land this many tiles from a settlement. */
 export const RAIDER_MIN_DISTANCE = 3;
 export const RAIDER_MAX_DISTANCE = 5;
@@ -99,6 +99,16 @@ export const NAME_OPTION_COUNT = 3;
 
 /** Legacy points awarded for reaching milestone tier 1 / 2 / 3. */
 export const LEGACY_POINTS_PER_TIER: readonly [number, number, number] = [5, 10, 15];
+
+/**
+ * Last chance (end-game tension, GDD §8 "highest total score wins"): once the final age's
+ * meter reaches LAST_CHANCE_METER, milestone tiers reached are worth LAST_CHANCE_LEGACY_MULT
+ * times their legacy points, so the closing turns are a scramble rather than a formality.
+ * Everyone is told when it begins.
+ */
+export const LAST_CHANCE_METER = 90;
+export const LAST_CHANCE_LEGACY_MULT = 1.5;
+export const LAST_CHANCE_TEXT = 'The age is closing. Legacy milestones reached before it ends will be remembered half again as much.';
 
 /** Legacy score weights (GDD §8). */
 export const SCORE_PER_FIGURE = 10;

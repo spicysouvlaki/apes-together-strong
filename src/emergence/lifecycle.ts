@@ -9,7 +9,7 @@ import type { SimCtx } from '../sim/ctx';
 import { removeUnit, spawnUnit } from '../sim/units';
 import { baseAtHome, vacateSeat } from './cabinet';
 import * as K from './constants';
-import { dropOffer } from './offers';
+import { dropOffer, offerAgeOpening } from './offers';
 import { figureDef, getPlayer, homeSettlement, ownSettlements } from './util';
 
 const figuresOf = (state: GameState, player: PlayerId): FigureState[] => {
@@ -115,6 +115,8 @@ export const onAgeStarted = (ctx: SimCtx, player: PlayerId): void => {
     if (stale) dropOffer(state, o.id, true);
   }
   p.legendSlotUsed = false;
+  // A culture promised by an earlier hint ("one day its people will find you") arrives now.
+  if (p.alive && homeSettlement(state, player)) offerAgeOpening(ctx, player);
 };
 
 export const ancestorYields = (state: GameState, player: PlayerId, content: ContentBundle): Yields => {

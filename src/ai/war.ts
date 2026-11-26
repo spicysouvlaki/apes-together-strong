@@ -11,15 +11,30 @@
  * - Peace: the attacker settles after taking a town (or when the war stalls or turns against
  *   it); the defender sues as soon as it is losing. A rival's last settlement is not a goal in
  *   the ancient age, so eliminations stay rare before the classical age.
+ * - Posture toward the human (src/sim/voice.ts, from the leader archetype): an aggressor or a
+ *   rival prefers the human's towns as targets; a trader or a wary neighbour sues for peace
+ *   with the human as soon as the war allows.
+ * - City-states: an aggressive AI with a ready strike force takes a weakly held city-state on
+ *   its border when it has no stake in it (few envoys, not its suzerain).
  */
 import { hexDistance } from '@contracts/hex';
-import { warKey, type PlayerId, type Settlement } from '@contracts/sim-api';
+import { CITY_STATE_PREFIX, isCityStateOwner, warKey, type PlayerId, type Settlement } from '@contracts/sim-api';
 import { MIN_WAR_TURNS, PEACE_INFLUENCE_COST } from '../sim/constants';
 import { WAR_DECLARED_TEXT } from '../sim/diplomacy';
 import { ci, tileAt } from '../sim/lookup';
+import { posture } from '../sim/voice';
 import { exec, me, type AiCtx } from './ctx';
 import { hashStr } from './util';
-import { enemiesAtWar, militaryPower, ownSettlements } from './world';
+import { cityStatesAtWar, enemiesAtWar, militaryPower, ownSettlements } from './world';
+
+/** War-target score bonus for a human rival, by posture (legible opponents, GDD §9). */
+export const HUMAN_TARGET_BONUS: Record<ReturnType<typeof posture>, number> = { aggressor: 4, rival: 2, trader: 0, wary: 0 };
+/** A city-state is a target only within this distance of our nearest settlement (we border it). */
+export const CS_WAR_DISTANCE = 6;
+/** Our strike force must exceed a city-state's local defence by this factor ("clearly pays"). */
+export const CS_WAR_EDGE = 1.8;
+/** We leave alone city-states where we have more than this many envoys. */
+export const CS_WAR_MAX_OWN_ENVOYS = 1;
 
 /** No AI starts a war before this turn. */
 export const EARLIEST_WAR_TURN = 20;
@@ -99,13 +114,14 @@ export const pickWarTarget = (ai: AiCtx, rivals: readonly PlayerId[]): WarTarget
     if (theirs.length === 0) continue;
     for (const s of theirs) {
       if (!ours.has(continent(s.at))) continue;
-      if (theirs.length === 1 && state.age === 'ancient') continue;
+      if (theirs.length === 1 && state.age === 'ancient' && !isCityStateOwner(rival)) continue;
       let distance = Infinity;
       for (const o of own) distance = Math.min(distance, hexDistance(o.at, s.at));
       if (distance > MAX_WAR_DISTANCE) continue;
       const defense = localDefense(ai, s);
       // Prefer towns over capitals, close over far, and weak over strong.
-      const score = -defense * 0.5 - distance * 1.5 - (s.isCapital ? 6 : 0) + (s.kind === 'town' ? 2 : 0) + s.population * 0.3;
+      const human = state.players[rival]?.isHuman === true ? HUMAN_TARGET_BONUS[posture(state, ai.player, ai.content)] : 0;
+      const score = -defense * 0.5 - distance * 1.5 - (s.isCapital ? 6 : 0) + (s.kind === 'town' ? 2 : 0) + s.population * 0.3 + human;
       if (score > bestScore || (score === bestScore && best !== null && s.id < best.settlement.id)) {
         bestScore = score;
         best = { rival, settlement: s, distance, defense };
@@ -152,15 +168,37 @@ export const warPreparation = (ai: AiCtx): WarTarget | null => {
   return mine * (1 + 0.4 * aggression(ai)) >= theirs ? target : null;
 };
 
+/**
+ * A city-state worth taking: within CS_WAR_DISTANCE of our border, where we have at most
+ * CS_WAR_MAX_OWN_ENVOYS envoys and are not suzerain, and not one we declared on recently.
+ */
+export const pickCityStateTarget = (ai: AiCtx): WarTarget | null => {
+  const { state } = ai;
+  const candidates: PlayerId[] = [];
+  for (const id of Object.keys(state.cityStates)) {
+    const cs = state.cityStates[id];
+    if (!cs || !cs.alive || cs.suzerain === ai.player) continue;
+    if ((cs.envoys[ai.player] ?? 0) > CS_WAR_MAX_OWN_ENVOYS) continue;
+    const owner = CITY_STATE_PREFIX + id;
+    if (state.turn - lastDeclaredOn(ai, owner) < REDECLARE_TURNS) continue;
+    candidates.push(owner);
+  }
+  const t = pickWarTarget(ai, candidates);
+  return t && t.distance <= CS_WAR_DISTANCE ? t : null;
+};
+
 export const considerWar = (ai: AiCtx, _military: number): void => {
   const { state, player, content } = ai;
   if (state.turn < EARLIEST_WAR_TURN) return;
-  if (enemiesAtWar(state, player).length > 0) return;
+  if (enemiesAtWar(state, player).length > 0 || cityStatesAtWar(state, player).length > 0) return;
   // Consider it now and then, not every turn.
   if (hashStr(`${state.seed}|${player}|war|${Math.floor(state.turn / 3)}`) % 3 !== 0) return;
   const aggr = aggression(ai);
   const target = pickWarTarget(ai, livingRivals(ai));
-  if (!target) return;
+  if (!target) {
+    considerCityStateWar(ai);
+    return;
+  }
   const force = strikeForce(ai, target.settlement.at);
   const mine = militaryPower(state, player, content);
   const theirs = Math.max(1, militaryPower(state, target.rival, content));
@@ -171,6 +209,18 @@ export const considerWar = (ai: AiCtx, _military: number): void => {
       ? force.units >= 3 && force.support && force.power >= target.defense * (1.9 - 0.25 * Math.min(2, aggr)) && mine >= theirs * (1.25 - 0.1 * Math.min(2, aggr))
       : force.units >= 3 && force.power >= target.defense * 3 && mine >= theirs * 2.2;
   if (ready) exec(ai, { type: 'declareWar', target: target.rival });
+  else considerCityStateWar(ai);
+};
+
+/** Aggressive AIs only: take a bordering city-state when the local edge is clear. */
+const considerCityStateWar = (ai: AiCtx): void => {
+  if (aggression(ai) < 1) return;
+  const target = pickCityStateTarget(ai);
+  if (!target) return;
+  const force = strikeForce(ai, target.settlement.at);
+  if (force.units >= 3 && force.support && force.power >= target.defense * CS_WAR_EDGE) {
+    exec(ai, { type: 'declareWar', target: target.rival });
+  }
 };
 
 /** Turn of our latest capture since `since` (this war), or null. Read from our own chronicle. */
@@ -199,6 +249,15 @@ export const considerPeace = (ai: AiCtx): void => {
     // Nothing worth taking left within reach: the war has done what it could.
     const spent = pickWarTarget(ai, [enemy]) === null;
     const stalemate = captured === null && state.turn - began >= STALEMATE_TURNS + (aggressive ? 6 : 0);
-    if (losing || consolidated || spent || stalemate) exec(ai, { type: 'makePeace', target: enemy });
+    // Traders and wary neighbours offer the human peace as soon as the war allows (unless winning).
+    const pose = posture(state, player, content);
+    const conciliatory = state.players[enemy]?.isHuman === true && (pose === 'trader' || pose === 'wary') && captured === null;
+    if (losing || consolidated || spent || stalemate || conciliatory) exec(ai, { type: 'makePeace', target: enemy });
+  }
+  // City-state wars end once the city is taken (the war lapses) or when they stall.
+  for (const cs of cityStatesAtWar(state, player)) {
+    const began = state.wars[warKey(player, cs)];
+    if (began === undefined || state.turn - began < MIN_WAR_TURNS || me(ai).stock.influence < PEACE_INFLUENCE_COST) continue;
+    if (state.turn - began >= STALEMATE_TURNS || pickWarTarget(ai, [cs]) === null) exec(ai, { type: 'makePeace', target: cs });
   }
 };

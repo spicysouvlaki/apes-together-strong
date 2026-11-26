@@ -32,6 +32,7 @@ import { mintId, type SimCtx } from './ctx';
 import { ci, playerSettlements } from './lookup';
 import { empireModifiers, sumAdd } from './modifiers';
 import { removeUnit } from './units';
+import { speak } from './voice';
 
 /** Chronicle line of the declaring side (annal voice; the AI also reads it to space its wars). */
 export const WAR_DECLARED_TEXT = 'War was declared.';
@@ -56,6 +57,8 @@ export const declareWar = (ctx: SimCtx, player: PlayerId, target: PlayerId): str
   });
   ctx.events.push({ type: 'warDeclared', by: player, on: target });
   addChronicle(state, player, 'war', target, WAR_DECLARED_TEXT);
+  speak(ctx, player, target, 'warOnYou');
+  speak(ctx, target, player, 'warByYou');
   return null;
 };
 
@@ -75,6 +78,8 @@ export const makePeace = (ctx: SimCtx, player: PlayerId, target: PlayerId): stri
   p.stock.influence -= PEACE_INFLUENCE_COST;
   delete state.wars[key];
   ctx.events.push({ type: 'peaceMade', a: player, b: target });
+  speak(ctx, player, target, 'peace');
+  speak(ctx, target, player, 'peace');
   return null;
 };
 
