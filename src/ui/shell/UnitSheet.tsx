@@ -3,19 +3,36 @@
  * is gated by a SimQuery; the sim still validates the command.
  */
 import { useState } from 'preact/hooks';
+import { hexDistance } from '@contracts/hex';
+import type { GameState, Unit } from '@contracts/sim-api';
+import { TRADE_RANGE } from '../../sim/constants';
 import { askConfirm, content, dispatch, game, lookup, me, myTurn, openModal, q, selection } from '../store';
-import { capitalize, num, turnsText } from './format';
+import { capitalize, num } from './format';
 import { cancelRoute, confirmRoute, previewRoute, refreshOverlay, selectUnit } from './MapView';
 import { idleUnits, nextIdleUnit } from './hexutil';
 import { highlights, siteHints, skipUnit } from './shell-state';
 import { unitHint } from './unit-hints';
 import { exploreNow, foundReady, orders, planRoute, plannedRoute, resting, setOrder } from './standing-orders';
-import { canExplore } from './orders';
+import { arrivalText, canExplore } from './orders';
+import { pendingAttack, cancelAttack, commitAttack } from './combat-state';
+import { OutlookStamp } from './CombatSheet';
 import { shortWhere, siteFacts, siteSummary, whereWord } from './site-hints';
 import { guideClass } from './guide-state';
 import { Icon } from '../art/Icon';
 import { FigurePortrait } from '../art/game-art';
 import type { IconName } from '../art/icons-data';
+
+/** Why a trader beside a foreign settlement cannot trade with it (display only; see unit-hints). */
+const tradeBlockedBeside = (g: GameState, u: Unit): { name: string; why: 'far' | 'war' | 'open'; range: number } | null => {
+  const near = Object.values(g.settlements).find((s) => s.owner !== u.owner && hexDistance(s.at, u.at) <= 1);
+  if (!near) return null;
+  const why = q.atWar(g, u.owner, near.owner)
+    ? 'war'
+    : g.tradeRoutes.some((r) => r.owner === u.owner && r.to === near.id)
+      ? 'open'
+      : 'far';
+  return { name: near.name, why, range: TRADE_RANGE };
+};
 
 export function UnitSheet() {
   const g = game.value;
@@ -49,6 +66,8 @@ export function UnitSheet() {
   const here = def?.canFound ? siteFacts(g, u.at, content) : null;
   const hereSummary = here ? siteSummary(here) : '';
   const hereRank = sites.findIndex((x) => x.hex.q === u.at.q && x.hex.r === u.at.r);
+  const pa = pendingAttack.value;
+  const inline = pa && pa.mode === 'inline' && pa.unit === u.id ? pa : null;
 
   return (
     <section class="sheet unit-sheet" aria-label={`Selected unit: ${name}`}>
@@ -87,7 +106,7 @@ export function UnitSheet() {
         )}
       </div>
 
-      {!def?.canFound && <p class="small muted unit-hint" role="status">
+      {!def?.canFound && !inline && <p class="small muted unit-hint" role="status">
         {unitHint({
           isFounder: !!def?.canFound,
           canFound,
@@ -99,6 +118,7 @@ export function UnitSheet() {
           hasAttacked: u.hasAttacked,
           military,
           canDeclare: reach.warTargets.length > 0,
+          tradeBlocked: def?.canTrade && tradeTargets.length === 0 ? tradeBlockedBeside(g, u) : null,
         })}
       </p>}
       {def?.canFound && !plan && (
@@ -110,13 +130,13 @@ export function UnitSheet() {
             </>
           ) : (
             <>
-              <strong>Not here.</strong> Settle on open land outside other borders, four or more tiles from any settlement.
+              <strong>Not here.</strong> Settle on open land outside other borders, four or more tiles from any settlement. Tap a numbered site to march there.
             </>
           )}
           {sites.length > 0 && hereRank !== 0 && (
             <>
               <div class="site-row" aria-label="Best sites nearby, numbered on the map">
-                <span class="muted site-label">Sites:</span>
+                <span class="muted site-label">Numbered sites:</span>
                 {sites.map((site, i) => {
                   const f = siteFacts(g, site.hex, content);
                   const why = f ? siteSummary(f, 2) : '';
@@ -150,10 +170,45 @@ export function UnitSheet() {
           )}
         </div>
       )}
+      {inline && (
+        <div class="card cbt-inline" role="status" aria-label={`Attack preview. ${inline.view.summary}`}>
+          <div class="row">
+            <OutlookStamp a={inline} />
+            <div class="grow small cbt-inline-text">
+              <b class="tnum">
+                <Icon name="strength" size="sm" /> {inline.view.attacker.strength} vs {inline.view.defender.strength}
+              </b>
+              {inline.view.kind !== 'capture' && (
+                <span class="tnum">
+                  {' '}· you <Icon name="health" size="sm" /> {inline.view.attacker.hp}
+                  <span class="cbt-arrow" aria-hidden="true" />
+                  {inline.view.attacker.after.expected} · they {inline.view.defender.hp}
+                  <span class="cbt-arrow" aria-hidden="true" />
+                  {inline.view.defender.after.expected}
+                </span>
+              )}
+              <div class="muted">Tap the target again to attack.</div>
+            </div>
+          </div>
+          {inline.view.warLine && (
+            <p class="cbt-war small">
+              <Icon name="war" size="sm" /> {inline.view.warLine}
+            </p>
+          )}
+          <div class="row cbt-buttons">
+            <button class="btn grow" onClick={cancelAttack}>
+              Cancel
+            </button>
+            <button class={`btn grow ${inline.view.warLine ? 'btn-danger' : 'btn-primary'}`} disabled={!canAct} onClick={() => commitAttack(inline)}>
+              <Icon name="attack" /> {inline.view.warLine ? 'War and attack' : inline.view.confirmLabel}
+            </button>
+          </div>
+        </div>
+      )}
       {plan && (
         <div class="route-card card row" role="status">
           <div class="grow small">
-            <strong>Route: about {turnsText(plan.turns)}</strong>
+            <strong>{arrivalText(plan.turns)}</strong>
             <div class="muted">
               {plan.blockedBy ? `Ends when your ${plan.blockedBy} moves off the tile.` : 'Go, or tap the tile again.'}
             </div>
@@ -176,7 +231,7 @@ export function UnitSheet() {
             ) : (
               <>
                 <strong>Marching</strong> · {whereWord(u.at, order.to)}
-                {marchTurns ? `, about ${turnsText(marchTurns)} left` : ''}. Moves on at the start of each turn.
+                {marchTurns ? `, ${arrivalText(marchTurns).replace('Arrives', 'arrives')}` : ''}. Moves on at the start of each turn.
               </>
             )}
           </div>
@@ -192,7 +247,7 @@ export function UnitSheet() {
           </button>
         </div>
       )}
-      {routePick ? (
+      {inline ? null : routePick ? (
         <div class="unit-actions">
           <div class="small muted">Open a trade route to:</div>
           {tradeTargets.map((sid) => {
@@ -232,8 +287,20 @@ export function UnitSheet() {
             </button>
           )}
           {tradeTargets.length > 0 && (
-            <button class="btn btn-primary" disabled={!canAct} onClick={() => setRoutePick(true)}>
-              <Icon name="trade" /> Trade route…
+            <button
+              class="btn btn-primary"
+              disabled={!canAct}
+              onClick={() => {
+                // One city in reach: no picker, one tap opens the route.
+                const only = tradeTargets.length === 1 ? tradeTargets[0] : undefined;
+                if (!only) return setRoutePick(true);
+                setOrder(u.id, null);
+                dispatch({ type: 'openTradeRoute', unit: u.id, to: only });
+                selectUnit(null);
+              }}
+            >
+              <Icon name="trade" />{' '}
+              {tradeTargets.length === 1 ? `Trade route to ${g.settlements[tradeTargets[0] ?? '']?.name ?? 'here'}` : 'Trade route…'}
             </button>
           )}
           {military && !u.fortified && (

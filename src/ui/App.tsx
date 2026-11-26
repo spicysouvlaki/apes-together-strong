@@ -7,6 +7,9 @@ import { Hud } from './shell/Hud';
 import { MapView } from './shell/MapView';
 import { ConfirmDialog, ModalHost, Toasts } from './shell/Overlays';
 import { GlossarySheet } from './shell/GlossarySheet';
+import { CombatSheet } from './shell/CombatSheet';
+import { RecruitReveal } from './shell/RecruitReveal';
+import { LongPressTip } from './shell/LongPressTip';
 import { Setup } from './shell/Setup';
 import { Title } from './shell/Title';
 
@@ -20,12 +23,15 @@ export function App() {
         <>
           <MapView />
           <Hud />
+          <CombatSheet />
         </>
       )}
       <Toasts />
       <ModalHost />
+      {r === 'game' && <RecruitReveal />}
       <GlossarySheet />
       <ConfirmDialog />
+      <LongPressTip />
     </>
   );
 }

@@ -2,7 +2,8 @@
 import { useState } from 'preact/hooks';
 import { GlossText } from '../shell/GlossarySheet';
 import type { FigureState } from '@contracts/sim-api';
-import { content, dispatch, game, lookup, me, myTurn, ownerName, q } from '../store';
+import { closeModal, content, dispatch, game, lookup, me, myTurn, ownerName, pushToast, q } from '../store';
+import { followFigure } from '../shell/MapView';
 import type { ScreenProps } from './index';
 import { ConfirmSheet, Empty, FigureCard, Screen, Section, Sheet } from './shared/components';
 import { ancestorYield, consumeBurstText, describeActivate, shortName } from './shared/describe';
@@ -49,6 +50,16 @@ export const FigureScreen = ({ modal }: ScreenProps<'figure'>) => {
   const run = (cmd: Parameters<typeof dispatch>[0]) => {
     dispatch(cmd);
     setPending(null);
+    // Taking the field: show them on the map, selected, instead of leaving the player here.
+    if (cmd.type === 'deployFigure') {
+      followFigure(cmd.figure);
+      closeModal();
+    }
+    // A figure leaving play: say what it bought, then go back (the screen would only say "consumed").
+    if (cmd.type === 'consumeFigure') {
+      pushToast(`${shortName(def.name)} left play: ${cmd.as === 'refinement' ? `+${def.consumeValue} refinement points` : consumeBurstText(def)}.`, 'culture');
+      closeModal();
+    }
   };
 
   // Disabled reasons come from the sim (q.figureActions().blocked), the validators' own words.
@@ -206,6 +217,19 @@ export const FigureScreen = ({ modal }: ScreenProps<'figure'>) => {
             <b>{describeActivate(def.activate.effect, def.activate.amount)}.</b> This happens once. Afterwards {def.name} retires to the Hall of
             Ancestors ({ancestorYield(def.kind)}).
           </p>
+          {(() => {
+            // Say where a city-bound deed lands (playtest: "their city" without naming it).
+            if (!['production_burst', 'rush_wonder', 'grow_city'].includes(def.activate.effect) || fs?.location.state !== 'based') return null;
+            const city = g.settlements[fs.location.settlement];
+            if (!city) return null;
+            const item = city.production.item;
+            const itemName = item ? (lookup.units[item]?.name ?? lookup.buildings[item]?.name ?? lookup.wonders[item]?.name ?? item) : null;
+            return (
+              <p class="small muted">
+                {def.activate.effect === 'grow_city' ? `${city.name} grows.` : itemName ? `${city.name} is building ${itemName}.` : `${city.name} is building nothing right now: choose its production first.`}
+              </p>
+            );
+          })()}
         </ConfirmSheet>
       )}
       {pending === 'consume' && (

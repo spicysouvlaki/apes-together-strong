@@ -5,6 +5,7 @@ import type { Figure } from '@contracts/content-schemas';
 import { closeModal, lookup } from '../../store';
 import { ageLabel, bioText, figureUses, KIND_LABEL } from './describe';
 import { Icon } from '../../art/Icon';
+import type { AnyIconName } from '../../art/icons-data';
 import { CultureCrest, FigurePortrait, tonesOf } from '../../art/game-art';
 import { KIND_ICON } from '../../art/portrait-spec';
 
@@ -64,7 +65,21 @@ export const Section = (props: { title: ComponentChildren; note?: ComponentChild
   </section>
 );
 
-export const Empty = (props: { children: ComponentChildren }) => <p class="scr-empty muted">{props.children}</p>;
+/** An empty state: a small woodcut vignette (an icon in an inked roundel with sprigs) and a line. */
+export const Empty = (props: { children: ComponentChildren; icon?: AnyIconName }) => (
+  <div class="scr-empty-wrap">
+    <span class="vignette" aria-hidden="true">
+      <svg class="vignette-sprigs" viewBox="0 0 120 40" width="120" height="40">
+        <path d="M8 22c14-2 26-1 36-6M112 22c-14-2-26-1-36-6" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" />
+        <path d="M16 20c-1-4 1-7 4-8 0 4-1 6-4 8zM26 19c-1-4 1-7 4-8 0 4-1 6-4 8zM36 17c-1-4 1-7 4-8 0 4-1 6-4 8zM104 20c1-4-1-7-4-8 0 4 1 6 4 8zM94 19c1-4-1-7-4-8 0 4 1 6 4 8zM84 17c1-4-1-7-4-8 0 4 1 6 4 8z" fill="currentColor" />
+      </svg>
+      <span class="vignette-roundel">
+        <Icon name={props.icon ?? 'legend'} />
+      </span>
+    </span>
+    <p class="scr-empty muted">{props.children}</p>
+  </div>
+);
 
 export const Portrait = (props: { figure: string; size?: 'xs' | 'sm' | 'md' | 'lg' }) => <FigurePortrait figure={props.figure} size={props.size ?? 'md'} />;
 

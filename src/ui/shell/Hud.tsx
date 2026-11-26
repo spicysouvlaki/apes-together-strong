@@ -3,7 +3,7 @@
  * quick buttons; bottom-right End Turn / "Next: …"; next-unit cycling; the unit sheet.
  * Portrait, one-handed, 44px targets, safe-area aware.
  */
-import { computed } from '@preact/signals';
+import { computed, signal } from '@preact/signals';
 import { useEffect, useRef } from 'preact/hooks';
 import {
   askConfirm,
@@ -24,6 +24,7 @@ import {
 import { screens, type ScreenKind } from '../screens';
 import type { ModalKind } from '../store';
 import { decisionLabel, decisionModal, planEndTurn, type Prompt } from './decisions';
+import { EMPTY_NAGS, promptKey, restNag, restingNags, type NagMemory } from './nags';
 import { AGE_NAME, HUD_YIELDS, YIELD_ICON, YIELD_NAME, happinessIcon, happinessWord, num, signed } from './format';
 import { Icon } from '../art/Icon';
 import type { IconName } from '../art/icons-data';
@@ -61,10 +62,24 @@ const founder = computed(() => {
   return id && !orders.value[id] ? id : null;
 });
 
-const plan = computed(() => planEndTurn(pending.value, isRegistered, founder.value));
+/** Advisory nags put to rest this turn (opened or waved off); see nags.ts. */
+export const nagMemory = signal<NagMemory>(EMPTY_NAGS);
+const nagsAtRest = computed(() => restingNags(nagMemory.value, game.value?.turn ?? -1));
+
+const plan = computed(() => planEndTurn(pending.value, isRegistered, founder.value, nagsAtRest.value));
+
+/** Put an advisory prompt to rest for this turn (blocking ones always come back: the sim needs them). */
+const restPrompt = (d: Prompt): void => {
+  const g = game.value;
+  if (!g || d.type === 'offer' || d.type === 'crisis' || d.type === 'transition' || d.type === 'found') return;
+  nagMemory.value = restNag(nagMemory.value, g.turn, promptKey(d));
+};
 
 /** First crisis stage of this age (where the track turns red), from content. */
 const crisisAt = (age: string): number | null => content.crises.find((c) => c.age === age)?.stages[0]?.at ?? null;
+
+/** The wax seal warms as the age nears its end (70 / 80 / 90 / 100). */
+export const sealHeat = (pct: number): string => (pct >= 100 ? ' heat-4' : pct >= 90 ? ' heat-3' : pct >= 80 ? ' heat-2' : pct >= 70 ? ' heat-1' : '');
 
 /** The age meter: an inked track with a wax-seal marker; the crisis stretch is washed red. */
 function AgeTrack({ progress, crisisAt: at, crisis }: { progress: number; crisisAt: number | null; crisis: boolean }) {
@@ -76,19 +91,19 @@ function AgeTrack({ progress, crisisAt: at, crisis }: { progress: number; crisis
       {[25, 50, 75].map((x) => (
         <i class="age-track-tick" style={{ left: `${x}%` }} />
       ))}
-      <span class={`age-seal${crisis ? ' crisis' : ''}`} style={{ left: `${pct}%` }}>
+      <span class={`age-seal${crisis ? ' crisis' : ''}${sealHeat(pct)}`} style={{ left: `${pct}%` }}>
         <Icon name={crisis ? 'crisis' : 'age'} size="sm" />
       </span>
     </span>
   );
 }
 
-/** The player's banner hanging under the top bar; tap for the Chronicle. */
+/** The player's banner hanging under the top bar; tap for "Your people". */
 function HudBanner() {
   const p = myPlayer.value;
   if (!p) return null;
   return (
-    <button class="hud-banner" aria-label="Chronicle" onClick={() => openModal({ kind: 'chronicle' })}>
+    <button class="hud-banner" aria-label="Your people" onClick={() => openModal({ kind: 'people' })}>
       <PlayerBanner player={p} width={34} />
     </button>
   );
@@ -185,6 +200,7 @@ export const sendEndTurn = (): void => {
 };
 
 const openDecision = (d: Prompt): void => {
+  restPrompt(d);
   if (d.type === 'found') {
     const g = game.value;
     if (g) foundNudgeTurn.value = g.turn;
@@ -242,10 +258,15 @@ function AdvisoryChip() {
   const next = pl.mode === 'end' ? pl.next : null;
   if (!next || !myTurn.value) return null;
   return (
-    <button class={`btn advisory${guideClass(`decision:${next.type}`)}`} onClick={() => openDecision(next)} aria-label={`Open ${decisionLabel(next)}`}>
-      <span>{decisionLabel(next)}</span>
-      <Icon name="next" size="sm" />
-    </button>
+    <span class="advisory-wrap">
+      <button class={`btn advisory${guideClass(`decision:${next.type}`)}`} onClick={() => openDecision(next)} aria-label={`Open ${decisionLabel(next)}`}>
+        <span>{decisionLabel(next)}</span>
+        <Icon name="next" size="sm" />
+      </button>
+      <button class="advisory-x" aria-label={`Not now: ${decisionLabel(next)}`} onClick={() => restPrompt(next)}>
+        <Icon name="close" size="sm" />
+      </button>
+    </span>
   );
 }
 

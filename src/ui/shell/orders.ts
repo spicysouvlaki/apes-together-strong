@@ -180,6 +180,28 @@ export const routeTurns = (path: readonly Hex[], movesLeft: number, full: number
 };
 
 /**
+ * Indices into `path` where a new turn starts (the renderer's `pathTurns` ticks), by the same
+ * walk as `routeTurns`: index i means the step onto path[i] is the first of a later turn.
+ * `routeTurns(...) === routeTurnStarts(...).length + 1` for any non-empty path.
+ */
+export const routeTurnStarts = (path: readonly Hex[], movesLeft: number, full: number, cost: (h: Hex) => number): number[] => {
+  const out: number[] = [];
+  let rem = movesLeft;
+  path.forEach((h, i) => {
+    if (rem <= 0) {
+      out.push(i);
+      rem = full;
+    }
+    rem -= cost(h);
+  });
+  return out;
+};
+
+/** "Arrives this turn" / "Arrives next turn" / "Arrives in 3 turns" (turns counted from now). */
+export const arrivalText = (turns: number): string =>
+  turns <= 1 ? 'Arrives this turn' : turns === 2 ? 'Arrives next turn' : `Arrives in ${turns - 1} turns`;
+
+/**
  * Persisted form: orders per game, keyed by the game's seed (survives reloads; several games
  * or tabs do not clobber each other). The most recent games are kept.
  */

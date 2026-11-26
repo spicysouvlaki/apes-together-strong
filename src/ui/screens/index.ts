@@ -12,6 +12,7 @@ import { FigureScreen } from './figure';
 import { GovernmentScreen } from './government';
 import { LegacyScreen } from './legacy';
 import { OfferScreen } from './offer';
+import { PeopleScreen } from './people';
 import { RosterScreen } from './roster';
 import { TransitionScreen } from './transition';
 import { TreeScreen } from './tree';
@@ -28,7 +29,8 @@ export type ScreenKind =
   | 'crisis'
   | 'transition'
   | 'legacy'
-  | 'chronicle';
+  | 'chronicle'
+  | 'people';
 
 /** Each screen receives the modal value that opened it. */
 export type ScreenProps<K extends ScreenKind = ScreenKind> = { modal: Extract<Modal, { kind: K }> };
@@ -45,6 +47,7 @@ export const screens: Partial<{ [K in ScreenKind]: ComponentType<ScreenProps<K>>
   transition: TransitionScreen,
   legacy: LegacyScreen,
   chronicle: ChronicleScreen,
+  people: PeopleScreen,
 };
 
 /** True for modal kinds this registry renders. */

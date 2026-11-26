@@ -4,39 +4,113 @@
  */
 import { useEffect } from 'preact/hooks';
 import type { ComponentType } from 'preact';
-import { closeModal, confirmRequest, dismissToast, focusMap, modal, openModal, toasts, type Modal, type Toast } from '../store';
+import { signal } from '@preact/signals';
+import { closeModal, confirmRequest, dismissToast, focusMap, modal, openModal, route, toasts, type Modal, type Toast } from '../store';
 import { CodexScreen } from './Codex';
 import { TurnLog } from './TurnLog';
 import { screens, type ScreenKind } from '../screens';
 import { CitySheet } from './CitySheet';
-import { toastDuration } from './event-toasts';
+import { SLIP_DURATION_MS, splitToasts, tickerDuration, tickerMore } from './ticker';
 import { MenuPanel, SavesPanel, SettingsPanel } from './Panels';
 import { TileInfo } from './TileInfo';
 import { Icon } from '../art/Icon';
 
-function ToastItem({ t }: { t: Toast }) {
-  useEffect(() => {
-    const timer = setTimeout(() => dismissToast(t.id), toastDuration(t.tone));
-    return () => clearTimeout(timer);
-  }, [t.id]);
-  return (
-    <button
-      class={`toast tone-${t.tone}${t.action?.kind === 'log' ? ' toast-more' : ''}`}
-      onClick={() => {
-        dismissToast(t.id);
-        if (t.at) focusMap(t.at);
-        if (t.action) openModal(t.action);
-      }}
-      aria-label={t.action ? `${t.text} Tap to open.` : t.at ? `${t.text} Tap to show on the map.` : t.text}
-    >
-      <span class="toast-text">{t.text}</span>
-      {(t.action || t.at) && <Icon name="chevron" size="sm" />}
-    </button>
-  );
-}
+/** Act on a toast: center the map where it happened and/or open what it points at. */
+const actOn = (t: Toast): void => {
+  dismissToast(t.id);
+  if (t.at) focusMap(t.at);
+  if (t.action) openModal(t.action);
+};
 
 /** Map sheets leave the map in view; every other modal is a full screen. */
 const SHEET_KINDS: ReadonlySet<string> = new Set(['city', 'tileInfo', 'log']);
+
+const tickerOpen = signal(false);
+
+/**
+ * One line under the top bar: the newest piece of news, one at a time. Tap the line to act on it
+ * (show it on the map, open its screen); tap the count to unfold this turn's news.
+ */
+function Ticker({ items }: { items: Toast[] }) {
+  const t = items[0];
+  const open = tickerOpen.value;
+  useEffect(() => {
+    if (!t || open) return undefined;
+    const timer = setTimeout(() => dismissToast(t.id), tickerDuration(t.tone));
+    return () => clearTimeout(timer);
+  }, [t?.id, open]);
+  useEffect(() => {
+    if (items.length === 0 && open) tickerOpen.value = false;
+  }, [items.length, open]);
+  if (!t) return null;
+  const more = tickerMore(items.length);
+  const actionable = !!(t.action || t.at);
+  return (
+    <div class={`ticker${open ? ' is-open' : ''}`}>
+      <div class={`ticker-line tone-${t.tone}`}>
+        <button
+          key={t.id}
+          class="ticker-text"
+          onClick={() => (actionable ? actOn(t) : (tickerOpen.value = !open))}
+          aria-label={actionable ? `${t.text} ${t.action ? 'Tap to open.' : 'Tap to show on the map.'}` : t.text}
+        >
+          <span class="ticker-ribbon" aria-hidden="true" />
+          <span class="ticker-words">{t.text}</span>
+          {actionable && <Icon name="chevron" size="sm" />}
+        </button>
+        <button
+          class="ticker-more"
+          aria-expanded={open}
+          aria-label={open ? 'Fold the news' : `Show this turn's news${more ? `, ${items.length} items` : ''}`}
+          onClick={() => (tickerOpen.value = !open)}
+        >
+          {more && <span class="tnum">{more}</span>}
+          <Icon name={open ? 'close' : 'turn'} size="sm" />
+        </button>
+      </div>
+      {open && (
+        <div class="ticker-list card" role="log" aria-label="This turn's news">
+          {items.map((x) => (
+            <button key={x.id} class={`ticker-item tone-${x.tone}`} onClick={() => (x.action || x.at ? actOn(x) : dismissToast(x.id))}>
+              <span class="grow">{x.text}</span>
+              {(x.action || x.at) && <Icon name="chevron" size="sm" />}
+            </button>
+          ))}
+          <button
+            class="btn btn-ghost ticker-log"
+            onClick={() => {
+              tickerOpen.value = false;
+              openModal({ kind: 'log' });
+            }}
+          >
+            <Icon name="chronicle" size="sm" /> All recent events
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** A threat the player must see now (war on us, a city attacked, raiders): a madder slip. */
+function ThreatSlip({ t, i }: { t: Toast; i: number }) {
+  useEffect(() => {
+    const timer = setTimeout(() => dismissToast(t.id), SLIP_DURATION_MS);
+    return () => clearTimeout(timer);
+  }, [t.id]);
+  return (
+    <div class="threat-slip" role="alert" style={{ animationDelay: `${i * 80}ms` }}>
+      <span class="threat-seal" aria-hidden="true">
+        <Icon name="war" />
+      </span>
+      <button class="threat-text" onClick={() => actOn(t)} aria-label={`${t.text} ${t.action || t.at ? 'Tap to show.' : ''}`}>
+        {t.text}
+      </button>
+      <button class="threat-close" aria-label="Dismiss" onClick={() => dismissToast(t.id)}>
+        <Icon name="close" size="sm" />
+      </button>
+    </div>
+  );
+}
 
 export function Toasts() {
   const list = toasts.value;
@@ -45,11 +119,17 @@ export function Toasts() {
   // back when the screen closes, so "war declared on us" survives a long decision screen.
   const m = modal.value;
   if (m && !SHEET_KINDS.has(m.kind)) return null;
+  const { slips, ticker } = splitToasts(list);
   return (
-    <div class="toasts" role="log" aria-live="polite">
-      {list.map((t) => (
-        <ToastItem key={t.id} t={t} />
-      ))}
+    <div class={`toasts${route.value === 'game' ? '' : ' toasts-free'}`} aria-live="polite">
+      <Ticker items={ticker} />
+      {slips.length > 0 && (
+        <div class="threat-slips">
+          {slips.map((t, i) => (
+            <ThreatSlip key={t.id} t={t} i={i} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

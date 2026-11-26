@@ -7,6 +7,7 @@
  */
 import type { Decision, UnitId } from '@contracts/sim-api';
 import type { Modal, ModalKind } from '../store';
+import { promptKey } from './nags';
 
 /**
  * What the End Turn button can point at: a sim decision, or the UI-only "found your first city"
@@ -84,19 +85,23 @@ export const planEndTurn = (
   decisions: readonly Decision[],
   isRegistered: (kind: ModalKind) => boolean,
   founder: UnitId | null = null,
+  /** Advisory prompts the player already opened or waved off this turn (nags.ts). */
+  resting: ReadonlySet<string> = new Set(),
 ): EndTurnPlan => {
   const blocking = decisions.filter((d) => isBlocking(d, isRegistered));
   const advisory = decisions.filter((d) => !isBlocking(d, isRegistered));
   const idleCities = advisory.flatMap((d) => (d.type === 'production' ? [d.settlement] : []));
+  // Nags at rest are still counted (badge, idle-city check) but no longer pointed at.
+  const awake = advisory.filter((d) => !resting.has(promptKey(d)));
   // A pending offer/crisis/transition still wins: the sim will not end the turn without it.
   const hardFirst = blocking.find((d) => d.type !== 'government');
   if (founder && !hardFirst) return { mode: 'next', next: { type: 'found', unit: founder }, advisory, idleCities };
   // Only a government is missing (the first turns): the turn cannot end yet anyway, so walk the
   // player through what to build and study first, in the guide's order (playtest: the guide
   // said "choose what it builds" while the button pointed at Government).
-  const walk = !hardFirst && blocking.length > 0 ? [...advisory].sort((a, b) => ADVISORY_ORDER[a.type] - ADVISORY_ORDER[b.type])[0] : undefined;
+  const walk = !hardFirst && blocking.length > 0 ? [...awake].sort((a, b) => ADVISORY_ORDER[a.type] - ADVISORY_ORDER[b.type])[0] : undefined;
   if (walk) return { mode: 'next', next: walk, advisory, idleCities };
   const first = blocking[0];
   if (first) return { mode: 'next', next: first, advisory, idleCities };
-  return { mode: 'end', next: advisory[0] ?? null, advisory, idleCities };
+  return { mode: 'end', next: awake[0] ?? null, advisory, idleCities };
 };

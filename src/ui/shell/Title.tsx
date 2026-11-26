@@ -7,6 +7,7 @@ import { loadGame, openModal, route, saves } from '../store';
 import { Icon } from '../art/Icon';
 import { continueSave } from './saves-logic';
 import { loading } from './shell-state';
+import { endedOf, titleActions } from './ended-saves';
 
 const HEX = (cx: number, cy: number, r: number): string => {
   const pts: string[] = [];
@@ -120,6 +121,12 @@ export function Title() {
   const list = saves.value;
   const auto = continueSave(list);
   const busy = loading.value;
+  const acts = titleActions(auto, endedOf(auto));
+  const newBtn = (
+    <button class={`btn${acts.primary === 'new' ? ' btn-primary title-hero' : ''}`} disabled={!!busy} onClick={() => (route.value = 'setup')}>
+      <Icon name="found" /> New game
+    </button>
+  );
   return (
     <main class="title-screen">
       <TitleScene />
@@ -135,21 +142,20 @@ export function Title() {
         <p class="title-tag">Build a civilization from the people your play attracts.</p>
       </div>
       <div class="title-buttons">
-        {auto && (
+        {acts.newFirst && newBtn}
+        {auto && acts.saveLabel && (
           <button
-            class="btn btn-primary title-hero"
+            class={`btn${acts.primary === 'continue' ? ' btn-primary title-hero' : ''}`}
             disabled={!!busy}
             onClick={() => {
-              loading.value = 'Loading…';
+              loading.value = acts.primary === 'continue' ? 'Loading…' : 'Opening the chronicle…';
               loadGame(auto.slot);
             }}
           >
-            <Icon name="play" /> Continue · Turn {auto.turn}
+            <Icon name={acts.primary === 'continue' ? 'play' : 'chronicle'} /> {acts.saveLabel}
           </button>
         )}
-        <button class={`btn${auto ? '' : ' btn-primary title-hero'}`} disabled={!!busy} onClick={() => (route.value = 'setup')}>
-          <Icon name="found" /> New game
-        </button>
+        {!acts.newFirst && newBtn}
         <div class="title-row">
           <button class="btn" disabled={!!busy || list.length === 0} onClick={() => openModal({ kind: 'saves' })}>
             <Icon name="load" /> Load

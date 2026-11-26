@@ -30,6 +30,7 @@ import {
 } from './store';
 import { eventFlash, eventToToast, rankToasts, type EventNames, type FlashKindSpec, type ToastSpec } from './shell/event-toasts';
 import { tileIndexOf } from './shell/hexutil';
+import { isThreat } from './shell/ticker';
 import { endTurnSent, enemyConfirmedTurn, idleSheetTurn, lastTap, loading, pushLog, settings, turnLog, skipped, updateReady } from './shell/shell-state';
 import { continueStandingOrders, initStandingOrders, runStandingOrders } from './shell/standing-orders';
 import { initGuide } from './shell/guide-state';
@@ -107,7 +108,7 @@ const onState = (state: GameState, events: SimEvent[]): void => {
   const specs: ToastSpec[] = [];
   for (const ev of events) {
     const t = eventToToast(ev, my, names);
-    if (t) specs.push(t);
+    if (t) specs.push(isThreat(ev, my) ? { ...t, threat: true } : t);
   }
   pushToasts(rankToasts(specs));
   pushLog(state.turn, specs);

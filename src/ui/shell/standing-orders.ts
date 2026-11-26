@@ -10,7 +10,7 @@ import type { UnitId } from '@contracts/sim-api';
 import { content, dispatch, game, lookup, me, myTurn, pushToast, q } from '../store';
 import { stepCost } from '../../sim/units';
 import { tileAt } from './hexutil';
-import { parseStoredOrders, pruneOrders, routeBeside, storeOrders, routeTurns, stepOrder, withOrder, type OrderDeps, type Orders, type StandingOrder } from './orders';
+import { parseStoredOrders, pruneOrders, routeBeside, storeOrders, routeTurns, routeTurnStarts, stepOrder, withOrder, type OrderDeps, type Orders, type StandingOrder } from './orders';
 import { skipped } from './shell-state';
 
 const KEY = 'apes.orders.v2';
@@ -26,6 +26,8 @@ export interface PlannedRoute {
   tapped: Hex;
   path: Hex[];
   turns: number;
+  /** Indices into `path` where a new turn starts (renderer `pathTurns` ticks). */
+  turnStarts: number[];
   /** One of the player's own units stands on the tapped tile: the march waits for it to move. */
   blockedBy?: string;
 }
@@ -93,7 +95,14 @@ export const planRoute = (unit: UnitId, to: Hex): PlannedRoute | null => {
     const t = tileAt(g.map, h);
     return t ? stepCost(t, def, content) : 1;
   };
-  const plan: PlannedRoute = { unit, to: dest, tapped: to, path, turns: routeTurns(path, u.movesLeft, def.moves, cost) };
+  const plan: PlannedRoute = {
+    unit,
+    to: dest,
+    tapped: to,
+    path,
+    turns: routeTurns(path, u.movesLeft, def.moves, cost),
+    turnStarts: routeTurnStarts(path, u.movesLeft, def.moves, cost),
+  };
   if (blockedBy) plan.blockedBy = blockedBy;
   return plan;
 };

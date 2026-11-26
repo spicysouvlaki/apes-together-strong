@@ -5,6 +5,7 @@ import { Empty, Screen, Section } from './shared/components';
 import { describeModifiers, YIELD_LABEL } from './shared/describe';
 import type { Yields, YieldType } from '@contracts/content-schemas';
 import { Icon } from '../art/Icon';
+import { crisisLede } from './shared/crisis';
 
 const stockText = (stock: Yields): string[] =>
   (Object.keys(stock) as YieldType[])
@@ -26,6 +27,7 @@ export const CrisisScreen = (_: ScreenProps<'crisis'>) => {
   const p = g.players[player];
   const stage = crisis.stage > 0 ? def.stages[crisis.stage - 1] : undefined;
   const awaiting = crisis.awaiting.includes(player);
+  const pressure = describeModifiers(def.pressure, lookup);
   const past = def.stages.flatMap((s) => s.options).filter((o) => p?.crisisChoices.includes(o.id));
 
   return (
@@ -72,9 +74,18 @@ export const CrisisScreen = (_: ScreenProps<'crisis'>) => {
         <span class="scr-broadsheet-rule" />
       </div>
       <h2 class="scr-crisis-title">{def.name}</h2>
-      <p class="scr-broadsheet-lede">{def.description}</p>
-      {def.pressure.length > 0 && (
-        <p class="small muted">While it lasts: {describeModifiers(def.pressure, lookup).join('; ')}.</p>
+      <p class="scr-broadsheet-lede">{crisisLede(def.description, pressure)}</p>
+      {pressure.length > 0 && (
+        <div class="scr-pressure" role="note">
+          <div class="scr-pressure-head">
+            <Icon name="warning" size="sm" /> While it lasts
+          </div>
+          <ul class="scr-mods">
+            {pressure.map((t) => (
+              <li>{t}</li>
+            ))}
+          </ul>
+        </div>
       )}
       {stage && (
         <div class="card scr-stage-card">

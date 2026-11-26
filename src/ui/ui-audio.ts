@@ -90,7 +90,11 @@ export const initUiAudio = (): void => {
     if (kind === lastModal) return;
     const was = lastModal;
     lastModal = kind;
-    if (kind && !was) uiSound('open');
+    // The Chronicle has its own sting (the story's payoff); the transition is voiced by the
+    // sim's ageEnded/ageStarted cadence, so it opens silently (no doubled sounds).
+    if (kind === 'chronicle') uiSound('chronicle');
+    else if (kind === 'transition') claimed = true;
+    else if (kind && !was) uiSound('open');
     else if (!kind && was) uiSound('close');
     else if (kind) uiSound('open');
   });

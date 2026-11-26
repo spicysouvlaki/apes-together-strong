@@ -28,12 +28,24 @@ import { highlights, hudBottomPx, lastTap, settings, siteHints } from './shell-s
 import { foundReady, planRoute, plannedRoute, resting, setOrder } from './standing-orders';
 import { pushToast } from '../store';
 import { resolveTap } from './tap-intent';
+import { attackStep } from './combat-view';
+import { buildPending, commitAttack, fetchPreview, pendingAttack } from './combat-state';
+import { uiPrefs } from './ui-prefs';
 import { warTargetsFor } from './war-targets';
 
 let rendererRef: Renderer | null = null;
 
-/** Top bar height the camera keeps clear (CSS px, two rows of the HUD). */
-const HUD_TOP_PX = 96;
+/**
+ * A figure just deployed (figure screen, recruit reveal): once the snapshot shows their unit,
+ * select it and bring it into view, so the player sees where they took the field.
+ */
+let followFigureId: string | null = null;
+export const followFigure = (figure: string): void => {
+  followFigureId = figure;
+};
+
+/** Top bar plus the news ticker under it, kept clear by the camera (CSS px). */
+const HUD_TOP_PX = 136;
 /** The city sheet's max height (shell.css .city-sheet max-height: 70vh), as a share of the screen. */
 const CITY_SHEET_SHARE = 0.7;
 /** Bottom controls plus a typical unit sheet, kept clear when focusing a unit. */
@@ -44,6 +56,7 @@ export const selectUnit = (unitId: string | null, opts: { focus?: boolean } = {}
   const g = game.value;
   const my = me.value;
   const u = unitId && g ? g.units[unitId] : undefined;
+  if (pendingAttack.peek() && pendingAttack.peek()?.unit !== unitId) pendingAttack.value = null;
   if (!g || !my || !u || u.owner !== my) {
     selection.value = { unit: null, settlement: null, tile: selection.value.tile };
     highlights.value = { reachable: [], attackable: [], warTargets: [] };
@@ -63,12 +76,14 @@ export const selectUnit = (unitId: string | null, opts: { focus?: boolean } = {}
   rendererRef?.setHints({ sites: (siteHints.value?.sites ?? []).map((s, i) => ({ hex: s.hex, rank: i + 1 })) });
   selection.value = { unit: u.id, settlement: null, tile: u.at };
   highlights.value = { reachable, attackable, warTargets };
-  rendererRef?.setSelection({ unit: u.id, tile: u.at, reachable, attackable, path: overlayPath() });
+  rendererRef?.setSelection({ unit: u.id, tile: u.at, reachable, attackable, path: overlayPath(), pathTurns: overlayTurns() });
   if (opts.focus) rendererRef?.focus(u.at);
 };
 
 /** The route preview channel (`path`): the planned route, if any. Sites use setHints({ sites }). */
 const overlayPath = (): Hex[] => plannedRoute.value?.path ?? [];
+/** Turn ticks along the route (indices where a new turn starts). */
+const overlayTurns = (): number[] => plannedRoute.value?.turnStarts ?? [];
 
 /** Preview a route for the selected unit (or confirm it on a second tap of the same tile). */
 export const previewRoute = (unit: string, to: Hex): void => {
@@ -83,14 +98,14 @@ export const previewRoute = (unit: string, to: Hex): void => {
     return;
   }
   plannedRoute.value = plan;
-  rendererRef?.setSelection({ tile: plan.to, path: plan.path });
+  rendererRef?.setSelection({ tile: plan.to, path: plan.path, pathTurns: plan.turnStarts });
 };
 
 export const cancelRoute = (): void => {
   plannedRoute.value = null;
   const u = selection.value.unit;
   const at = u ? game.value?.units[u]?.at : null;
-  rendererRef?.setSelection({ tile: at ?? null, path: overlayPath() });
+  rendererRef?.setSelection({ tile: at ?? null, path: overlayPath(), pathTurns: overlayTurns() });
 };
 
 /** Go: move as far as possible now, keep the rest as a standing order. */
@@ -118,7 +133,7 @@ export const confirmRoute = (): void => {
 
 /** Show or refresh the dots after a plan/site change without reselecting. */
 export const refreshOverlay = (): void => {
-  rendererRef?.setSelection({ path: overlayPath() });
+  rendererRef?.setSelection({ path: overlayPath(), pathTurns: overlayTurns() });
 };
 
 const onTap = (hex: Hex): void => {
@@ -143,6 +158,8 @@ const onTap = (hex: Hex): void => {
     lastTap: cycleFrom,
     atWar: (a, b) => q.atWar(g, a, b),
   });
+  // Any other tap drops an inline attack preview (it was for that one target).
+  if (intent.kind !== 'attack' && pendingAttack.value) pendingAttack.value = null;
   switch (intent.kind) {
     case 'plan':
       lastTap.value = null;
@@ -160,6 +177,26 @@ const onTap = (hex: Hex): void => {
       setOrder(intent.unit, null);
       const attack = (): void => dispatch({ type: 'attack', unit: intent.unit, target: intent.target });
       const enemy = intent.declareWarOn;
+      // Preview first (GDD §7 "Combat"): the sheet, or with "Confirm attacks" off a first tap
+      // previews inline and a second tap on the same target attacks.
+      const preview = fetchPreview(g, intent.unit, intent.target);
+      const cur = pendingAttack.value;
+      const step = attackStep({
+        hasPreview: !!preview,
+        confirmSetting: uiPrefs.value.confirmAttacks,
+        armed: cur && cur.mode === 'inline' ? cur : null,
+        unit: intent.unit,
+        target: intent.target,
+      });
+      if (preview && step.kind !== 'legacy') {
+        if (step.kind === 'attack') {
+          commitAttack({ unit: intent.unit, target: intent.target, declareWarOn: enemy });
+          return;
+        }
+        pendingAttack.value = buildPending(g, my, intent.unit, intent.target, enemy, preview, step.kind === 'sheet' ? 'sheet' : 'inline');
+        rendererRef?.setSelection({ tile: intent.target });
+        return;
+      }
       if (enemy) {
         askConfirm({
           title: `Declare war on ${ownerName(enemy)}?`,
@@ -237,6 +274,15 @@ export function MapView() {
         lastKey = key;
         const home = homeHex(g, my);
         if (home && (first || selection.peek().unit === null)) r.focus(home, { instant: first });
+      }
+      if (followFigureId) {
+        const loc = g.figures[followFigureId]?.location;
+        if (loc?.state === 'unit' && g.units[loc.unit]) {
+          followFigureId = null;
+          const unit = loc.unit;
+          untracked(() => selectUnit(unit, { focus: true }));
+          return;
+        }
       }
       // Keep the selected unit's highlights in step with the new snapshot.
       const sel = selection.peek().unit;

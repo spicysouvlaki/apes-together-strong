@@ -5,6 +5,7 @@ import { render } from 'preact';
 import './styles/fonts';
 import './styles/base.css';
 import './styles/shell.css';
+import './styles/moments.css';
 import { App } from './App';
 import { initApp } from './app-wiring';
 import * as store from './store';

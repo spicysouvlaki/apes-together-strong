@@ -1,10 +1,13 @@
 /** The Chronicle (GDD §8): the story of a nation that never existed, age by age. */
 import { useState } from 'preact/hooks';
-import { closeModal, content, game, me, modal, ownerName, route } from '../store';
+import { closeModal, content, game, lookup, me, modal, ownerName, q, route } from '../store';
+import { ageSummary, closingLine, openingLine, type StoryInput } from './shared/chronicle-story';
+import { weightRows } from './shared/figures';
+import { ShareButtons } from './chronicle-share';
 import type { ScreenProps } from './index';
 import { CultureChip, Empty, Portrait, Screen } from './shared/components';
 import { Icon } from '../art/Icon';
-import { CultureCrest, PlayerBanner } from '../art/game-art';
+import { CultureCrest, FigurePortrait, PlayerBanner } from '../art/game-art';
 import { ageLabel, bioText, KIND_LABEL } from './shared/describe';
 import { buildChronicle, type ChronicleAge } from './shared/chronicle';
 import type { FigureKind } from '@contracts/content-schemas';
@@ -16,6 +19,15 @@ export const ChronicleScreen = (_: ScreenProps<'chronicle'>) => {
   if (!g || !player) return <Screen title="Chronicle" label="Chronicle"><Empty>No game in progress.</Empty></Screen>;
   const shown = who ?? player;
   const view = buildChronicle(g, shown, content);
+  const story: StoryInput | null = view
+    ? {
+        view,
+        cultures: weightRows(q.cultureWeights(g, shown, content), content)
+          .slice(0, 3)
+          .map((r) => lookup.cultures[r.culture]?.adjective ?? r.culture),
+        named: !!g.players[shown]?.civName,
+      }
+    : null;
   const ended = g.phase === 'ended';
   const winner = g.result ? ownerName(g.result.winner) : null;
 
@@ -30,15 +42,18 @@ export const ChronicleScreen = (_: ScreenProps<'chronicle'>) => {
       label="Chronicle"
       closable={!ended}
       footer={
-        ended ? (
-          <button class="btn btn-primary" onClick={newGame} aria-label="Start a new game">
-            New game
-          </button>
-        ) : (
-          <button class="btn" onClick={closeModal} aria-label="Close the chronicle">
-            Close
-          </button>
-        )
+        <>
+          {story && <ShareButtons story={story} ended={ended} turn={g.turn} />}
+          {ended ? (
+            <button class="btn btn-primary" onClick={newGame} aria-label="Start a new game">
+              New game
+            </button>
+          ) : (
+            <button class="btn" onClick={closeModal} aria-label="Close the chronicle">
+              Close
+            </button>
+          )}
+        </>
       }
     >
       {g.playerOrder.length > 1 && (
@@ -79,6 +94,7 @@ export const ChronicleScreen = (_: ScreenProps<'chronicle'>) => {
             <div class="fleuron" aria-hidden="true">
               <Icon name="legend" size="sm" />
             </div>
+            {story && <p class="scr-chron-opening scr-dropcap">{openingLine(story)}</p>}
           </div>
 
           {/* The verdict first: at the end of a game the player opens this to learn who won. */}
@@ -102,10 +118,18 @@ export const ChronicleScreen = (_: ScreenProps<'chronicle'>) => {
               </ul>
             </section>
           )}
-          {view.ages.length === 0 && <Empty>The story has not begun.</Empty>}
+          {view.ages.length === 0 && <Empty icon="chronicle">The story has not begun.</Empty>}
           {view.ages.map((a, i) => (
             <AgeSection age={a} n={i} />
           ))}
+          {view.ages.length > 0 && (
+            <>
+              <div class="fleuron" aria-hidden="true">
+                <Icon name="legend" size="sm" />
+              </div>
+              <p class="scr-chron-closing">{closingLine(view, ended, view.ages[view.ages.length - 1]?.age ?? null, g.turn)}</p>
+            </>
+          )}
 
         </>
       )}
@@ -122,6 +146,14 @@ const AgeSection = ({ age: a, n }: { age: ChronicleAge; n: number }) => (
   <section class="scr-chron-age">
     <div class="scr-chron-book">Book {ROMAN[n] ?? n + 1}</div>
     <h3>The {ageLabel(a.age)} Age</h3>
+    {a.figures.length > 0 && (
+      <div class="chron-medals" aria-hidden="true">
+        {a.figures.map((f) => (
+          <FigurePortrait figure={f.id} size="xs" />
+        ))}
+      </div>
+    )}
+    <p class="chron-summary">{ageSummary(a)}</p>
     <div class="scr-chron-events">
       {a.events.map((e, i) => (
         <p class={`scr-chron-line${i === 0 && e.text.length > 60 ? ' scr-dropcap' : ''}`}>

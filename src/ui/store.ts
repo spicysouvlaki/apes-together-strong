@@ -39,6 +39,8 @@ export type Modal =
   | { kind: 'transition' }
   | { kind: 'legacy' }
   | { kind: 'chronicle' }
+  /** "Your people": who the player is becoming (from the HUD banner). */
+  | { kind: 'people' }
   // Owned by the SHELL task (src/ui/shell):
   | { kind: 'city'; settlement: SettlementId }
   | { kind: 'tileInfo'; hex: Hex }
@@ -59,6 +61,8 @@ export interface Toast {
   tone: 'info' | 'good' | 'bad' | 'culture';
   /** Where it happened; tapping the toast centers the map there. */
   at?: Hex;
+  /** A threat to answer now (shell/ticker.ts): shown as a slip; everything else runs in the ticker. */
+  threat?: boolean;
 }
 
 export interface Selection {
@@ -171,16 +175,17 @@ export const closeModal = (): void => {
 };
 
 let toastId = 1;
-/** Most important toast first; the stack is capped at 3 (newest batch wins over old ones). */
+/** Most important toast first; the queue is capped (newest batch wins over old ones). */
 export const pushToast = (text: string, tone: Toast['tone'] = 'info', action: Modal | null = null): void => {
   pushToasts([{ text, tone, action }]);
 };
-/** Adds an already-ranked batch above whatever is still showing, keeping at most 3. */
+/** Adds an already-ranked batch above whatever is still waiting (the ticker shows one at a time). */
 export const pushToasts = (batch: readonly Omit<Toast, 'id'>[]): void => {
   if (batch.length === 0) return;
   const fresh = batch.map((t) => ({ ...t, id: toastId++ }));
-  toasts.value = [...fresh, ...toasts.value].slice(0, 3);
+  toasts.value = [...fresh, ...toasts.value].slice(0, TOAST_QUEUE_MAX);
 };
+export const TOAST_QUEUE_MAX = 6;
 export const dismissToast = (id: number): void => {
   toasts.value = toasts.value.filter((t) => t.id !== id);
 };

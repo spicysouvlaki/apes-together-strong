@@ -5,7 +5,10 @@ import { useEffect } from 'preact/hooks';
 import type { SaveMeta } from '@contracts/sim-api';
 import { PLAYER_SLOT_COUNT, RESUME_SLOT, continueSave } from './saves-logic';
 import { TEXT_SCALE_MAX, TEXT_SCALE_MIN } from '../../platform/settings';
-import { exportGame, importGame } from '../../platform/transfer';
+import { exportSlot, importGame } from '../../platform/transfer';
+import { Saves, createIdbStore } from '../../platform/saves';
+import { signal } from '@preact/signals';
+import { fileHandOff, handOffFile, handOffMessage, tapStillFresh } from './share-file';
 import {
   askConfirm,
   closeModal,
@@ -24,6 +27,7 @@ import {
 import { AGE_NAME } from './format';
 import { loading, patchSettings, settings } from './shell-state';
 import { Icon } from '../art/Icon';
+import { patchUiPrefs, uiPrefs } from './ui-prefs';
 import { guide, replayGuide, skipGuide } from './guide-state';
 
 function Header({ title, onBack }: { title: string; onBack?: () => void }) {
@@ -126,13 +130,60 @@ const doLoad = (slot: string): void => {
 
 const errorText = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
-/** Downloads the newest save as a .json file (safety net against Safari clearing site data). */
+/** The save being exported: prepared (read from storage), then handed off on a tap. */
+type ExportState =
+  | { stage: 'idle' }
+  | { stage: 'preparing' }
+  | { stage: 'ready'; fileName: string; text: string }
+  | { stage: 'done'; text: string; tone: 'good' | 'info' | 'bad' };
+const exportState = signal<ExportState>({ stage: 'idle' });
+
+const finishHandOff = (fileName: string, text: string): void => {
+  void handOffFile(fileName, text, 'Apes Together Strong save').then((r) => {
+    const msg = handOffMessage(r, fileName);
+    exportState.value = { stage: 'done', ...msg };
+  });
+};
+
+/**
+ * Export the newest save (safety net against Safari clearing site data). Reading the save is
+ * async; if the tap is no longer fresh when it is ready, a second button hands it over.
+ */
 const doExport = (slot: string): void => {
-  exportGame(slot).then(
-    (name) => pushToast(`Exported ${name}. Keep it in Files to restore this game later.`, 'good'),
-    (err: unknown) => pushToast(`Export failed: ${errorText(err)}`, 'bad'),
+  exportState.value = { stage: 'preparing' };
+  exportSlot(new Saves(createIdbStore()), slot, Date.now()).then(
+    ({ fileName, text }) => {
+      if (tapStillFresh()) {
+        exportState.value = { stage: 'ready', fileName, text };
+        finishHandOff(fileName, text);
+      } else exportState.value = { stage: 'ready', fileName, text };
+    },
+    (err: unknown) => (exportState.value = { stage: 'done', text: `Export failed: ${errorText(err)}`, tone: 'bad' }),
   );
 };
+
+function ExportCard() {
+  const st = exportState.value;
+  if (st.stage === 'idle') return null;
+  if (st.stage === 'preparing') return <p class="small muted mt4" role="status">Preparing the file…</p>;
+  if (st.stage === 'done')
+    return (
+      <p class={`small mt4 export-note tone-${st.tone}`} role="status">
+        {st.text}
+      </p>
+    );
+  const how = fileHandOff(navigator, typeof File === 'function' ? new File([''], st.fileName) : null);
+  return (
+    <div class="card row mt4" role="status">
+      <div class="grow small">
+        <strong>Ready:</strong> {st.fileName} <span class="muted">({Math.max(1, Math.round(st.text.length / 1024))} KB)</span>
+      </div>
+      <button class="btn btn-primary" onClick={() => finishHandOff(st.fileName, st.text)}>
+        <Icon name={how === 'share' ? 'share' : 'export'} /> {how === 'share' ? 'Share…' : 'Download'}
+      </button>
+    </div>
+  );
+}
 
 /** Picks a .json save, stores it in the reserved slot, then loads it like any save. */
 const doImport = (): void => {
@@ -145,7 +196,10 @@ const doImport = (): void => {
 };
 
 export function SavesPanel() {
-  useEffect(() => refreshSaves(), []);
+  useEffect(() => {
+    refreshSaves();
+    exportState.value = { stage: 'idle' };
+  }, []);
   const list = saves.value;
   const inGame = route.value === 'game' && game.value !== null;
   const autos = list.filter((s) => s.slot.startsWith('auto:')).sort((a, b) => b.savedAt - a.savedAt);
@@ -236,14 +290,15 @@ export function SavesPanel() {
         <p class="small muted mt4">Export a copy to Files in case the browser clears this site's data; import one to restore it.</p>
         <div class="row mt4">
           {newest && (
-            <button class="btn" onClick={() => doExport(newest.slot)}>
-              <Icon name="save" /> Export
+            <button class="btn grow" disabled={exportState.value.stage === 'preparing'} onClick={() => doExport(newest.slot)} aria-label="Export the newest save as a file">
+              <Icon name="export" /> Export file
             </button>
           )}
-          <button class="btn" onClick={doImport}>
-            <Icon name="load" /> Import
+          <button class="btn grow" onClick={doImport} aria-label="Import a save file">
+            <Icon name="import" /> Import file
           </button>
         </div>
+        <ExportCard />
       </div>
     </div>
   );
@@ -307,6 +362,21 @@ export function SettingsPanel() {
         </label>
         <Volume label="Effects" value={s.sfxVolume} disabled={s.muted} onInput={(v) => patchSettings({ sfxVolume: v })} />
         <Volume label="Ambience" value={s.musicVolume} disabled={s.muted} onInput={(v) => patchSettings({ musicVolume: v })} />
+        <div class="section-title">Play</div>
+        <label class="card row toggle">
+          <span class="grow">
+            <span class="settings-label">Confirm attacks</span>
+            <div class="small muted">
+              {uiPrefs.value.confirmAttacks ? 'A preview sheet asks before every attack.' : 'The first tap on a target shows the odds in the unit panel; a second tap attacks.'}
+            </div>
+          </span>
+          <input
+            type="checkbox"
+            aria-label="Confirm attacks"
+            checked={uiPrefs.value.confirmAttacks}
+            onChange={(e) => patchUiPrefs({ confirmAttacks: (e.target as HTMLInputElement).checked })}
+          />
+        </label>
         <div class="section-title">Guide</div>
         <GuideSettings />
         <div class="section-title">Comfort</div>

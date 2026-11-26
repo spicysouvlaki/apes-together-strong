@@ -14,6 +14,8 @@ export interface ToastSpec {
   action: Modal | null;
   /** Where it happened: tapping the toast centers the map there. */
   at?: Hex;
+  /** A threat to answer now (ticker.ts isThreat): a prominent slip instead of a ticker line. */
+  threat?: boolean;
 }
 
 export interface EventNames {
@@ -199,6 +201,7 @@ export const toastDuration = (tone: Toast['tone']): number => (tone === 'culture
  * world news last.
  */
 export const toastPriority = (t: ToastSpec): number => {
+  if (t.threat) return -1;
   if (t.tone === 'bad' && t.action) return 0;
   if (t.tone === 'culture' && t.action) return 1;
   if (t.tone === 'bad') return 2;
@@ -208,7 +211,7 @@ export const toastPriority = (t: ToastSpec): number => {
   return 6;
 };
 
-/** At most this many toasts on screen at once. */
+/** At most this many ticker lines per batch (threats are never folded away). */
 export const MAX_TOASTS = 3;
 
 /**
@@ -230,10 +233,12 @@ export const rankToasts = (specs: readonly ToastSpec[], max: number = MAX_TOASTS
     .map((t, i) => ({ t, i }))
     .sort((a, b) => toastPriority(a.t) - toastPriority(b.t) || a.i - b.i)
     .map((x) => x.t);
-  if (sorted.length <= max) return sorted;
-  const shown = sorted.slice(0, Math.max(0, max - 1));
-  const rest = sorted.length - shown.length;
-  return [...shown, { text: `+${rest} more ${rest === 1 ? 'update' : 'updates'} this turn.`, tone: 'info', action: { kind: 'log' } }];
+  const threats = sorted.filter((t) => t.threat);
+  const news = sorted.filter((t) => !t.threat);
+  if (news.length <= max) return [...threats, ...news];
+  const shown = news.slice(0, Math.max(0, max - 1));
+  const rest = news.length - shown.length;
+  return [...threats, ...shown, { text: `+${rest} more ${rest === 1 ? 'update' : 'updates'} this turn.`, tone: 'info', action: { kind: 'log' } }];
 };
 
 /** Two modals are "the same place" for a toast's purposes (opening one answers the toast). */

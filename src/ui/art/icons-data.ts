@@ -71,6 +71,10 @@ const DRAWINGS = {
   check: `<path stroke-width="2.2" d="M4.5 12.5l4.8 4.8L19.5 7"/>`,
   plus: `<path stroke-width="2" d="M12 5v14M5 12h14"/>`,
   help: `<circle cx="12" cy="12" r="8.8"/><path stroke-width="2" d="M9.2 9.4c.3-1.7 1.5-2.6 3-2.6 1.7 0 3 1.1 3 2.6 0 2.2-3.1 2.3-3.1 4.6"/><circle ${F} cx="12.1" cy="17.1" r="1.3"/>`,
+  export: `<path d="M4 13.5v5.3c0 .7.5 1.2 1.2 1.2h13.6c.7 0 1.2-.5 1.2-1.2v-5.3"/><path stroke-width="2" d="M12 16V6.2"/><path ${F} d="M12 2.2l5 5.4H7z"/><path stroke-width="1.1" d="M7.2 17.4h9.6"/>`,
+  import: `<path d="M4 13.5v5.3c0 .7.5 1.2 1.2 1.2h13.6c.7 0 1.2-.5 1.2-1.2v-5.3"/><path stroke-width="2" d="M12 2.6v8.6"/><path ${F} d="M12 16.4l-5-5.4h10z"/><path stroke-width="1.1" d="M7.2 17.4h9.6"/>`,
+  image: `<path d="M3.5 5h17v14h-17z"/><path stroke-width="1.1" d="M5.4 6.9h13.2v10.2H5.4z"/><path ${F} d="M6 16.6l4.2-5.6 2.9 3.8 1.9-2.4 3.4 4.2z"/><circle ${F} cx="15.6" cy="9.3" r="1.5"/>`,
+  people: `<circle ${F} cx="8" cy="7.4" r="2.6"/><circle ${F} cx="16" cy="7.4" r="2.6"/><path ${F} d="M3.2 19.5c.2-4.2 2.2-6.6 4.8-6.6 1.6 0 2.9.9 3.8 2.5.9-1.6 2.2-2.5 3.8-2.5 2.6 0 4.6 2.4 4.8 6.6z"/><path d="M12 3.2v1.6M12 20.8V19"/>`,
   chronicle: `<path d="M8 4.5h11v12.8a2.2 2.2 0 0 1-2.2 2.2H5.4"/><path ${F} d="M3.2 17.3a2.2 2.2 0 0 0 2.2 2.2 2.2 2.2 0 0 0 0-4.4h11.4v-.1"/><path d="M8 4.5a2 2 0 1 0-4 0v3.2h4"/><path stroke-width="1.1" d="M10.5 8.5h6M10.5 11h6M10.5 13.5h4"/>`,
   play: `<path ${F} d="M7 4.5l12.5 7.5L7 19.5z"/>`,
   quit: `<path d="M5.5 3h10v18h-10z"/><circle ${F} cx="12.8" cy="12" r="1.1"/><path d="M15.5 3l3.5 1.6v14.8L15.5 21"/>`,
@@ -107,6 +111,7 @@ const ALIASES = {
   tech: 'science',
   civic: 'culture',
   milestone: 'star',
+  share: 'export',
 } as const satisfies Record<string, IconName>;
 
 export type IconAlias = keyof typeof ALIASES;

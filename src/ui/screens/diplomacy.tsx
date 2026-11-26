@@ -116,7 +116,7 @@ export const DiplomacyScreen = (_: ScreenProps<'diplomacy'>) => {
 
       <Section
         title="City-states"
-        note={<GlossText text={`Envoys win a city-state's favor, and famous people of its culture are drawn to your court. Whoever has the most envoys (at least ${SUZERAIN_MIN_ENVOYS}) is its suzerain, its protector, and gets the bonus shown.`} />}
+        note={<GlossText text={`Envoys win a city-state's favor, and famous people of its culture are drawn to your court. Whoever has the most envoys (at least ${SUZERAIN_MIN_ENVOYS}) is its suzerain, its protector, and gets the bonus shown. Each envoy to the same city-state costs more than the last.`} />}
       >
         {Object.keys(g.cityStates).length === 0 && <Empty>No city-states known.</Empty>}
         <ul class="scr-list">

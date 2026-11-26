@@ -10,6 +10,8 @@ import { applyCommand } from '../../sim';
 import '../styles/fonts';
 import '../styles/base.css';
 import '../styles/shell.css';
+import '../styles/moments.css';
+import { RecruitReveal } from '../shell/RecruitReveal';
 import { bindClient, closeModal, content, dismissToast, game, lastError, modal, openModal, pushToast, route, toasts, type Modal } from '../store';
 import { advanceBots, buildScenario, DEMO_STAGES, HUMAN, stripAffinity, type DemoStage } from './demo-scenario';
 import { screens, type ScreenKind, type ScreenProps } from './index';
@@ -74,6 +76,7 @@ const OPENERS: { label: string; open: () => Modal | null }[] = [
   { label: 'Transition', open: () => ({ kind: 'transition' }) },
   { label: 'Legacy', open: () => ({ kind: 'legacy' }) },
   { label: 'Chronicle', open: () => ({ kind: 'chronicle' }) },
+  { label: 'People', open: () => ({ kind: 'people' }) },
 ];
 
 const Host = () => {
@@ -121,6 +124,7 @@ const Demo = () => {
         </button>
       </div>
       <Host />
+      <RecruitReveal />
       <div style={{ position: 'fixed', left: '8px', right: '8px', top: '8px', zIndex: 60, display: 'grid', gap: '4px', pointerEvents: 'none' }}>
         {toasts.value.map((t) => (
           <button class="card small" style={{ pointerEvents: 'auto', textAlign: 'left' }} onClick={() => dismissToast(t.id)}>

@@ -8,15 +8,17 @@ import type { RefinementOption } from '@contracts/sim-api';
 import { closeModal, content, dispatch, game, lookup, me, ownerName, q } from '../store';
 import type { ScreenProps } from './index';
 import { ConfirmSheet, CultureChip, Empty, Portrait, Screen, Section, WeightBars, cultureName } from './shared/components';
-import { ageLabel, ancestorYield, describeModifiers } from './shared/describe';
+import { ageLabel, ancestorYield, describeModifiers, shortName } from './shared/describe';
 import { weightRows } from './shared/figures';
 import { groupRefinement, TIER_LABEL, type HybridItem, type TraditionItem } from './shared/refinement';
 import { GovernmentList } from './government';
 import { HEAVIEST_CULTURE_DISCOUNT_PERCENT, REFINEMENT_ESCALATION } from '../../sim/ages/constants';
 import { Icon } from '../art/Icon';
 import { CultureCrest, PlayerBanner } from '../art/game-art';
+import { CountUp } from '../shell/CountUp';
 
 const CHAPTER = ['I', 'II', 'III', 'IV', 'V'];
+const cap = (s: string): string => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
 
 /** Adoptions already made in this transition (display only: the sim prices them; GDD §6). */
 const adoptedThisTransition = (p: { chronicle: readonly { turn: number; kind: string }[] }, turn: number): number =>
@@ -25,7 +27,7 @@ const adoptedThisTransition = (p: { chronicle: readonly { turn: number; kind: st
 const STEPS = ['recap', 'refine', 'name', 'government', 'begin'] as const;
 type Step = (typeof STEPS)[number];
 const STEP_TITLE: Record<Step, string> = {
-  recap: 'The age ends',
+  recap: 'The age in review',
   refine: 'Refine your culture',
   name: 'Name your people',
   government: 'Choose a government',
@@ -132,24 +134,72 @@ export const TransitionScreen = (_: ScreenProps<'transition'>) => {
 
       {step === 'recap' && (
         <>
-          <p class="scr-big">The {ageLabel(t.fromAge)} age ends</p>
-          <div class="scr-stats">
-            <div class="card scr-stat">
-              <Icon name="legacy" size="lg" />
-              <b>{recap.legacyPointsEarned}</b>
-              <span class="small muted">legacy points</span>
+          <section class="cer-card" aria-label={`The ${ageLabel(t.fromAge)} age closes`}>
+            <div class="cer-banner" aria-hidden="true">
+              <PlayerBanner player={p} width={76} wave />
             </div>
-            <div class="card scr-stat">
-              <Icon name="culture" size="lg" />
-              <b>{recap.rpEarned}</b>
-              <span class="small muted">
-                <Term id="refinement_points" /> earned
-              </span>
+            <h2 class="cer-title">
+              The {ageLabel(t.fromAge)} Age <span>closes</span>
+            </h2>
+            <div class="cer-people">{p.civName ? cap(p.civName) : 'a people yet unnamed'}</div>
+            <div class="cer-counts">
+              <div class="cer-count">
+                <Icon name="legacy" />
+                <b>
+                  <CountUp value={recap.legacyPointsEarned} delay={250} />
+                </b>
+                <span>legacy points</span>
+              </div>
+              <div class="cer-count">
+                <Icon name="culture" />
+                <b>
+                  <CountUp value={recap.rpEarned} delay={400} />
+                </b>
+                <span>
+                  <Term id="refinement_points" />
+                </span>
+              </div>
+              <div class="cer-count">
+                <Icon name="milestone" />
+                <b>
+                  <CountUp value={recap.milestones.length} delay={550} ms={600} />
+                </b>
+                <span>milestones</span>
+              </div>
+              <div class="cer-count">
+                <Icon name="figures" />
+                <b>
+                  <CountUp value={recap.retiredFigures.length} delay={700} ms={600} />
+                </b>
+                <span>figures served</span>
+              </div>
             </div>
-          </div>
+          </section>
+          <Section title="To the Hall of Ancestors" note="Every figure retires as the age turns. Each keeps giving a little every turn, forever.">
+            {recap.retiredFigures.length === 0 ? (
+              <Empty icon="legacy">No figures served you this age.</Empty>
+            ) : (
+              <div class="cer-hall">
+                <div class="cer-shelf">
+                  {recap.retiredFigures.map((id, k) => {
+                    const def = lookup.figures[id];
+                    if (!def) return null;
+                    return (
+                      <div class="cer-ancestor" style={{ animationDelay: `${900 + k * 140}ms` }}>
+                        <Portrait figure={def.id} size="sm" />
+                        <span class="cer-ancestor-name">{shortName(def.name)}</span>
+                        <span class="cer-ancestor-yield">{ancestorYield(def.kind)}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div class="cer-shelf-board" aria-hidden="true" />
+              </div>
+            )}
+          </Section>
           <Section title={`Milestones reached (${recap.milestones.length})`}>
             {recap.milestones.length === 0 ? (
-              <Empty>No milestones this age.</Empty>
+              <Empty icon="milestone">No milestones this age.</Empty>
             ) : (
               <ul class="scr-mods">
                 {recap.milestones.map((m) => {
@@ -160,25 +210,6 @@ export const TransitionScreen = (_: ScreenProps<'transition'>) => {
                 })}
               </ul>
             )}
-          </Section>
-          <Section title="To the Hall of Ancestors" note="Every figure retires as the age turns. Each keeps giving a little every turn, forever.">
-            {recap.retiredFigures.length === 0 && <Empty>No figures served you this age.</Empty>}
-            <ul class="scr-list">
-              {recap.retiredFigures.map((id) => {
-                const def = lookup.figures[id];
-                if (!def) return null;
-                return (
-                  <li class="row">
-                    <Portrait figure={def.id} size="sm" />
-                    <div class="grow">
-                      <div class="scr-fig-name">{def.name}</div>
-                      <div class="small muted">{ancestorYield(def.kind)}</div>
-                    </div>
-                    <CultureChip culture={def.culture} />
-                  </li>
-                );
-              })}
-            </ul>
           </Section>
         </>
       )}
@@ -194,9 +225,14 @@ export const TransitionScreen = (_: ScreenProps<'transition'>) => {
 
       {step === 'name' && (
         <>
-          <div class="scr-name-banner" aria-hidden="true">
-            <PlayerBanner player={p} width={84} wave />
-            <div class="scr-name-preview">{name.trim() || p.civName || '…'}</div>
+          <div class="scr-name-banner cer-christen" aria-live="polite">
+            <PlayerBanner player={p} width={92} wave />
+            <div class="cer-plate">
+              <span class="cer-plate-kicker">Henceforth known as</span>
+              <span class="scr-name-preview" key={name.trim()}>
+                {cap(name.trim() || p.civName || '…')}
+              </span>
+            </div>
           </div>
           <p>Your people need a name for the {ageLabel(t.toAge)} age. It is drawn from the cultures you have gathered and your founding dream.</p>
           {p.civName && <p class="small muted">Now known as {p.civName}.</p>}
