@@ -125,7 +125,7 @@ export function CodexScreen() {
                 <dt>
                   <Icon name="deploy" size="sm" /> Deploy
                 </dt>
-                <dd>Generals, explorers and others take the field as a unit with their own strength or reach. Recall them in a city.</dd>
+                <dd>Generals, explorers and others take the field as a unit with their own strength or reach. Recall them inside one of your settlements, or tap Walk home on their unit.</dd>
               </div>
               <div class="scr-use">
                 <dt>

@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import { closeModal, content, dispatch, game, lookup, me, myTurn, openModal } from '../store';
 import type { ScreenProps } from './index';
 import { cultureName, Empty, FigureCard, Screen } from './shared/components';
+import { inSentence } from './shared/describe';
 import { clampIndex, deckItems, indexFromScroll } from './shared/offer-deck';
 import { CultureCrest, FigurePortrait } from '../art/game-art';
 import { showRecruitReveal } from '../shell/recruit-reveal';
@@ -110,9 +111,9 @@ export const OfferScreen = ({ modal }: ScreenProps<'offer'>) => {
             class="btn btn-primary btn-wide scr-welcome"
             disabled={!chosenDef || !canAct || sealed}
             onClick={welcome}
-            aria-label={chosenDef ? `Welcome ${chosenDef.name}` : 'Choose someone to welcome'}
+            aria-label={chosenDef ? `Welcome ${inSentence(chosenDef.name)}` : 'Choose someone to welcome'}
           >
-            <Icon name="seat" /> {current ? `Welcome ${current.short}` : 'Welcome'}
+            <Icon name="seat" /> {current ? `Welcome ${inSentence(current.short)}` : 'Welcome'}
           </button>
           <button class="btn btn-ghost deck-skip" disabled={!canAct || sealed} onClick={decline} aria-label={view.declineLabel}>
             {view.declineLabel}

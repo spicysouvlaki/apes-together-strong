@@ -171,6 +171,22 @@ describe('standing orders', () => {
     expect(pruneOrders(s, 'p1', same)).toBe(same);
   });
 
+  it('a soldier sent to a tile our own unit holds stops beside it; a settler waits', () => {
+    const s0 = newGame();
+    const warrior = unitOf(s0, 'warrior_band');
+    // Put the settler on a land tile next to the warrior, then send the warrior onto it.
+    const near = q.reachable(s0, warrior.id, content).map((r) => r.hex).find((h) => hexDistance(h, warrior.at) === 1)!;
+    // A second soldier of ours holds the goal (one military unit per tile).
+    const holder = { ...warrior, id: 'u_hold', at: near };
+    const s: GameState = { ...s0, units: { ...s0.units, [holder.id]: holder } };
+    const settler = holder;
+    const soldier = { ...deps(s), needsExactTile: () => false };
+    expect(stepOrder(s, 'p1', warrior.id, { kind: 'goto', to: settler.at }, soldier)).toEqual({ kind: 'done', reason: 'arrived' });
+    // A unit that needs the tile itself (a settler on its site) keeps waiting beside it.
+    const founder = { ...deps(s), needsExactTile: () => true };
+    expect(stepOrder(s, 'p1', warrior.id, { kind: 'goto', to: settler.at }, founder)).toEqual({ kind: 'wait' });
+  });
+
   it('stores orders per game seed and parses them back, dropping junk', () => {
     const raw = { games: { s7: { u1: { kind: 'goto', to: { q: 1, r: 2 } }, u2: { kind: 'explore' }, u3: { kind: 'goto' }, u4: 5 } } };
     expect(parseStoredOrders(raw, 7)).toEqual({ u1: { kind: 'goto', to: { q: 1, r: 2 } }, u2: { kind: 'explore' } });
@@ -185,6 +201,16 @@ describe('standing orders', () => {
     // The oldest written (largest seeds here) were dropped, the newest kept.
     expect(parseStoredOrders(many, STORED_GAMES_MAX + 3)).toEqual({});
     expect(parseStoredOrders(many, 1)).toEqual({ u1: { kind: 'explore' } });
+  });
+
+  it('keeps a walk-home order (recall on arrival) across a reload', () => {
+    const stored = storeOrders(null, 3, { u5: { kind: 'goto', to: { q: 4, r: 4 }, recall: true }, u6: { kind: 'goto', to: { q: 1, r: 1 } } });
+    expect(parseStoredOrders(JSON.parse(JSON.stringify(stored)), 3)).toEqual({
+      u5: { kind: 'goto', to: { q: 4, r: 4 }, recall: true },
+      u6: { kind: 'goto', to: { q: 1, r: 1 } },
+    });
+    // Only the literal flag counts.
+    expect(parseStoredOrders({ games: { s3: { u5: { kind: 'goto', to: { q: 4, r: 4 }, recall: 'yes' } } } }, 3)).toEqual({ u5: { kind: 'goto', to: { q: 4, r: 4 } } });
   });
 
   it('estimates route turns from move costs', () => {

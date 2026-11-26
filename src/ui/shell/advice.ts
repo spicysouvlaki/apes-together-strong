@@ -98,6 +98,14 @@ const enemiesNear = (c: Ctx): boolean => {
   });
 };
 
+/** A settler exists or is being built in one of the player's settlements. */
+const settlerUnderway = (c: Ctx): boolean =>
+  myUnits(c).some((u) => !!unitDef(c, u.type)?.canFound) ||
+  mySettlements(c).some((s) => {
+    const item = s.production.item;
+    return !!item && !!unitDef(c, item)?.canFound;
+  });
+
 const metCityState = (c: Ctx): boolean => {
   const p = c.g.players[c.me];
   if (!p) return false;
@@ -245,7 +253,9 @@ export const STEPS: readonly Step[] = [
   {
     id: 'expand',
     paced: true,
-    when: (c) => mySettlements(c).length === 1 && c.g.turn >= 10,
+    // Not while a settler is already on its way (in production or walking): the advice would
+    // read as if the player had missed something they already did.
+    when: (c) => mySettlements(c).length === 1 && c.g.turn >= 10 && !settlerUnderway(c),
     text: (c) =>
       `Room to grow: build a settler and found a second settlement. New ones start as towns. This age allows ${c.q.settlementCap(c.g, c.me, c.content)} settlements; each beyond that costs happiness.`,
     target: () => null,

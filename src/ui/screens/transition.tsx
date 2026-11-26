@@ -284,6 +284,28 @@ export const TransitionScreen = (_: ScreenProps<'transition'>) => {
             </li>
             <li>{Math.floor(p.refinementPoints)} refinement points unspent; half carry over to the next transition.</li>
           </ul>
+          {/* The payoff of the whole age: name what this people now carries, culture by culture,
+              instead of a count (playtest 3: the last chapter read as an empty page). */}
+          {(p.traditions.length > 0 || p.hybrids.length > 0) && (
+            <Section title="What your people carry">
+              <ul class="scr-list scr-carry">
+                {[...p.hybrids.map((id) => ({ id, def: lookup.hybrids[id], hybrid: true })), ...p.traditions.map((id) => ({ id, def: lookup.traditions[id], hybrid: false }))].map(({ id, def, hybrid }) =>
+                  def ? (
+                    <li key={id} class="row scr-carry-row">
+                      <span class="scr-carry-crest" aria-hidden="true">
+                        {'culture' in def ? <CultureCrest culture={def.culture} size={22} /> : <Icon name="culture" />}
+                      </span>
+                      <span class="grow">
+                        <b>{def.name}</b>
+                        {hybrid ? <span class="muted small"> · hybrid</span> : null}
+                        <span class="small muted scr-carry-fx"> {describeModifiers(def.modifiers, lookup).join('; ')}</span>
+                      </span>
+                    </li>
+                  ) : null,
+                )}
+              </ul>
+            </Section>
+          )}
           {affordable > 0 && (
             <div class="scr-banner scr-banner-info small scr-leftover">
               <span class="grow">

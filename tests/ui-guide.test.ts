@@ -171,6 +171,14 @@ describe('guide: pacing, memory and later steps', () => {
     expect(b.text).toMatch(/70/);
   });
 
+  it('does not ask for a settler while one is already being built', () => {
+    const s = settled();
+    const city = Object.values(s.settlements).find((x) => x.owner === 'p1')!;
+    const building = apply({ ...s, turn: 14 }, { type: 'setProduction', settlement: city.id, item: 'settler' });
+    const opening = ['found', 'production', 'research', 'government', 'explore', 'end_turn', 'growth', 'culture', 'town', 'happiness', 'city_states', 'trade'];
+    expect(tip(building, { seen: opening, lastTipTurn: 0, current: null })?.id).not.toBe('expand');
+  });
+
   it('warns about nearby enemies right away (not paced)', () => {
     const s = settled();
     const city = Object.values(s.settlements).find((x) => x.owner === 'p1')!;

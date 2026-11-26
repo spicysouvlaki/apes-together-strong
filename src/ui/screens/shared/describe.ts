@@ -347,3 +347,9 @@ export const bioText = (bio: string): string => bio.replace(/^\s*Archetype\.\s*/
 
 /** "Duke of Zhou (Zhōu Gōng Dàn)" -> "Duke of Zhou": for buttons, where a second line breaks the layout. */
 export const shortName = (name: string): string => name.replace(/\s*\([^)]*\)\s*$/, '') || name;
+
+/**
+ * An archetype name inside a sentence: "Welcome a Spring and Autumn envoy", not "Welcome A …"
+ * (playtest 3). Named people are unchanged.
+ */
+export const inSentence = (name: string): string => name.replace(/^(A|An|The) /, (m) => m.toLowerCase());

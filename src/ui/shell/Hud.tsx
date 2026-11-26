@@ -228,7 +228,7 @@ function EndTurnButton() {
       class={`btn btn-primary end-turn${pl.mode === 'next' ? ' is-next' : ''}${busy ? ' is-busy' : ''}${busy ? '' : guideClass('endTurn', isNext && pl.next ? `decision:${pl.next.type}` : null)}`}
       disabled={disabled}
       onClick={endTurn}
-      aria-label={badge > 0 ? `${label}. ${badge} things still open.` : label}
+      aria-label={badge > 0 ? `${label}. ${badge} ${badge === 1 ? "thing" : "things"} still open.` : label}
     >
       <span class="end-turn-seal" aria-hidden="true">
         <Icon name={busy ? 'age' : isNext ? 'next' : 'endTurn'} />
@@ -429,8 +429,11 @@ export function Hud() {
           <div class="hud-controls">
             <QuickButtons />
             <div class="hud-right">
-              <AdvisoryChip />
-              <NextUnit />
+              {/* With a unit sheet open the map strip is short: the decision slip and the
+                  next-unit pill would cover the very tiles (settling sites, routes) the sheet
+                  talks about (playtest 3). Skip in the sheet moves on to the next unit. */}
+              {!unitSelected && <AdvisoryChip />}
+              {!unitSelected && <NextUnit />}
               <EndTurnButton />
             </div>
           </div>

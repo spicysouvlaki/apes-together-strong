@@ -304,3 +304,13 @@ describe('chronicle assembly (real finished game)', () => {
     expect(buildChronicle(state, 'p2', content)?.ages.length).toBeGreaterThan(0);
   });
 });
+
+describe('names inside sentences', () => {
+  it('lowercases an archetype article but leaves named people alone', async () => {
+    const { inSentence } = await import('../src/ui/screens/shared/describe');
+    expect(inSentence('A Spring and Autumn envoy')).toBe('a Spring and Autumn envoy');
+    expect(inSentence('An Akkadian scribe')).toBe('an Akkadian scribe');
+    expect(inSentence('Hatshepsut')).toBe('Hatshepsut');
+    expect(inSentence('Amenhotep, son of Hapu')).toBe('Amenhotep, son of Hapu');
+  });
+});

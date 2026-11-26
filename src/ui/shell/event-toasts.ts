@@ -45,7 +45,7 @@ const combatToast = (ev: Extract<SimEvent, { type: 'combat' }>, me: PlayerId, n:
     const result = ev.defenderDied
       ? `${target} ${plural ? 'were breached' : 'was destroyed'}`
       : `${target} lost ${Math.round(ev.damageToDefender)} HP`;
-    const cost = ev.attackerDied ? `; our ${unitName(ev.attacker)} fell` : ev.damageToAttacker > 0 ? `; ours lost ${Math.round(ev.damageToAttacker)}` : '';
+    const cost = ev.attackerDied ? `; our ${unitName(ev.attacker)} fell` : ev.damageToAttacker > 0 ? `; our ${unitName(ev.attacker)} lost ${Math.round(ev.damageToAttacker)} HP` : '';
     return { text: `${result}${cost}.`, tone: ev.attackerDied ? 'bad' : 'good', action: null, at: ev.at };
   }
   if (ev.defenderOwner === me) {
@@ -146,6 +146,13 @@ const eventToToastRaw = (ev: SimEvent, me: PlayerId, n: EventNames): ToastSpec |
       if (ev.player !== me) return null;
       const to = n.settlement(ev.to);
       return withAt({ text: `Trade route opened to ${to?.name ?? 'a far city'}: gold every turn.`, tone: 'good', action: null }, to?.at);
+    }
+    case 'suzerainChanged': {
+      // Winning (or losing) a city-state's favor is the payoff of every envoy: say it.
+      const cs = n.owner(`cs:${ev.cityState}`);
+      if (ev.suzerain === me) return { text: `${cs} now looks to us: we are its suzerain.`, tone: 'good', action: { kind: 'diplomacy' } };
+      if (ev.suzerain) return { text: `${n.owner(ev.suzerain)} is now suzerain of ${cs}.`, tone: 'info', action: { kind: 'diplomacy' } };
+      return null;
     }
     case 'ageStarted':
       // Shown when the transition screen closes (toasts wait under full screens).

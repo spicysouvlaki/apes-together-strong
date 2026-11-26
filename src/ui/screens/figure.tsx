@@ -3,7 +3,7 @@ import { useState } from 'preact/hooks';
 import { GlossText } from '../shell/GlossarySheet';
 import type { FigureState } from '@contracts/sim-api';
 import { closeModal, content, dispatch, game, lookup, me, myTurn, ownerName, pushToast, q } from '../store';
-import { followFigure } from '../shell/MapView';
+import { followFigure, selectUnit } from '../shell/MapView';
 import type { ScreenProps } from './index';
 import { ConfirmSheet, Empty, FigureCard, Screen, Section, Sheet } from './shared/components';
 import { ancestorYield, consumeBurstText, describeActivate, shortName } from './shared/describe';
@@ -55,6 +55,9 @@ export const FigureScreen = ({ modal }: ScreenProps<'figure'>) => {
       followFigure(cmd.figure);
       closeModal();
     }
+    if (cmd.type === 'activateFigure' && def.activate) {
+      pushToast(`${shortName(def.name)}: ${describeActivate(def.activate.effect, def.activate.amount)}. They retire to the Hall of Ancestors.`, 'culture');
+    }
     // A figure leaving play: say what it bought, then go back (the screen would only say "consumed").
     if (cmd.type === 'consumeFigure') {
       pushToast(`${shortName(def.name)} left play: ${cmd.as === 'refinement' ? `+${def.consumeValue} refinement points` : consumeBurstText(def)}.`, 'culture');
@@ -90,11 +93,25 @@ export const FigureScreen = ({ modal }: ScreenProps<'figure'>) => {
             <Icon name="deploy" /> Deploy
           </button>
         ),
-        loc === 'unit' && (
-          <button class="btn" disabled={!turn || !a.canRecall} onClick={() => run({ type: 'recallFigure', figure: def.id })} aria-label="Recall home">
-            <Icon name="recall" /> Recall
-          </button>
-        ),
+        loc === 'unit' &&
+          (a.canRecall || fs?.location.state !== 'unit' ? (
+            <button class="btn" disabled={!turn || !a.canRecall} onClick={() => run({ type: 'recallFigure', figure: def.id })} aria-label="Recall home">
+              <Icon name="recall" /> Recall
+            </button>
+          ) : (
+            // Out in the field: Recall needs a settlement. Their unit sheet has "Walk home".
+            <button
+              class="btn"
+              onClick={() => {
+                const unit = fs.location.state === 'unit' ? fs.location.unit : null;
+                closeModal();
+                if (unit) selectUnit(unit, { focus: true });
+              }}
+              aria-label={`Show ${shortName(def.name)} on the map to walk them home`}
+            >
+              <Icon name="recall" /> Show on map
+            </button>
+          )),
         def.uses.includes('activate') && def.activate && (loc === 'based' || loc === 'seated' || loc === 'unit') && (
           <button class="btn" disabled={!turn || !a.canActivate} onClick={() => setPending('activate')} aria-label="Activate their one-time deed">
             <Icon name="activate" /> Activate
@@ -146,7 +163,7 @@ export const FigureScreen = ({ modal }: ScreenProps<'figure'>) => {
             )}
             {loc === 'unit' && (
               <li>
-                <b>Recall</b>: bring them home from inside one of your settlements.
+                <b>Recall</b>: bring them home from inside one of your settlements. Out in the field, “Walk home” on their unit marches them back and recalls them there.
               </li>
             )}
             {def.uses.includes('activate') && def.activate && (

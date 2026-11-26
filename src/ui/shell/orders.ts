@@ -9,7 +9,11 @@ import { hexDistance, hexEquals, hexNeighbors, type Hex } from '@contracts/hex';
 import type { GameState, PlayerId, Tile, Unit, UnitId } from '@contracts/sim-api';
 import { compareIds, tileIndexOf } from './hexutil';
 
-export type StandingOrder = { kind: 'goto'; to: Hex } | { kind: 'explore' };
+/**
+ * `recall`: a figure walking home; once it stands in the settlement the runner recalls it
+ * (Recall only works inside an own settlement, so "walk back" is one tap, not two).
+ */
+export type StandingOrder = { kind: 'goto'; to: Hex; recall?: true } | { kind: 'explore' };
 export type Orders = Readonly<Record<UnitId, StandingOrder>>;
 
 export interface OrderDeps {
@@ -23,6 +27,12 @@ export interface OrderDeps {
   hostile(a: PlayerId, b: PlayerId): boolean;
   /** Terrain is water (content terrain `water`). */
   isWater(tile: Tile): boolean;
+  /**
+   * Whether this unit needs the goal tile itself (a settler founding on its site) and so waits
+   * beside it for our own unit to move off. Others stop beside it: two soldiers sent to the
+   * same tile must not wait on each other forever (playtest 3). Default: wait.
+   */
+  needsExactTile?(unit: UnitId): boolean;
 }
 
 /** What an order does this turn. */
@@ -114,7 +124,7 @@ export const stepOrder = (state: GameState, me: PlayerId, unit: UnitId, order: S
       // wait for it to move on, rather than dropping the order (playtest).
       const ownThere = Object.values(state.units).some((x) => x.owner === me && x.id !== unit && hexEquals(x.at, goal));
       if (!ownThere) return { kind: 'done', reason: 'impossible' };
-      if (hexDistance(u.at, goal) === 1) return { kind: 'wait' };
+      if (hexDistance(u.at, goal) === 1) return deps.needsExactTile && !deps.needsExactTile(unit) ? { kind: 'done', reason: 'arrived' } : { kind: 'wait' };
       const near = routeBeside(goal, (h) => deps.pathTo(unit, h));
       if (!near) return { kind: 'wait' };
       path = near.path;
@@ -220,7 +230,10 @@ const parseOrderMap = (raw: unknown): Record<UnitId, StandingOrder> => {
   for (const [id, o] of Object.entries(raw as Record<string, unknown>)) {
     const ord = o as Partial<StandingOrder> & { to?: unknown };
     if (ord?.kind === 'explore') out[id] = { kind: 'explore' };
-    else if (ord?.kind === 'goto' && isHex(ord.to)) out[id] = { kind: 'goto', to: { q: ord.to.q, r: ord.to.r } };
+    else if (ord?.kind === 'goto' && isHex(ord.to)) {
+      const to = { q: ord.to.q, r: ord.to.r };
+      out[id] = (ord as { recall?: unknown }).recall === true ? { kind: 'goto', to, recall: true } : { kind: 'goto', to };
+    }
   }
   return out;
 };

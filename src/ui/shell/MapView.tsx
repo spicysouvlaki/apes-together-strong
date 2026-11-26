@@ -2,7 +2,7 @@
  * Full-screen map canvas under the HUD. Owns the renderer lifetime and turns taps into
  * commands via resolveTap (tap-intent.ts). Legal moves/targets always come from SimQueries.
  */
-import { useEffect, useRef } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import { effect, untracked } from '@preact/signals';
 import type { Hex } from '@contracts/hex';
 import { createRenderer, type Renderer } from '../../render';
@@ -86,7 +86,11 @@ const overlayPath = (): Hex[] => plannedRoute.value?.path ?? [];
 const overlayTurns = (): number[] => plannedRoute.value?.turnStarts ?? [];
 
 /** Preview a route for the selected unit (or confirm it on a second tap of the same tile). */
-export const previewRoute = (unit: string, to: Hex): void => {
+/**
+ * Preview a route. `frame`: the target was picked off-map (a numbered site button), so bring
+ * the route's middle into view; a tile the player tapped is already on screen.
+ */
+export const previewRoute = (unit: string, to: Hex, opts: { frame?: boolean } = {}): void => {
   const cur = plannedRoute.value;
   if (cur && cur.unit === unit && cur.tapped.q === to.q && cur.tapped.r === to.r) {
     confirmRoute();
@@ -99,6 +103,8 @@ export const previewRoute = (unit: string, to: Hex): void => {
   }
   plannedRoute.value = plan;
   rendererRef?.setSelection({ tile: plan.to, path: plan.path, pathTurns: plan.turnStarts });
+  const mid = plan.path[Math.floor((plan.path.length - 1) / 2)];
+  if (opts.frame && mid) rendererRef?.focus(mid);
 };
 
 export const cancelRoute = (): void => {
@@ -240,10 +246,14 @@ const onLongPress = (hex: Hex): void => {
 export function MapView() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const reduceMotion = settings.value.reduceMotion;
+  // A map that cannot draw (WebGL refused, a lost context at start) must say so: a blank
+  // parchment reads as "the game froze" while the HUD still works around it.
+  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+    setFailed(false);
     let r: Renderer;
     try {
       r = createRenderer(canvas, content, {
@@ -253,6 +263,7 @@ export function MapView() {
       });
     } catch (err) {
       console.error('Renderer failed to start', err);
+      setFailed(true);
       return;
     }
     rendererRef = r;
@@ -358,5 +369,17 @@ export function MapView() {
     };
   }, [reduceMotion]);
 
-  return <canvas ref={canvasRef} class="map-canvas" aria-label="Map. Tap to select, long-press for tile details." />;
+  return (
+    <>
+      <canvas ref={canvasRef} class="map-canvas" aria-label="Map. Tap to select, long-press for tile details." />
+      {failed && (
+        <div class="map-failed card" role="alert">
+          <p>The map could not be drawn. Your game is saved after every move.</p>
+          <button class="btn btn-primary" onClick={() => location.reload()}>
+            Reload the map
+          </button>
+        </div>
+      )}
+    </>
+  );
 }

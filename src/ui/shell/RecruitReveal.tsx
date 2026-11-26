@@ -4,20 +4,54 @@
  * Then one tap for the best next step (seat / deploy / keep at home).
  */
 import { useEffect, useState } from 'preact/hooks';
-import { content, dispatch, game, lookup, me, myPlayer, myTurn, openModal, q } from '../store';
+import { content, dispatch, game, lookup, me, myPlayer, myTurn, openModal, pushToast, q } from '../store';
 import { CultureCrest, FigurePortrait, PlayerBanner } from '../art/game-art';
 import { Icon } from '../art/Icon';
-import { KIND_LABEL, shortName } from '../screens/shared/describe';
+import { describeActivate, describeModifiers, inSentence, KIND_LABEL, shortName } from '../screens/shared/describe';
 import { seatLabel } from '../screens/figure';
-import { closeRecruitReveal, nextSteps, recruitReveal, REVEAL_MS, type NextStep } from './recruit-reveal';
+import { closeRecruitReveal, nextSteps, recruitReveal, REVEAL_MS, type NextStep, type SeatGap } from './recruit-reveal';
 import { settings } from './shell-state';
+import { CABINET_COOLDOWN_TURNS } from '../../emergence/constants';
 import { followFigure } from './MapView';
 
-const stepLabel = (s: NextStep, settlementName: (id: string) => string): string =>
-  s.kind === 'seat' ? `Seat as ${seatLabel(s.slot)}` : s.kind === 'deploy' ? `Deploy at ${settlementName(s.settlement)}` : 'Keep at home for now';
+const stepLabel = (s: NextStep, settlementName: (id: string) => string): string => {
+  switch (s.kind) {
+    case 'seat':
+      return `Seat as ${seatLabel(s.slot)}`;
+    case 'deploy':
+      return `Deploy at ${settlementName(s.settlement)}`;
+    case 'government':
+      return 'Choose a government';
+    case 'cabinet':
+      return 'Open the cabinet';
+    case 'activate':
+      return 'Use their deed now';
+    case 'home':
+      return 'Keep at home for now';
+  }
+};
 
-const stepNote = (s: NextStep): string =>
-  s.kind === 'seat' ? 'Their seat bonus works every turn.' : s.kind === 'deploy' ? 'They take the field, lifting the units beside them.' : 'You can seat or deploy them later from Figures.';
+/** The concrete payoff of each step, from the figure's own modifiers (never a vague promise). */
+const stepNote = (s: NextStep, seatBonus: string, fieldBonus: string, deed: string): string => {
+  switch (s.kind) {
+    case 'seat':
+      return seatBonus ? `${seatBonus}, every turn.` : 'Their seat bonus works every turn.';
+    case 'deploy':
+      return fieldBonus ? `Takes the field: ${fieldBonus}.` : 'They take the field, lifting the units beside them.';
+    case 'government':
+      return `A government opens cabinet seats; then seat them${seatBonus ? ` (${seatBonus})` : ''}.`;
+    case 'cabinet':
+      // No direct swap in the rules: unseating empties the seat for a while (GDD §3).
+      return `Every fitting seat is taken. To seat them${seatBonus ? ` (${seatBonus})` : ''}, unseat someone; the seat stays empty ${CABINET_COOLDOWN_TURNS} turns.`;
+    case 'activate':
+      return `${deed}, then they retire to the Hall of Ancestors.`;
+    case 'home':
+      return 'You can seat or deploy them later from Figures.';
+  }
+};
+
+const stepIcon = (s: NextStep) =>
+  s.kind === 'seat' || s.kind === 'cabinet' ? 'seat' : s.kind === 'deploy' ? 'deploy' : s.kind === 'government' ? 'cabinet' : s.kind === 'activate' ? 'activate' : 'found';
 
 export function RecruitReveal() {
   const r = recruitReveal.value;
@@ -47,10 +81,24 @@ export function RecruitReveal() {
   const mine = fs?.owner === my;
   const actions = mine ? q.figureActions(g, r.figure, content) : null;
   const capital = Object.values(g.settlements).find((s) => s.owner === my && s.isCapital)?.id ?? null;
-  const steps = mine ? nextSteps(def, actions, capital) : [];
+  // Why no seat is free: no government yet, or someone already holds every fitting seat.
+  const gap: SeatGap =
+    !mine || !def.uses.includes('cabinet') || (actions?.seat.length ?? 0) > 0 || p.anarchyTurns > 0
+      ? null
+      : p.government === null
+        ? q.governmentOptions(g, my, content).length > 0
+          ? 'no-government'
+          : null
+        : Object.keys(p.cabinet).some((k) => !!p.cabinet[k] && !!lookup.cabinetSlots[k.split('#')[0] ?? '']?.accepts.includes(def.kind))
+          ? 'seat-taken'
+          : null;
+  const steps = mine ? nextSteps(def, actions, capital, gap) : [];
+  const seatBonus = describeModifiers(def.cabinetModifiers, lookup).join('; ');
+  const fieldBonus = describeModifiers(def.unitModifiers, lookup, { unitSubject: 'them and adjacent units' }).join('; ');
+  const deed = def.activate ? describeActivate(def.activate.effect, def.activate.amount) : '';
   // Why the obvious step is missing ("No free seat…"), in the sim's own words.
   const blockedNote =
-    steps.length > 0 && steps.every((s) => s.kind === 'home')
+    steps.length > 0 && steps.every((s) => s.kind === 'home') && gap === null
       ? ((def.uses.includes('cabinet') ? actions?.blocked.seat : undefined) ?? (def.uses.includes('unit') ? actions?.blocked.deploy : undefined) ?? null)
       : null;
   const name = (id: string): string => g.settlements[id]?.name ?? 'your city';
@@ -61,7 +109,13 @@ export function RecruitReveal() {
     else if (s.kind === 'deploy') {
       dispatch({ type: 'deployFigure', figure: r.figure, settlement: s.settlement });
       followFigure(r.figure);
+    } else if (s.kind === 'activate') {
+      dispatch({ type: 'activateFigure', figure: r.figure });
+      // The deed lands silently in the sim; say what it did (playtest 3).
+      pushToast(`${shortName(def.name)}: ${deed}. They retire to the Hall of Ancestors.`, 'culture');
     }
+    else if (s.kind === 'government') openModal({ kind: 'government' });
+    else if (s.kind === 'cabinet') openModal({ kind: 'cabinet' });
     closeRecruitReveal();
   };
 
@@ -105,13 +159,13 @@ export function RecruitReveal() {
           {steps.map((s, k) => (
             <button
               class={`btn ${k === 0 && s.kind !== 'home' ? 'btn-primary' : s.kind === 'home' ? 'btn-ghost' : ''} reveal-step`}
-              disabled={s.kind !== 'home' && !canAct}
+              disabled={(s.kind === 'seat' || s.kind === 'deploy' || s.kind === 'activate') && !canAct}
               onClick={() => run(s)}
             >
-              <Icon name={s.kind === 'seat' ? 'seat' : s.kind === 'deploy' ? 'deploy' : 'found'} />
+              <Icon name={stepIcon(s)} />
               <span class="grow">
                 {stepLabel(s, name)}
-                <span class="reveal-step-note">{stepNote(s)}</span>
+                <span class="reveal-step-note">{stepNote(s, seatBonus, fieldBonus, deed)}</span>
               </span>
             </button>
           ))}
@@ -122,7 +176,7 @@ export function RecruitReveal() {
               openModal({ kind: 'figure', figure: def.id });
             }}
           >
-            See {shortName(def.name)} <Icon name="chevron" size="sm" />
+            See {inSentence(shortName(def.name))} <Icon name="chevron" size="sm" />
           </button>
         </div>
       )}

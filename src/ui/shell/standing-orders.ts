@@ -66,6 +66,10 @@ export const orderDeps = (): OrderDeps | null => {
     attackTargets: (unit) => q.attackTargets(g, unit, content),
     hostile: (a, b) => q.atWar(g, a, b),
     isWater: (t) => !!lookup.terrain[t.terrain]?.water,
+    needsExactTile: (unit) => {
+      const u = g.units[unit];
+      return !!u && !!lookup.units[u.type]?.canFound;
+    },
   };
 };
 
@@ -111,6 +115,19 @@ export const planRoute = (unit: UnitId, to: Hex): PlannedRoute | null => {
 
 let queue: UnitId[] = [];
 let awaiting = false;
+/** A figure whose walk home ends with this move: recalled once the move's snapshot arrives. */
+let recallAfter: string | null = null;
+
+/** Recall a figure standing in an own settlement; true when the command was sent. */
+const recallNow = (figure: string): boolean => {
+  const g = game.value;
+  if (!g || !q.figureActions(g, figure, content).canRecall) return false;
+  const who = lookup.figures[figure]?.name ?? 'Your figure';
+  awaiting = true;
+  dispatch({ type: 'recallFigure', figure });
+  pushToast(`${who} is home again.`, 'good');
+  return true;
+};
 
 const unitName = (id: UnitId): string => {
   const u = game.value?.units[id];
@@ -137,6 +154,13 @@ const pump = (): void => {
     const id = queue.shift() as UnitId;
     const order = orders.value[id];
     if (!order) continue;
+    // A figure walking home is recalled as soon as the sim allows it (inside own borders).
+    const walker = order.kind === 'goto' && order.recall ? (g.units[id]?.figure ?? null) : null;
+    if (walker && q.figureActions(g, walker, content).canRecall) {
+      setOrder(id, null);
+      if (recallNow(walker)) return;
+      continue;
+    }
     const step = stepOrder(g, my, id, order, deps);
     if (step.kind === 'wait') continue;
     if (step.kind === 'done') {
@@ -146,6 +170,8 @@ const pump = (): void => {
       continue;
     }
     if (step.arrives) setOrder(id, null);
+    // After this move's snapshot: recall if the figure now stands where Recall works.
+    if (walker) recallAfter = walker;
     awaiting = true;
     dispatch({ type: 'moveUnit', unit: id, to: step.to });
     return;
@@ -156,6 +182,7 @@ const pump = (): void => {
 export const runStandingOrders = (): void => {
   queue = Object.keys(orders.value);
   awaiting = false;
+  recallAfter = null;
   pump();
 };
 
@@ -173,6 +200,13 @@ export const exploreNow = (unit: UnitId): void => {
 export const continueStandingOrders = (): void => {
   if (!awaiting) return;
   awaiting = false;
+  const fig = recallAfter;
+  recallAfter = null;
+  if (fig && recallNow(fig)) {
+    // Recalled: the figure's unit is gone, and so is its order.
+    for (const [id, o] of Object.entries(orders.peek())) if (o.kind === 'goto' && o.recall && game.peek()?.units[id]?.figure === fig) setOrder(id, null);
+    return;
+  }
   pump();
 };
 

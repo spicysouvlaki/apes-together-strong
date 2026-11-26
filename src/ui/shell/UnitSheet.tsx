@@ -9,10 +9,10 @@ import { TRADE_RANGE } from '../../sim/constants';
 import { askConfirm, content, dispatch, game, lookup, me, myTurn, openModal, q, selection } from '../store';
 import { capitalize, num } from './format';
 import { cancelRoute, confirmRoute, previewRoute, refreshOverlay, selectUnit } from './MapView';
-import { idleUnits, nextIdleUnit } from './hexutil';
+import { idleUnits, nextIdleUnit, tileIndexOf } from './hexutil';
 import { highlights, siteHints, skipUnit } from './shell-state';
 import { unitHint } from './unit-hints';
-import { exploreNow, foundReady, orders, planRoute, plannedRoute, resting, setOrder } from './standing-orders';
+import { exploreNow, foundReady, orders, planRoute, plannedRoute, resting, setOrder, type PlannedRoute } from './standing-orders';
 import { arrivalText, canExplore } from './orders';
 import { pendingAttack, cancelAttack, commitAttack } from './combat-state';
 import { OutlookStamp } from './CombatSheet';
@@ -32,6 +32,30 @@ const tradeBlockedBeside = (g: GameState, u: Unit): { name: string; why: 'far' |
       ? 'open'
       : 'far';
   return { name: near.name, why, range: TRADE_RANGE };
+};
+
+/**
+ * Where a merchant with nobody beside it could go: known foreign settlements and city-states
+ * that would take a route (display only, mirroring sim tradeTargets: not at war, no route yet,
+ * a home settlement within trade range), nearest by route first. Playtest 3: a new merchant
+ * said "walk next to a foreign city" with no hint where one was.
+ */
+const tradeDestinations = (g: GameState, u: Unit): { id: string; name: string; plan: PlannedRoute }[] => {
+  const p = g.players[u.owner];
+  if (!p) return [];
+  const homes = Object.values(g.settlements).filter((s) => s.owner === u.owner);
+  return Object.values(g.settlements)
+    .filter((s) => {
+      if (s.owner === u.owner || q.atWar(g, u.owner, s.owner)) return false;
+      const i = tileIndexOf(g.map, s.at);
+      if (i === null || !p.explored[i]) return false;
+      if (g.tradeRoutes.some((r) => r.owner === u.owner && r.to === s.id)) return false;
+      return homes.some((h) => hexDistance(h.at, s.at) <= TRADE_RANGE);
+    })
+    .map((s) => ({ id: s.id, name: s.name, plan: planRoute(u.id, s.at) }))
+    .filter((x): x is { id: string; name: string; plan: PlannedRoute } => !!x.plan)
+    .sort((a, b) => a.plan.path.length - b.plan.path.length)
+    .slice(0, 3);
 };
 
 export function UnitSheet() {
@@ -68,6 +92,19 @@ export function UnitSheet() {
   const hereRank = sites.findIndex((x) => x.hex.q === u.at.q && x.hex.r === u.at.r);
   const pa = pendingAttack.value;
   const inline = pa && pa.mode === 'inline' && pa.unit === u.id ? pa : null;
+  // A figure outside its settlements cannot be recalled (sim: Recall works inside one). Offer
+  // the walk back as one order that recalls on arrival (playtest 3: deployed beside the city,
+  // Recall stayed grey with no way forward).
+  const home =
+    u.figure && actions && !actions.canRecall && !Object.values(g.settlements).some((s) => s.owner === my && s.at.q === u.at.q && s.at.r === u.at.r)
+      ? Object.values(g.settlements)
+          .filter((s) => s.owner === my)
+          .map((s) => ({ s, plan: planRoute(u.id, s.at) }))
+          .filter((x) => x.plan && x.plan.to.q === x.s.at.q && x.plan.to.r === x.s.at.r)
+          .sort((a, b) => (a.plan?.path.length ?? 0) - (b.plan?.path.length ?? 0))[0] ?? null
+      : null;
+  const walkingHome = order?.kind === 'goto' && !!order.recall;
+  const destinations = def?.canTrade && tradeTargets.length === 0 && !plan && !order && !inline ? tradeDestinations(g, u) : [];
 
   return (
     <section class="sheet unit-sheet" aria-label={`Selected unit: ${name}`}>
@@ -147,7 +184,7 @@ export function UnitSheet() {
                       class="btn site-btn"
                       disabled={!canAct}
                       aria-label={`Site ${i + 1}: ${whereWord(u.at, site.hex)}${why ? `, ${why}` : ''}. Plan a route there.`}
-                      onClick={() => previewRoute(u.id, site.hex)}
+                      onClick={() => previewRoute(u.id, site.hex, { frame: true })}
                     >
                       <span class="site-n" aria-hidden="true">{i + 1}</span>
                       <span aria-hidden="true">{shortWhere(u.at, site.hex)}</span>
@@ -168,6 +205,23 @@ export function UnitSheet() {
               })()}
             </>
           )}
+        </div>
+      )}
+      {destinations.length > 0 && (
+        <div class="site-row small" aria-label="Places that would take a trade route">
+          <span class="muted site-label">Trade with:</span>
+          {destinations.map((d) => (
+            <button
+              key={d.id}
+              class="btn site-btn"
+              disabled={!canAct}
+              aria-label={`Plan a route to ${d.name}, ${arrivalText(d.plan.turns).toLowerCase()}`}
+              onClick={() => previewRoute(u.id, g.settlements[d.id]?.at ?? u.at, { frame: true })}
+            >
+              <Icon name="trade" size="sm" /> {d.name}
+              <span class="muted tnum">· {d.plan.turns <= 1 ? 'this turn' : `${d.plan.turns - 1} ${d.plan.turns === 2 ? 'turn' : 'turns'}`}</span>
+            </button>
+          ))}
         </div>
       )}
       {inline && (
@@ -230,8 +284,9 @@ export function UnitSheet() {
               </>
             ) : (
               <>
-                <strong>Marching</strong> · {whereWord(u.at, order.to)}
-                {marchTurns ? `, ${arrivalText(marchTurns).replace('Arrives', 'arrives')}` : ''}. Moves on at the start of each turn.
+                <strong>{order.recall ? 'Walking home' : 'Marching'}</strong> · {whereWord(u.at, order.to)}
+                {marchTurns ? `, ${arrivalText(marchTurns).replace('Arrives', 'arrives')}` : ''}.{' '}
+                {order.recall ? 'Recalled on arrival.' : 'Moves on at the start of each turn.'}
               </>
             )}
           </div>
@@ -358,6 +413,21 @@ export function UnitSheet() {
           {fig && u.figure && (
             <button class="btn" onClick={() => openModal({ kind: 'figure', figure: u.figure as string })}>
               <Icon name="figures" /> Figure
+            </button>
+          )}
+          {home && !walkingHome && u.figure && (
+            <button
+              class="btn"
+              disabled={!canAct}
+              aria-label={`Walk home to ${home.s.name} and recall there`}
+              onClick={() => {
+                setOrder(u.id, { kind: 'goto', to: home.s.at, recall: true });
+                plannedRoute.value = null;
+                exploreNow(u.id);
+                refreshOverlay();
+              }}
+            >
+              <Icon name="recall" /> Walk home
             </button>
           )}
           {actions?.canRecall && u.figure && (

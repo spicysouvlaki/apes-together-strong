@@ -293,6 +293,21 @@ describe('recruit reveal: best next step', () => {
     expect(nextSteps({ kind: 'thinker', uses: ['cabinet'] }, { seat: [], deploy: [] }, null)).toEqual([{ kind: 'home' }]);
     expect(nextSteps({ kind: 'thinker', uses: ['cabinet'] }, null, null)).toEqual([{ kind: 'home' }]);
   });
+
+  it('never ends on "keep at home" alone when a seat can be opened', () => {
+    const none = { seat: [], deploy: [] };
+    expect(nextSteps({ kind: 'statesman', uses: ['cabinet'] }, none, 's1', 'no-government')).toEqual([{ kind: 'government' }, { kind: 'home' }]);
+    expect(nextSteps({ kind: 'statesman', uses: ['cabinet'] }, none, 's1', 'seat-taken')).toEqual([{ kind: 'cabinet' }, { kind: 'home' }]);
+    // A free seat wins over the hint; a figure without the cabinet use gets no seat hint.
+    expect(nextSteps({ kind: 'statesman', uses: ['cabinet'] }, { seat: ['elder#0'], deploy: [] }, 's1', 'no-government')[0]).toEqual({ kind: 'seat', slot: 'elder#0' });
+    expect(nextSteps({ kind: 'builder', uses: ['activate'] }, none, null, 'no-government')).toEqual([{ kind: 'home' }]);
+    // A usable one-time deed is offered too, after any seat step.
+    expect(nextSteps({ kind: 'thinker', uses: ['cabinet', 'activate'] }, { ...none, canActivate: true }, 's1', 'seat-taken')).toEqual([
+      { kind: 'cabinet' },
+      { kind: 'activate' },
+      { kind: 'home' },
+    ]);
+  });
 });
 
 describe('"Your people"', () => {

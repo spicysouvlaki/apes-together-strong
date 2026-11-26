@@ -182,8 +182,13 @@ export const pushToast = (text: string, tone: Toast['tone'] = 'info', action: Mo
 /** Adds an already-ranked batch above whatever is still waiting (the ticker shows one at a time). */
 export const pushToasts = (batch: readonly Omit<Toast, 'id'>[]): void => {
   if (batch.length === 0) return;
-  const fresh = batch.map((t) => ({ ...t, id: toastId++ }));
-  toasts.value = [...fresh, ...toasts.value].slice(0, TOAST_QUEUE_MAX);
+  // The same sentence twice says nothing new (two raiders pillaging the same town in one turn).
+  const texts = new Set<string>();
+  const fresh = batch.filter((t) => !texts.has(t.text) && !!texts.add(t.text)).map((t) => ({ ...t, id: toastId++ }));
+  // An older "+N more updates this turn" footnote is stale once newer news arrives (playtest 3:
+  // two of them queued up, one counting last turn's news). The log still has everything.
+  const kept = toasts.value.filter((t) => t.action?.kind !== 'log' && !texts.has(t.text));
+  toasts.value = [...fresh, ...kept].slice(0, TOAST_QUEUE_MAX);
 };
 export const TOAST_QUEUE_MAX = 6;
 export const dismissToast = (id: number): void => {
@@ -225,5 +230,7 @@ export const ownerName = (owner: string): string => {
   if (owner.startsWith('cs:')) return lookup.cityStates[owner.slice(3)]?.name ?? 'City-state';
   const p = g?.players[owner];
   if (!p) return owner;
-  return p.civName ?? `${lookup.leaders[p.leader]?.name ?? 'A leader'}'s people`;
+  // Lower-case like civ names ("the Norse Thing"): this reads inside sentences ("war with the
+  // Builder's people"); titles capitalise it themselves.
+  return p.civName ?? `${(lookup.leaders[p.leader]?.name ?? 'A leader').replace(/^(The|A) /, (m) => m.toLowerCase())}'s people`;
 };

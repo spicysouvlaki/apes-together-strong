@@ -323,3 +323,9 @@
 .scr-name-preview::first-letter, .scr-big::first-letter { text-transform: uppercase; }
 .scr-leftover { display: flex; align-items: center; gap: 10px; }
 .scr-leftover .btn { flex: none; }
+
+/* Final transition chapter: what the people carry into the new age. */
+.scr-carry-row { align-items: flex-start; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.scr-carry-row:last-child { border-bottom: 0; }
+.scr-carry-crest { flex: none; padding-top: 2px; }
+.scr-carry-fx { display: block; }

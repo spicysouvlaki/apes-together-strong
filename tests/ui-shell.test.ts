@@ -178,6 +178,12 @@ describe('event toasts', () => {
   };
   const t = (ev: SimEvent) => eventToToast(ev, 'p1', names);
 
+  it('announces a city-state changing suzerain', () => {
+    expect(t({ type: 'suzerainChanged', cityState: 'visby', suzerain: 'p1' })).toMatchObject({ tone: 'good', text: 'Owner cs:visby now looks to us: we are its suzerain.' });
+    expect(t({ type: 'suzerainChanged', cityState: 'visby', suzerain: 'p2' })).toMatchObject({ tone: 'info', text: 'Owner p2 is now suzerain of Owner cs:visby.' });
+    expect(t({ type: 'suzerainChanged', cityState: 'visby', suzerain: null })).toBeNull();
+  });
+
   it('shows my own news with the right tone and action', () => {
     expect(t({ type: 'cultureHint', player: 'p1', culture: 'greek', text: 'Greek sailors talk of you.' })).toEqual({
       text: 'Greek sailors talk of you.',
@@ -281,7 +287,7 @@ describe('playtest fixes (shell)', () => {
     const base = { type: 'combat' as const, at: { q: 0, r: 0 }, damageToAttacker: 23, damageToDefender: 40, attackerDied: false, defenderDied: true };
     const mine = eventToToast({ ...base, attacker: 'u1', attackerOwner: 'p1', defender: 'u9', defenderOwner: 'raiders' }, 'p1', names);
     expect(mine).toMatchObject({ tone: 'good' });
-    expect(mine?.text).toBe('Raiders’ Slinger was destroyed; ours lost 23.');
+    expect(mine?.text).toBe('Raiders’ Slinger was destroyed; our Warrior band lost 23 HP.');
     const hit = eventToToast({ ...base, defenderDied: false, attacker: 'u9', attackerOwner: 'p2', defender: 'u1', defenderOwner: 'p1' }, 'p1', names);
     expect(hit).toMatchObject({ tone: 'bad', text: 'Owner p2 attacked: our Warrior band lost 40 HP.' });
     expect(eventToToast({ ...base, attacker: 'u9', attackerOwner: 'p2', defender: 'u8', defenderOwner: 'p3' }, 'p1', names)).toBeNull();
@@ -421,5 +427,25 @@ describe('number formatting (playtest: long numbers in narrow columns)', () => {
     expect(hudNum(9999)).toBe('9,999');
     expect(hudNum(12345)).toBe('12.3k');
     expect(hudNum(234567)).toBe('235k');
+  });
+});
+
+describe('toast queue', () => {
+  it('drops a stale "+N more updates" footnote when newer news arrives', async () => {
+    const store = await import('../src/ui/store');
+    store.toasts.value = [];
+    store.pushToasts([{ text: 'Old news.', tone: 'info', action: null }, { text: '+6 more updates this turn.', tone: 'info', action: { kind: 'log' } }]);
+    store.pushToasts([{ text: 'New news.', tone: 'info', action: null }, { text: '+2 more updates this turn.', tone: 'info', action: { kind: 'log' } }]);
+    expect(store.toasts.value.map((t) => t.text)).toEqual(['New news.', '+2 more updates this turn.', 'Old news.']);
+  });
+});
+
+describe('toast queue duplicates', () => {
+  it('keeps one copy of the same sentence', async () => {
+    const store = await import('../src/ui/store');
+    store.toasts.value = [];
+    store.pushToasts([{ text: 'Raiders pillaged Ugarit.', tone: 'bad', action: null }]);
+    store.pushToasts([{ text: 'Raiders pillaged Ugarit.', tone: 'bad', action: null }, { text: 'Raiders pillaged Ugarit.', tone: 'bad', action: null }]);
+    expect(store.toasts.value.map((t) => t.text)).toEqual(['Raiders pillaged Ugarit.']);
   });
 });

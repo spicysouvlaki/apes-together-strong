@@ -5,7 +5,7 @@
 import { useEffect } from 'preact/hooks';
 import type { ComponentType } from 'preact';
 import { signal } from '@preact/signals';
-import { closeModal, confirmRequest, dismissToast, focusMap, modal, openModal, route, toasts, type Modal, type Toast } from '../store';
+import { closeModal, confirmRequest, dismissToast, focusMap, modal, openModal, route, selection, toasts, type Modal, type Toast } from '../store';
 import { CodexScreen } from './Codex';
 import { TurnLog } from './TurnLog';
 import { screens, type ScreenKind } from '../screens';
@@ -119,7 +119,10 @@ export function Toasts() {
   // back when the screen closes, so "war declared on us" survives a long decision screen.
   const m = modal.value;
   if (m && !SHEET_KINDS.has(m.kind)) return null;
-  const { slips, ticker } = splitToasts(list);
+  // Once the player has a unit in hand they are answering the threat: the slips fold into the
+  // one-line ticker so they no longer cover the raiders the unit is about to strike (playtest 3).
+  const answering = selection.value.unit !== null;
+  const { slips, ticker } = answering ? { slips: [], ticker: list } : splitToasts(list);
   return (
     <div class={`toasts${route.value === 'game' ? '' : ' toasts-free'}`} aria-live="polite">
       <Ticker items={ticker} />

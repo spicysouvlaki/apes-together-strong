@@ -31,6 +31,10 @@ import { figureCountsByCulture } from './shared/figures';
 
 export const DiplomacyScreen = (_: ScreenProps<'diplomacy'>) => {
   const [confirmWar, setConfirmWar] = useState<PlayerId | null>(null);
+  // Envoys and peace spend influence, which is slow to earn: one look at the price first
+  // (playtest 3: both acted on a single tap).
+  const [confirmPeace, setConfirmPeace] = useState<PlayerId | null>(null);
+  const [confirmEnvoy, setConfirmEnvoy] = useState<string | null>(null);
   const [acted, setActed] = useState<string | null>(null);
   const g = game.value;
   const player = me.value;
@@ -93,7 +97,7 @@ export const DiplomacyScreen = (_: ScreenProps<'diplomacy'>) => {
                           <button
                             class="btn btn-primary"
                             disabled={!turn || influence < PEACE_INFLUENCE_COST || g.turn - since < MIN_WAR_TURNS}
-                            onClick={() => act(`peace:${r.id}`, { type: 'makePeace', target: r.id })}
+                            onClick={() => setConfirmPeace(r.id)}
                             aria-label={`Make peace with ${ownerName(r.id)} for ${PEACE_INFLUENCE_COST} influence`}
                           >
                             <Icon name="peace" /> Make peace <Cost n={PEACE_INFLUENCE_COST} />
@@ -162,7 +166,7 @@ export const DiplomacyScreen = (_: ScreenProps<'diplomacy'>) => {
                         <button
                           class="btn"
                           disabled={!turn || influence < cost}
-                          onClick={() => act(`envoy:${cs.id}`, { type: 'sendEnvoy', cityState: cs.id })}
+                          onClick={() => setConfirmEnvoy(cs.id)}
                           aria-label={`Send an envoy to ${def.name} for ${cost} influence`}
                         >
                           <Icon name="envoy" /> Send envoy <Cost n={cost} />
@@ -185,6 +189,54 @@ export const DiplomacyScreen = (_: ScreenProps<'diplomacy'>) => {
           })}
         </ul>
       </Section>
+
+      {confirmPeace && (
+        <ConfirmSheet
+          title={`Make peace with ${ownerName(confirmPeace)}?`}
+          confirmLabel="Make peace"
+          onConfirm={() => {
+            act(`peace:${confirmPeace}`, { type: 'makePeace', target: confirmPeace });
+            setConfirmPeace(null);
+          }}
+          onCancel={() => setConfirmPeace(null)}
+        >
+          <p>
+            Costs {INF} {PEACE_INFLUENCE_COST} of your {influence} influence. They accept, and the fighting stops at once.
+          </p>
+        </ConfirmSheet>
+      )}
+
+      {confirmEnvoy &&
+        (() => {
+          const cs = g.cityStates[confirmEnvoy];
+          const def = lookup.cityStates[confirmEnvoy];
+          if (!cs || !def) return null;
+          const mine = cs.envoys[player] ?? 0;
+          const top = Object.entries(cs.envoys).reduce<{ id: string | null; n: number }>((best, [id, n]) => (n > best.n ? { id, n } : best), { id: null, n: 0 });
+          const cost = q.envoyCost(g, player, cs.id, content);
+          const left = envoysToLead(mine + 1, top, player);
+          return (
+            <ConfirmSheet
+              title={`Send an envoy to ${def.name}?`}
+              confirmLabel="Send envoy"
+              onConfirm={() => {
+                act(`envoy:${cs.id}`, { type: 'sendEnvoy', cityState: cs.id });
+                setConfirmEnvoy(null);
+              }}
+              onCancel={() => setConfirmEnvoy(null)}
+            >
+              <p>
+                Costs {INF} {cost} of your {influence} influence. You will have {mine + 1} {mine + 1 === 1 ? 'envoy' : 'envoys'} there
+                {cs.suzerain === player
+                  ? ', keeping your lead.'
+                  : left <= 0
+                    ? ` and become its suzerain: ${describeModifiers(def.suzerainModifiers, lookup).join('; ')}.`
+                    : `; ${left} more to become suzerain.`}
+              </p>
+              <p class="small muted">Each envoy to the same city-state costs more than the last.</p>
+            </ConfirmSheet>
+          );
+        })()}
 
       {confirmWar && (
         <ConfirmSheet
