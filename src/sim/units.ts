@@ -19,7 +19,7 @@ import {
 } from './constants';
 import { mintId, type SimCtx } from './ctx';
 import { contactsOf, greetNewContacts, hasHuman } from './voice';
-import { ci, hexOfIndex, isCivilian, isWater, playerSettlements, tileAt, tileIndex, unitPositions } from './lookup';
+import { ci, hexOfIndex, isWater, playerSettlements, stackLayer, tileAt, tileIndex, unitPositions, type StackLayer } from './lookup';
 import { canEmbark, empireModifiers, unitAdd, type CondEnv } from './modifiers';
 
 // --- Lifecycle ---------------------------------------------------------------
@@ -47,12 +47,12 @@ export const terrainAllows = (
 };
 
 /** Is the stacking layer free for `owner` on this tile? (Other owners' units always block.) */
-const layerFree = (units: readonly Unit[] | undefined, owner: PlayerId, civilian: boolean, except?: UnitId): boolean => {
+const layerFree = (units: readonly Unit[] | undefined, owner: PlayerId, layer: StackLayer, except?: UnitId): boolean => {
   if (!units) return true;
   for (const u of units) {
     if (u.id === except) continue;
     if (u.owner !== owner) return false;
-    if (isCivilian(u) === civilian) return false;
+    if (stackLayer(u) === layer) return false;
   }
   return true;
 };
@@ -75,7 +75,7 @@ export const spawnUnit = (
   const { state, content } = ctx;
   const def = ci(content).units[typeId];
   if (!def) return null;
-  const civilian = def.unitClass === 'civilian';
+  const layer = stackLayer(def);
   const embark = canEmbarkPlayer(state, owner, content);
   const positions = unitPositions(state);
   const candidates: { h: Hex; d: number }[] = [];
@@ -92,7 +92,7 @@ export const spawnUnit = (
     // Spawning a land unit never embarks it, except on the requested tile itself.
     if (!terrainAllows(state, owner, def, tile, content, false) && !(embark && d === 0 && terrainAllows(state, owner, def, tile, content, true)))
       continue;
-    if (!layerFree(positions.get(`${h.q},${h.r}`), owner, civilian)) continue;
+    if (!layerFree(positions.get(`${h.q},${h.r}`), owner, layer)) continue;
     const id = mintId(state, 'u');
     const unit: Unit = {
       id,
@@ -193,7 +193,7 @@ export const findPaths = (state: GameState, unit: Unit, content: ContentBundle):
   if (!def || start < 0 || unit.movesLeft <= 0) return { remaining, parent, endable };
   const embark = def.unitClass !== 'naval' && canEmbarkPlayer(state, unit.owner, content);
   const positions = unitPositions(state);
-  const civilian = isCivilian(unit);
+  const layer = stackLayer(unit);
   const max = Math.ceil(unit.movesLeft);
   const buckets: number[][] = [];
   for (let i = 0; i <= max; i++) buckets.push([]);
@@ -224,7 +224,7 @@ export const findPaths = (state: GameState, unit: Unit, content: ContentBundle):
   for (const [idx] of remaining) {
     if (idx === start) continue;
     const h = hexOfIndex(state.map, idx);
-    if (layerFree(positions.get(`${h.q},${h.r}`), unit.owner, civilian, unit.id)) endable.push(idx);
+    if (layerFree(positions.get(`${h.q},${h.r}`), unit.owner, layer, unit.id)) endable.push(idx);
   }
   endable.sort((a, b) => a - b);
   return { remaining, parent, endable };
@@ -325,7 +325,7 @@ export const planPath = (state: GameState, unit: Unit, target: number, content: 
   const targetTile = state.map.tiles[target];
   if (!targetTile || !terrainAllows(state, unit.owner, def, targetTile, content, embark)) return null;
   const positions = unitPositions(state);
-  const civilian = isCivilian(unit);
+  const layer = stackLayer(unit);
   const empire = unit.owner === RAIDER_PLAYER ? [] : empireModifiers(state, unit.owner, content);
   const fullCache = new Map<number, number>();
   const fullAt = (idx: number): number => {
@@ -351,7 +351,7 @@ export const planPath = (state: GameState, unit: Unit, target: number, content: 
     if (!all || t === 0 || isVisible(idx)) return all;
     return all.filter((u) => u.owner === unit.owner);
   };
-  const canStop = (idx: number, t: number): boolean => idx === start || layerFree(knownUnits(idx, t), unit.owner, civilian, unit.id);
+  const canStop = (idx: number, t: number): boolean => idx === start || layerFree(knownUnits(idx, t), unit.owner, layer, unit.id);
   if (!canStop(target, 1) && !canStop(target, 0)) return null;
 
   // Cost g = turn·S + (M − moves left): fewer turns first, then more moves left.

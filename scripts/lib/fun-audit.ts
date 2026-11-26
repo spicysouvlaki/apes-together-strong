@@ -79,6 +79,19 @@ export interface AuditReport {
   humanWonders: number;
   /** Rival postures (from src/sim/voice) and notice counts by kind of speaker. */
   voiceNotices: number;
+  /** Per player: start climate, rank, figures, wonders, capital food/production at turn 30. */
+  perPlayer: Record<string, { climate: string; rank: number; figures: number; wonders: number; capFood30: number; capProd30: number; settlements30: number }>;
+  /** Wonders completed: who, turn, age; and races (2+ players building the same wonder at once). */
+  wonderLog: { wonder: string; player: string; turn: number; age: Age }[];
+  wonderRaces: number;
+  /** (player, wonder) pairs ever in production, with the turn first seen. */
+  wonderStarts: { player: string; wonder: string; turn: number }[];
+  /** Crisis cost per player and age: units lost, population and gold change, pillages, choices. */
+  crisisCost: { age: Age; player: string; units: number; pop: number; gold: number; pillaged: number; choices: string[]; settlementsLost: number }[];
+  /** Culture hints: player, culture, turn, and the culture's affinity rank for that player then (1 = top). */
+  hints: { player: string; culture: string; turn: number; rank: number }[];
+  /** Human commands per turn by type (commands the sim accepted). */
+  humanCommands: Record<number, Record<string, number>>;
 }
 
 const ageStart: Record<string, number> = {};
@@ -117,6 +130,26 @@ export const auditGame = (
     deeds: [], hintsWithoutFigures: 0, ageOpeningOffers: [], startClimate: {}, polarShareT25: {}, rank: {},
     navalBuilt: {}, overseasSettlements: {}, capturesPvp: 0, capturesCs: 0, eliminations: [], wars: 0,
     crisisPop: [], wonders: 0, humanWonders: 0, voiceNotices: 0,
+    perPlayer: {}, wonderLog: [], wonderRaces: 0, wonderStarts: [], crisisCost: [], hints: [], humanCommands: {},
+  };
+  const racedWonders = new Set<string>();
+  const crisisStart: Record<string, { units: number; pop: number; gold: number; settlements: number }> = {};
+  const crisisPillage: Record<string, number> = {};
+  const latestChoices: Record<string, string[]> = {};
+  const latestChoicesAtEnd: Record<string, string[]> = {};
+  const playerPop = (id: string): number => Object.values(state.settlements).filter((s) => s.owner === id).reduce((a, s) => a + s.population, 0);
+  const playerSettlementCount = (id: string): number => Object.values(state.settlements).filter((s) => s.owner === id).length;
+  // Record the human seat's accepted commands (tooling only; the sim never sees this wrapper).
+  const recSim: Sim = {
+    createGame: (st, ct) => sim.createGame(st, ct),
+    applyCommand: (st, pl, cmd, ct) => {
+      const res = sim.applyCommand(st, pl, cmd, ct);
+      if (res.ok && pl === HUMAN && st.phase === 'playing') {
+        const row = (r.humanCommands[st.turn] ??= {});
+        row[cmd.type] = (row[cmd.type] ?? 0) + 1;
+      }
+      return res;
+    },
   };
   const humanPop = (): number => Object.values(state.settlements).filter((s) => s.owner === HUMAN).reduce((a, s) => a + s.population, 0);
   ageStart.current = 1;
@@ -157,6 +190,33 @@ export const auditGame = (
             for (const f of Object.values(state.figures)) if (f.owner === id) counts[figDef.get(f.id)?.culture ?? '?'] = (counts[figDef.get(f.id)?.culture ?? '?'] ?? 0) + 1;
             const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
             r.rivalTopCulturesT30.push(top ? top[0] : null);
+          }
+        }
+        if (state.crisis) for (const id of state.playerOrder) {
+          const ch = state.players[id]?.crisisChoices ?? [];
+          if (ch.length > 0) latestChoices[id] = [...ch];
+        }
+        // Wonder races: two or more players building the same wonder at this turn start.
+        const builders: Record<string, Set<string>> = {};
+        for (const st of Object.values(state.settlements)) {
+          const item = st.production.item;
+          if (item && content.wonders.some((w) => w.id === item)) {
+            (builders[item] ??= new Set()).add(st.owner);
+            if (!r.wonderStarts.some((x) => x.player === st.owner && x.wonder === item)) r.wonderStarts.push({ player: st.owner, wonder: item, turn: state.turn });
+          }
+        }
+        for (const [w, set] of Object.entries(builders)) if (set.size >= 2 && !racedWonders.has(w)) {
+          racedWonders.add(w);
+          r.wonderRaces++;
+        }
+        if (state.turn === 30) {
+          for (const id of state.playerOrder) {
+            const cap = Object.values(state.settlements).find((x) => x.owner === id && x.isCapital);
+            const y = cap ? queries.settlementYields(state, cap.id, content) : null;
+            const pp = (r.perPlayer[id] ??= { climate: '?', rank: 0, figures: 0, wonders: 0, capFood30: 0, capProd30: 0, settlements30: 0 });
+            pp.capFood30 = y?.food ?? 0;
+            pp.capProd30 = y?.production ?? 0;
+            pp.settlements30 = playerSettlementCount(id);
           }
         }
         if (state.turn === 25) {
@@ -218,10 +278,35 @@ export const auditGame = (
       if (e.type === 'deedCompleted') r.deeds.push({ deed: e.deed, player: e.player, turn: state.turn, age: state.age, turnInAge: state.turn - (ageStart.current ?? 1) });
       if (e.type === 'cultureHint') {
         if (!figuresInAge(state.age).has(e.culture)) r.hintsWithoutFigures++;
+        const aff = state.players[e.player]?.affinity ?? {};
+        const mine = aff[e.culture] ?? 0;
+        const rank = 1 + Object.values(aff).filter((v) => v > mine).length;
+        r.hints.push({ player: e.player, culture: e.culture, turn: state.turn, rank });
       }
+      if (e.type === 'notice' && e.player !== null && /pillag/i.test(e.text)) crisisPillage[e.player] = (crisisPillage[e.player] ?? 0) + 1;
       if (e.type === 'notice' && (e.player === HUMAN || e.player === null)) {
         r.notices.push(`t${state.turn}: ${e.text}`);
         if (e.text.includes(': “')) r.voiceNotices++;
+      }
+      if (e.type === 'crisisStarted') {
+        for (const id of state.playerOrder) {
+          const p = state.players[id];
+          if (!p?.alive) continue;
+          crisisStart[id] = { units: p.stats.unitsLost, pop: playerPop(id), gold: p.stock.gold, settlements: playerSettlementCount(id) };
+          crisisPillage[id] = 0;
+          delete latestChoices[id];
+        }
+      }
+      if (e.type === 'ageEnded') {
+        for (const id of Object.keys(crisisStart)) {
+          const latest = latestChoices[id];
+          latestChoicesAtEnd[id] = latest ?? [];
+          const p = state.players[id];
+          const c0 = crisisStart[id];
+          if (!p || !c0) continue;
+          r.crisisCost.push({ age: e.age, player: id, units: p.stats.unitsLost - c0.units, pop: playerPop(id) - c0.pop, gold: Math.round(p.stock.gold - c0.gold), pillaged: crisisPillage[id] ?? 0, choices: [...(latestChoicesAtEnd[id] ?? p.crisisChoices)], settlementsLost: Math.max(0, c0.settlements - playerSettlementCount(id)) });
+          delete crisisStart[id];
+        }
       }
       if (e.type === 'crisisStarted') r.crisisPop.push({ age: state.age, start: humanPop(), end: 0, gold: state.players[HUMAN]?.stock.gold ?? 0, goldEnd: 0, lost: state.players[HUMAN]?.stats.unitsLost ?? 0, lostEnd: 0 });
       if (e.type === 'ageEnded') {
@@ -233,6 +318,7 @@ export const auditGame = (
         }
       }
       if (e.type === 'wonderBuilt') {
+        r.wonderLog.push({ wonder: e.wonder, player: e.player, turn: state.turn, age: state.age });
         r.wonders++;
         if (e.player === HUMAN) r.humanWonders++;
       }
@@ -312,7 +398,22 @@ export const auditGame = (
           figs = figureSnapshot();
           towns = townSnapshot();
         }
-        const res = runAiTurn(state, player, content, sim);
+        // Crisis responses: the human seat alternates options by seed and stage, so the audit can
+        // compare the outcomes of both options of each stage (the AI would always pick its favourite).
+        if (human && state.crisis?.awaiting.includes(HUMAN)) {
+          const def = content.crises.find((c) => c.id === state.crisis?.id);
+          const opts = def?.stages[state.crisis.stage - 1]?.options ?? [];
+          // Stage k takes option bit k of the seed, so each stage's choice is independent of the others.
+          const o = opts[(seed >> (state.crisis.stage - 1)) & 1];
+          if (o) {
+            const f = recSim.applyCommand(state, HUMAN, { type: 'chooseCrisisResponse', option: o.id }, content);
+            if (f.ok) {
+              state = f.state;
+              tally(f.events, true);
+            }
+          }
+        }
+        const res = runAiTurn(state, player, content, recSim);
         // State during the human turn: evaluate per-event with the state after the turn.
         if (human) {
           const mid = res.state;
@@ -394,6 +495,13 @@ export const auditGame = (
   r.spread = max > 0 ? Math.min(...living) / max : null;
   const order = [...state.playerOrder].sort((a, b) => (r.finalScores[b] ?? 0) - (r.finalScores[a] ?? 0));
   order.forEach((id, i) => (r.rank[id] = i + 1));
+  for (const id of state.playerOrder) {
+    const pp = (r.perPlayer[id] ??= { climate: '?', rank: 0, figures: 0, wonders: 0, capFood30: 0, capProd30: 0, settlements30: 0 });
+    pp.climate = r.startClimate[id] ?? '?';
+    pp.rank = r.rank[id] ?? 0;
+    pp.figures = Object.values(state.figures).filter((f) => f.owner === id).length;
+    pp.wonders = r.wonderLog.filter((w) => w.player === id).length;
+  }
   return r;
 };
 
@@ -453,6 +561,67 @@ export const summarize = (rs: AuditReport[], content: ContentBundle): string => 
   L.push(`4 polar-heavy civs (≥30% polar tiles at t25): ${polarRanks.length}, avg rank ${avg(polarRanks)}, last ${pct(polarLast, polarRanks.length)}; start climates ${JSON.stringify(rs.flatMap((r) => Object.values(r.startClimate)).reduce<Record<string, number>>((m, c) => ((m[c] = (m[c] ?? 0) + 1), m), {}))}`);
   const naval = rs.map((r) => Object.entries(r.navalBuilt).filter(([id]) => id !== 'p1').reduce((s, [, v]) => s + v, 0));
   L.push(`3 AI naval units built per game ${avg(naval)}; overseas settlements per game ${avg(rs.map((r) => Object.values(r.overseasSettlements).reduce((a, b) => a + b, 0)))}; captures pvp ${avg(rs.map((r) => r.capturesPvp))} cs ${avg(rs.map((r) => r.capturesCs))}; wars ${avg(rs.map((r) => r.wars))}; eliminations ${rs.flatMap((r) => r.eliminations).map((e) => e.age).join(',') || '-'}`);
+  // --- Second fun-and-fairness pass metrics -----------------------------------------------
+  const byClimate: Record<string, { ranks: number[]; figs: number[]; food: number[]; prod: number[]; towns: number[] }> = {};
+  for (const r of rs) for (const pp of Object.values(r.perPlayer ?? {})) {
+    const c = (byClimate[pp.climate] ??= { ranks: [], figs: [], food: [], prod: [], towns: [] });
+    c.ranks.push(pp.rank);
+    c.figs.push(pp.figures);
+    c.food.push(pp.capFood30);
+    c.prod.push(pp.capProd30);
+    c.towns.push(pp.settlements30);
+  }
+  const avg2 = (xs: number[]): string => (xs.length ? (xs.reduce((a, b) => a + b, 0) / xs.length).toFixed(2) : '-');
+  L.push(`1 start climate → avg rank / figures / capital food,prod at t30 / settlements at t30: ${Object.entries(byClimate).sort().map(([c, v]) => `${c}(${v.ranks.length}) rank ${avg2(v.ranks)}, figs ${avg(v.figs)}, cap ${avg(v.food)}f ${avg(v.prod)}p, towns ${avg(v.towns)}`).join(' | ')}`);
+  const seats: Record<string, number[]> = {};
+  for (const r of rs) for (const [id, k] of Object.entries(r.rank)) (seats[id] ??= []).push(k);
+  L.push(`5 seat avg rank: ${Object.entries(seats).sort().map(([id, xs]) => `${id} ${avg2(xs)} (wins ${xs.filter((x) => x === 1).length})`).join(', ')}`);
+  const wl = rs.flatMap((r) => r.wonderLog ?? []);
+  const perAgePlayer: Record<string, number> = {};
+  for (const r of rs) for (const w of r.wonderLog ?? []) perAgePlayer[`${r.seed}|${w.age}|${w.player}`] = (perAgePlayer[`${r.seed}|${w.age}|${w.player}`] ?? 0) + 1;
+  const maxPer = Object.values(perAgePlayer);
+  L.push(`2 wonders/game ${avg(rs.map((r) => r.wonders))} (ancient ${(wl.filter((w) => w.age === 'ancient').length / n).toFixed(1)}, classical ${(wl.filter((w) => w.age === 'classical').length / n).toFixed(1)}); games with 6–10: ${pct(rs.filter((r) => r.wonders >= 6 && r.wonders <= 10).length, n)}; best player-age ${maxPer.length ? Math.max(...maxPer) : 0}, player-ages with ≥2: ${maxPer.filter((x) => x >= 2).length}; races/game ${avg(rs.map((r) => r.wonderRaces ?? 0))}; wonder starts/game ${avg(rs.map((r) => (r.wonderStarts ?? []).length))}`);
+  const cc = rs.flatMap((r) => r.crisisCost ?? []);
+  for (const age of ['ancient', 'classical'] as const) {
+    const xs = cc.filter((c) => c.age === age);
+    const q = (f: (c: (typeof xs)[number]) => number): string => {
+      const v = xs.map(f).sort((a, b) => a - b);
+      return v.length ? `${v[0]}/${v[Math.floor(v.length / 2)]}/${v[v.length - 1]} avg ${avg(v)}` : '-';
+    };
+    L.push(`3 crisis ${age} per player (min/median/max): units lost ${q((c) => c.units)}; pop Δ ${q((c) => c.pop)}; gold Δ ${q((c) => c.gold)}; pillages ${q((c) => c.pillaged)}; settlements lost ${q((c) => c.settlementsLost)}; human pillaged ${q((c) => (c.player === 'p1' ? c.pillaged : 0))}`);
+    const byChoice: Record<string, { n: number; units: number; pop: number; gold: number; pillaged: number }> = {};
+    for (const c of xs.filter((x) => x.player === 'p1')) for (const ch of c.choices) {
+      const b = (byChoice[ch] ??= { n: 0, units: 0, pop: 0, gold: 0, pillaged: 0 });
+      b.n++;
+      b.units += c.units;
+      b.pop += c.pop;
+      b.gold += c.gold;
+      b.pillaged += c.pillaged;
+    }
+    L.push(`  ${age} human-seat outcomes by response (alternated by seed): ${Object.entries(byChoice).sort().map(([k, b]) => `${k} ×${b.n} units ${(b.units / b.n).toFixed(1)} pop ${(b.pop / b.n).toFixed(1)} gold ${(b.gold / b.n).toFixed(0)} pillaged ${(b.pillaged / b.n).toFixed(1)}`).join('; ')}`);
+  }
+  const hs = rs.flatMap((r) => r.hints ?? []);
+  const playersN = rs.reduce((s2, r) => s2 + Object.keys(r.rank).length, 0);
+  const inuit = hs.filter((h) => h.culture === 'inuit');
+  L.push(`4 culture hints per player-game ${(hs.length / Math.max(1, playersN)).toFixed(1)}; outside top-2 ${pct(hs.filter((h) => h.rank > 2).length, hs.length)}, outside top-3 ${pct(hs.filter((h) => h.rank > 3).length, hs.length)}; inuit hints ${inuit.length} (to ${new Set(inuit.map((h) => h.player + h.turn)).size} player-turns), by culture ${JSON.stringify(hs.reduce<Record<string, number>>((m, h) => ((m[h.culture] = (m[h.culture] ?? 0) + 1), m), {}))}`);
+  // Late game (turns 80–110): human commands per turn and distinct command types per 10 turns.
+  const late: number[] = [];
+  const kindsPer10: number[] = [];
+  for (const r of rs) {
+    const hc = r.humanCommands ?? {};
+    for (let w = 80; w < 110; w += 10) {
+      const kinds = new Set<string>();
+      for (let t = w; t < w + 10; t++) {
+        const row = hc[t] ?? {};
+        late.push(Object.entries(row).filter(([k]) => k !== 'endTurn').reduce((a, [, v]) => a + v, 0));
+        for (const k of Object.keys(row)) if (k !== 'endTurn') kinds.add(k);
+      }
+      if (r.turns > w) kindsPer10.push(kinds.size);
+    }
+  }
+  const allKinds: Record<string, number> = {};
+  for (const r of rs) for (const [t, row] of Object.entries(r.humanCommands ?? {})) if (Number(t) >= 80) for (const [k, v] of Object.entries(row)) allKinds[k] = (allKinds[k] ?? 0) + v;
+  L.push(`8 late game t80–110: human commands/turn ${avg(late)}, distinct command types per 10 turns ${avg(kindsPer10)}; mix ${Object.entries(allKinds).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${(v / n).toFixed(1)}`).join(', ')}`);
   void content;
   return L.join('\n');
 };

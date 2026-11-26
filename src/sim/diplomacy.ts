@@ -175,6 +175,27 @@ export const openTradeRoute = (ctx: SimCtx, player: PlayerId, unitId: UnitId, to
   return null;
 };
 
+/**
+ * Close a player's newest routes beyond their capacity (a crisis response or a lost bonus can
+ * lower it), with a notice. Before fun audit pass 2 a lower capacity never closed anything,
+ * so "Quarantine arrivals" or "Hoard grain" had no cost and the plague no remedy.
+ */
+export const closeRoutesOverCapacity = (ctx: SimCtx): void => {
+  const { state, content } = ctx;
+  for (const pid of state.playerOrder) {
+    const mine = state.tradeRoutes.filter((r) => r.owner === pid);
+    const over = mine.length - Math.max(0, tradeRouteCap(state, pid, content));
+    if (over <= 0) continue;
+    const closing = new Set(mine.slice(mine.length - over).map((r) => r.id));
+    state.tradeRoutes = state.tradeRoutes.filter((r) => !closing.has(r.id));
+    ctx.events.push({
+      type: 'notice',
+      player: pid,
+      text: over === 1 ? 'A trade route closed: you no longer have the capacity to keep it.' : 'Trade routes closed: you no longer have the capacity to keep them.',
+    });
+  }
+};
+
 /** Drop routes whose ends changed hands or whose parties went to war. */
 export const pruneTradeRoutes = (state: GameState): void => {
   state.tradeRoutes = state.tradeRoutes.filter((r) => {

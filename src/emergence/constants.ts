@@ -24,6 +24,12 @@ export const AFFINITY_DECAY_DORMANT = 0.99;
 export const AFFINITY_SCALE = 0.07;
 /** Hint thresholds, in order. `hintsShown[c]` stores the highest one already fired. */
 export const HINT_THRESHOLDS = [50, 100] as const;
+/** A culture's hint fires only while it is among the player's top this-many cultures by affinity. */
+export const HINT_TOP_N = 2;
+/** At most one new culture hint per player every this many turns. */
+export const HINT_COOLDOWN_TURNS = 6;
+/** `TimedEffect.source` of the (modifier-free) hint cooldown marker. */
+export const HINT_COOLDOWN_SOURCE = 'hint-cooldown';
 /** Below this affinity an offer reason uses the "wanderer" fallback. */
 export const REASON_MIN_AFFINITY = 3;
 /**

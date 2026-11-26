@@ -4,7 +4,7 @@ import { SignalMeasure, type ContentBundle, type Signal } from '@contracts/conte
 import { loadContent } from '../src/content';
 import { addAffinity, emergenceTick, initEmergence } from '../src/emergence';
 import { updateAffinity } from '../src/emergence/affinity';
-import { AFFINITY_DECAY, AFFINITY_SCALE } from '../src/emergence/constants';
+import { AFFINITY_DECAY, AFFINITY_SCALE, HINT_COOLDOWN_TURNS, HINT_TOP_N } from '../src/emergence/constants';
 import { measurePlayer, signalContributions, signalValue } from '../src/emergence/signals';
 import { addSettlement, addUnit, at, claim, makeCtx, makeState, resetFakes, testContent, tileOf } from './helpers/emergence';
 
@@ -199,6 +199,11 @@ describe('affinity update', () => {
     emergenceTick(ctx, 'p1');
     expect(ctx.events.filter((e) => e.type === 'cultureHint')).toHaveLength(0);
 
+    // At most one hint every HINT_COOLDOWN_TURNS turns.
+    p.affinity.mongol = 102;
+    emergenceTick(ctx, 'p1');
+    expect(ctx.events.filter((e) => e.type === 'cultureHint')).toHaveLength(0);
+    state.turn += HINT_COOLDOWN_TURNS;
     p.affinity.mongol = 102;
     emergenceTick(ctx, 'p1');
     hints = ctx.events.filter((e) => e.type === 'cultureHint');
@@ -208,6 +213,48 @@ describe('affinity update', () => {
     p.affinity.mongol = 300;
     emergenceTick(ctx, 'p1');
     expect(ctx.events.filter((e) => e.type === 'cultureHint')).toHaveLength(0);
+  });
+
+  it('a hint fires only for a top-2 culture, and at most one per player per cooldown (fun audit pass 2)', () => {
+    expect(HINT_TOP_N).toBe(2);
+    const state = setup();
+    const ctx = makeCtx(state, content);
+    const p = state.players.p1!;
+    p.affinity.mongol = 300;
+    p.affinity.egyptian = 250;
+    p.affinity.greek = 60; // third: past 50 but not on the player's path
+    p.hintsShown.mongol = 100;
+    p.hintsShown.egyptian = 100;
+    emergenceTick(ctx, 'p1');
+    expect(ctx.events.filter((e) => e.type === 'cultureHint')).toHaveLength(0);
+    expect(p.hintsShown.greek ?? 0).toBe(0);
+    // Greek overtakes Egyptian: now on the path, the hint fires.
+    p.affinity.greek = 280;
+    p.affinity.egyptian = 100;
+    emergenceTick(ctx, 'p1');
+    const hints = ctx.events.filter((e) => e.type === 'cultureHint');
+    expect(hints).toHaveLength(1);
+    expect(hints[0]?.type === 'cultureHint' && hints[0].culture).toBe('greek');
+    // Two cultures crossing in the same window: only one is told; the other waits.
+    ctx.events.length = 0;
+    const state2 = setup();
+    const ctx2 = makeCtx(state2, content);
+    const p2 = state2.players.p1!;
+    p2.affinity.mongol = 60;
+    p2.affinity.egyptian = 55;
+    emergenceTick(ctx2, 'p1');
+    expect(ctx2.events.filter((e) => e.type === 'cultureHint')).toHaveLength(1);
+    for (let t = 1; t < HINT_COOLDOWN_TURNS; t++) {
+      state2.turn++;
+      p2.affinity.mongol = 60;
+      p2.affinity.egyptian = 55;
+      emergenceTick(ctx2, 'p1');
+    }
+    expect(ctx2.events.filter((e) => e.type === 'cultureHint')).toHaveLength(1);
+    state2.turn++;
+    p2.affinity.egyptian = 55;
+    emergenceTick(ctx2, 'p1');
+    expect(ctx2.events.filter((e) => e.type === 'cultureHint')).toHaveLength(2);
   });
 
   it('hint and reason texts never contain digits (real signals and cultures)', () => {

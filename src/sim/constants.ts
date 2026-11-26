@@ -67,6 +67,15 @@ export const TILE_SCORE: Record<string, number> = {
   happiness: 0,
 };
 
+/**
+ * Balanced citizens (fun audit pass 2): once a settlement's food surplus reaches
+ * BASE + PER_POP·pop (rounded up), further food on a tile counts at SATISFIED_FOOD_SHARE of its
+ * usual weight when citizens pick tiles, so food-rich starts also work production tiles.
+ */
+export const FOOD_SURPLUS_SOFT_CAP_BASE = 2;
+export const FOOD_SURPLUS_SOFT_CAP_PER_POP = 0.5;
+export const SATISFIED_FOOD_SHARE = 0.5;
+
 // --- Happiness (GDD §7) ------------------------------------------------------
 
 export const HAPPINESS_BASE = 5;
@@ -85,11 +94,17 @@ export const UNHAPPY_YIELD_PERCENT_MAX = 50;
 
 // --- Tiles (GDD §7 "Map") ----------------------------------------------------
 
-/** Feature yields, added to terrain yields. Hills/forest give production, jungle food, marsh costs food. */
+/**
+ * Feature yields, added to terrain yields. Hills, forest and jungle give production (timber,
+ * cane, forest products); marsh, and jungle's thin rainforest soils, cost food. Jungle gave
+ * +1 food until fun audit pass 2: on tropical grassland that made 3-food, 0-production tiles
+ * everywhere and tropical capitals finished last (rank 2.5 of 3); +1 production alone
+ * overshot (rank 1.46 over 13 tropical starts).
+ */
 export const FEATURE_YIELDS: Record<string, Yields> = {
   hills: { production: 1 },
   forest: { production: 1 },
-  jungle: { food: 1 },
+  jungle: { food: -1, production: 1 },
   marsh: { food: -1 },
   oasis: { food: 2, gold: 1 },
 };
@@ -138,8 +153,10 @@ export const SETTLEMENT_STRENGTH_WALL_DIVISOR = 10;
  */
 export const UNIT_GOLD_UPKEEP = 1;
 export const FREE_MILITARY_UNITS = 2;
-/** Raiders that break a settlement's walls pillage instead of capturing. */
+/** Gold raiders carry off when they pillage a settlement (src/sim/raids.ts). */
 export const RAIDER_PILLAGE_GOLD = 25;
+/** Raiders go for an undefended settlement within this distance before anything else. */
+export const RAIDER_SEEK_RANGE = 8;
 
 // --- Trees and government (GDD §7 "Trees", "Governments") --------------------
 
@@ -232,9 +249,14 @@ export const SETTLE_SITE_MAX = 30;
 
 /** Yields the difficulty level scales for non-human players. */
 export const DIFFICULTY_YIELDS: readonly YieldType[] = ['food', 'production', 'gold', 'science', 'culture'];
-/** Percent change to those yields for non-human players. 'normal' must stay 0 (today's game). */
-export const DIFFICULTY_RIVAL_YIELD_PERCENT: Record<Difficulty, number> = { easy: -20, normal: 0, hard: 25 };
+/**
+ * Percent change to those yields for non-human players. 'normal' must stay 0 (today's game).
+ * Calibrated by fun audit pass 2 with the AI playing the human seat (3 players, parity 33%):
+ * a few percent swings the win rate a lot, because scores finish close. At −20/+25 (and −15%
+ * costs) the seat won 92% on easy and 0% on hard; targets are ~70% / ~33% / ~12%.
+ */
+export const DIFFICULTY_RIVAL_YIELD_PERCENT: Record<Difficulty, number> = { easy: -5, normal: 0, hard: 6 };
 /** Percent change to unit and building costs for non-human players. */
-export const DIFFICULTY_RIVAL_COST_PERCENT: Record<Difficulty, number> = { easy: 0, normal: 0, hard: -15 };
+export const DIFFICULTY_RIVAL_COST_PERCENT: Record<Difficulty, number> = { easy: 0, normal: 0, hard: -5 };
 /** Happiness each human-owned settlement adds. */
 export const DIFFICULTY_HUMAN_SETTLEMENT_HAPPINESS: Record<Difficulty, number> = { easy: 1, normal: 0, hard: 0 };

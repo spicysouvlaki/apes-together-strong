@@ -7,7 +7,7 @@ import type { ContentBundle, Culture } from '@contracts/content-schemas';
 import type { CultureId, PlayerId } from '@contracts/sim-api';
 import type { SimCtx } from '../sim/ctx';
 import { affinityPercent, playerModifiers } from '../sim/modifiers';
-import { AFFINITY_DECAY, AFFINITY_DECAY_DORMANT, AFFINITY_SCALE, HINT_THRESHOLDS } from './constants';
+import { AFFINITY_DECAY, AFFINITY_DECAY_DORMANT, AFFINITY_SCALE, HINT_COOLDOWN_SOURCE, HINT_COOLDOWN_TURNS, HINT_THRESHOLDS, HINT_TOP_N } from './constants';
 import { topSignal, type Contributions } from './signals';
 import { getPlayer, isDormantCulture } from './util';
 
@@ -59,19 +59,35 @@ export const hintText = (culture: Culture, hint: string, threshold: number, dorm
   return strong ? `${culture.adjective} travellers seek out ${hint}.` : `${culture.adjective} peoples speak of ${hint}.`;
 };
 
+/**
+ * Hints speak only of a culture the player is genuinely drawing (fun audit pass 2: every
+ * culture crossed 50 and 100 in almost every game, so ~16 hints per player said nothing, and
+ * coastal players heard of the Inuit everywhere). A threshold fires only while the culture is
+ * among the player's HINT_TOP_N cultures by affinity, and at most one hint per player every
+ * HINT_COOLDOWN_TURNS turns (the strongest culture first; others wait their turn).
+ */
 const fireHints = (ctx: SimCtx, player: PlayerId, contributions: Contributions): void => {
   const { state, content } = ctx;
   const p = getPlayer(state, player);
-  for (const c of content.cultures) {
-    const a = p.affinity[c.id] ?? 0;
+  if (p.effects.some((e) => e.source === HINT_COOLDOWN_SOURCE && e.untilTurn >= state.turn)) return;
+  // Rank cultures by affinity, ties in content order.
+  const ranked = content.cultures
+    .map((c, i) => ({ c, a: p.affinity[c.id] ?? 0, i }))
+    .sort((x, y) => y.a - x.a || x.i - y.i)
+    .slice(0, HINT_TOP_N);
+  for (const { c, a } of ranked) {
     const shown = p.hintsShown[c.id] ?? 0;
-    for (const threshold of HINT_THRESHOLDS) {
-      if (a < threshold || shown >= threshold) continue;
-      const hint = topSignal(contributions, c.id, content)?.hint ?? FALLBACK_HINT;
-      const dormant = isDormantCulture(content, c.id, state.age);
-      ctx.events.push({ type: 'cultureHint', player, culture: c.id, text: hintText(c, hint, threshold, dormant) });
-      p.hintsShown[c.id] = threshold;
-    }
+    // The strongest threshold newly crossed: a culture past both at once hears the stronger news once.
+    const crossed = HINT_THRESHOLDS.filter((t) => a >= t && shown < t);
+    const threshold = crossed[crossed.length - 1];
+    if (threshold === undefined) continue;
+    const hint = topSignal(contributions, c.id, content)?.hint ?? FALLBACK_HINT;
+    const dormant = isDormantCulture(content, c.id, state.age);
+    ctx.events.push({ type: 'cultureHint', player, culture: c.id, text: hintText(c, hint, threshold, dormant) });
+    p.hintsShown[c.id] = threshold;
+    // Cooldown marker: an effect with no modifiers, pruned by the sim after it lapses.
+    p.effects.push({ source: HINT_COOLDOWN_SOURCE, untilTurn: state.turn + HINT_COOLDOWN_TURNS - 1, modifiers: [] });
+    return;
   }
 };
 

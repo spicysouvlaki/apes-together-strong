@@ -20,8 +20,15 @@ import { enemiesAtWar, hostilesNear, isMilitary, ownSettlements, ownUnits, warFo
 
 const unitById = (ai: AiCtx, id: string): Unit | undefined => ai.state.units[id];
 
+/** How far an empty settlement calls a garrison from (further when an enemy is within 4). */
+export const GARRISON_CALL_RANGE = 9;
+export const GARRISON_CALL_RANGE_THREATENED = 14;
+
 /** A trader's merchant treats a human city as this many tiles closer than it is. */
 export const TRADER_HUMAN_PULL = 5;
+
+/** Site score lost per step of travel when a settler picks where to go. */
+export const SETTLER_TRAVEL_COST = 1.3;
 
 /** Field cost of a water tile for an embarking settler (dearer than land: embarked units are weak). */
 export const SETTLER_WATER_COST = 2;
@@ -110,7 +117,9 @@ export const moveSettlers = (ai: AiCtx, plan: EmpirePlan): void => {
       if (ai.claimedSites.includes(site.idx)) continue;
       const d = fromHere[site.idx] ?? UNREACHABLE;
       if (d >= UNREACHABLE) continue;
-      const s = site.score - d * 0.8;
+      // Travel costs SETTLER_TRAVEL_COST per step: at 0.8 settlers kept re-targeting farther
+      // sites as exploration revealed them, ~10% wandering 8+ turns (fun audit pass 2).
+      const s = site.score - d * SETTLER_TRAVEL_COST;
       if (s > bestScore) {
         bestScore = s;
         target = site.idx;
@@ -180,6 +189,79 @@ const merchantDestination = (ai: AiCtx, u: Unit): Settlement | null => {
     }
   }
   return best;
+};
+
+/** Expeditions chart the world only while less than this percent of it is explored. */
+export const EXPEDITION_EXPLORED_BELOW = 60;
+
+const exploredPct = (ai: AiCtx): number => {
+  const e = me(ai).explored;
+  let n = 0;
+  for (const v of e) n += v;
+  return e.length ? (n * 100) / e.length : 100;
+};
+
+/** Field to the nearest unexplored land, while charting is still worth an expedition. */
+const chartField = (ai: AiCtx): Int32Array | null => {
+  if (exploredPct(ai) >= EXPEDITION_EXPLORED_BELOW) return null;
+  const explored = me(ai).explored;
+  const sources: number[] = [];
+  ai.state.map.tiles.forEach((t, i) => {
+    if (!explored[i] && landStepCost(t, ai.content) > 0) sources.push(i);
+  });
+  return sources.length ? landField(ai.state, ai.content, sources, 80) : null;
+};
+
+const routeFree = (ai: AiCtx): boolean =>
+  ai.state.tradeRoutes.filter((r) => r.owner === ai.player).length < tradeRouteCap(ai.state, ai.player, ai.content);
+
+/** What an expedition standing at `at` would do: the trade partner it heads for, 'chart', or null (nothing). */
+export const expeditionTask = (ai: AiCtx, at: Hex, chart = chartField(ai)): { dest: Settlement; field: Int32Array } | 'chart' | null => {
+  if (routeFree(ai)) {
+    const dest = merchantDestination(ai, { at } as Unit);
+    if (dest) {
+      const field = landField(ai.state, ai.content, [idxOf(ai, dest.at)], 40, ai.player);
+      if ((field[idxOf(ai, at)] ?? UNREACHABLE) < UNREACHABLE) return { dest, field };
+    }
+  }
+  return chart && (chart[idxOf(ai, at)] ?? UNREACHABLE) < UNREACHABLE ? 'chart' : null;
+};
+
+/**
+ * Expeditions (deployed explorer figures, src/ai/figures.ts fieldExplorers): open a trade route
+ * where one is free and a partner is reachable, otherwise chart unexplored land like a scout;
+ * with nothing left to do they are recalled. Deploying asks the same `expeditionTask`, so an
+ * expedition is never sent out only to be recalled the same turn.
+ */
+export const moveExpeditions = (ai: AiCtx): void => {
+  const exps = ownUnits(ai.state, ai.player).filter((u) => u.figure && ci(ai.content).units[u.type]?.figureKind === 'explorer');
+  if (exps.length === 0) return;
+  const chart = chartField(ai);
+  for (const e of exps) {
+    const figure = e.figure;
+    const open = (): boolean => {
+      if (!routeFree(ai)) return false;
+      for (const t of queries.tradeTargets(ai.state, e.id, ai.content)) if (exec(ai, { type: 'openTradeRoute', unit: e.id, to: t })) return true;
+      return false;
+    };
+    open();
+    const cur = unitById(ai, e.id);
+    if (!cur) continue;
+    if (hostilesNear(ai.state, ai.player, cur.at, 2).length > 0) {
+      moveAlong(ai, e.id, ownSettlementField(ai));
+      continue;
+    }
+    const task = expeditionTask(ai, cur.at, chart);
+    if (task && task !== 'chart') {
+      moveAlong(ai, e.id, task.field, 1);
+      open();
+      continue;
+    }
+    if (task === 'chart' && chart && moveAlong(ai, e.id, chart)) continue;
+    // Nothing to trade or chart: back to the court (recall works from next to a settlement).
+    if (figure && queries.figureActions(ai.state, figure, ai.content).canRecall) exec(ai, { type: 'recallFigure', figure });
+    else moveAlong(ai, e.id, ownSettlementField(ai));
+  }
 };
 
 export const moveMerchants = (ai: AiCtx): void => {
@@ -309,10 +391,17 @@ export const moveMilitary = (ai: AiCtx, plan?: EmpirePlan): void => {
       fortifyIfIdle(ai, g);
     }
   }
-  for (const s of settlements) {
+  // Threatened settlements call first and from further away (fun audit pass 2: towns stood
+  // empty next to raiders while spare units sat fortified elsewhere).
+  const threatenedFirst = [...settlements].sort((a, b) => {
+    const ta = hostilesNear(ai.state, player, a.at, 4).length > 0 ? 0 : 1;
+    const tb = hostilesNear(ai.state, player, b.at, 4).length > 0 ? 0 : 1;
+    return ta - tb || (a.id < b.id ? -1 : 1);
+  });
+  for (const s of threatenedFirst) {
     if (mine().some((u) => u.at.q === s.at.q && u.at.r === s.at.r && u.unitClass !== 'commander')) continue;
     let pick: Unit | null = null;
-    let bestD = 9;
+    let bestD = hostilesNear(ai.state, player, s.at, 4).length > 0 ? GARRISON_CALL_RANGE_THREATENED : GARRISON_CALL_RANGE;
     for (const u of mine()) {
       if (busy.has(u.id) || u.unitClass === 'commander' || u.movesLeft <= 0) continue;
       const d = hexDistance(u.at, s.at);
@@ -401,4 +490,27 @@ export const moveMilitary = (ai: AiCtx, plan?: EmpirePlan): void => {
     }
     fortifyIfIdle(ai, u);
   }
+  disbandSurplus(ai, plan, busy);
+};
+
+/** Peacetime units beyond the army target plus this many are disbanded (one per turn). */
+export const SURPLUS_ARMY_MARGIN = 2;
+
+/**
+ * Idle armies cost upkeep for nothing (fun audit pass 2: ~1,500 unit-turns per 4 games of
+ * units fortified in the fields at peace). With no war, no war being prepared and no crisis,
+ * the weakest spare unit outside a settlement is sent home for good.
+ */
+const disbandSurplus = (ai: AiCtx, plan: EmpirePlan | undefined, busy: Set<string>): void => {
+  if (!plan || plan.atWar || plan.preparing || plan.threatened || ai.state.crisis) return;
+  const army = ownUnits(ai.state, ai.player).filter((u) => isMilitary(u) && !u.figure && u.unitClass !== 'naval');
+  if (army.length <= plan.armyTarget + SURPLUS_ARMY_MARGIN) return;
+  const spare = army
+    .filter((u) => !busy.has(u.id) && !onOwnSettlement(ai, u))
+    .sort((a, b) => {
+      const sa = ci(ai.content).units[a.type]?.strength ?? 0;
+      const sb = ci(ai.content).units[b.type]?.strength ?? 0;
+      return sa - sb || (a.id < b.id ? -1 : 1);
+    })[0];
+  if (spare) exec(ai, { type: 'disbandUnit', unit: spare.id });
 };

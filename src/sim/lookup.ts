@@ -131,6 +131,16 @@ export const unitPositions = (state: GameState): Map<string, Unit[]> => {
 
 export const isCivilian = (u: { unitClass: string }): boolean => u.unitClass === 'civilian';
 
+/**
+ * Stacking layer (GDD §7 "Commanders pack units"): a tile holds one military unit, one
+ * commander (a deployed general) and one civilian of the same owner. Commanders had shared
+ * the military layer, so a general deployed in a garrisoned city landed beside it and could
+ * not be recalled until it walked back in (fun audit pass 2).
+ */
+export type StackLayer = 'military' | 'commander' | 'civilian';
+export const stackLayer = (u: { unitClass: string }): StackLayer =>
+  u.unitClass === 'civilian' ? 'civilian' : u.unitClass === 'commander' ? 'commander' : 'military';
+
 export const settlementAt = (state: GameState, h: Hex): Settlement | undefined => {
   const t = tileAt(state.map, h);
   if (!t || !t.settlement) return undefined;

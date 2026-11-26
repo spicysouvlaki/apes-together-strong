@@ -10,7 +10,7 @@ import {
   type Figure,
   type UnitDef,
 } from '@contracts/content-schemas';
-import { hexesInRange } from '@contracts/hex';
+import { hexDistance, hexesInRange } from '@contracts/hex';
 import type { Command, FigureId, FigureState, GameState, PlayerId, Settlement, SettlementId } from '@contracts/sim-api';
 import type { SimCtx } from '../sim/ctx';
 import { addAgeProgress } from '../sim/ages';
@@ -133,17 +133,28 @@ export const deployError = (
   return null;
 };
 
+/**
+ * Where a recalled figure-unit goes: the own settlement it stands in, else an adjacent own
+ * settlement (cities before towns, then lowest id). Fun audit pass 2: a general deployed
+ * beside a garrisoned city could not be recalled until it walked back in.
+ */
 const recallTarget = (state: GameState, player: PlayerId, fs: FigureState): Settlement | null => {
   if (fs.location.state !== 'unit') return null;
   const u = state.units[fs.location.unit];
-  return u ? ownSettlementAt(state, player, u.at) : null;
+  if (!u) return null;
+  const here = ownSettlementAt(state, player, u.at);
+  if (here) return here;
+  const near = ownSettlements(state, player)
+    .filter((s) => hexDistance(s.at, u.at) === 1)
+    .sort((a, b) => (a.kind === b.kind ? (a.id < b.id ? -1 : 1) : a.kind === 'city' ? -1 : 1));
+  return near[0] ?? null;
 };
 
 export const recallError = (state: GameState, player: PlayerId, id: FigureId, content: ContentBundle): string | null => {
   const o = ownedFigure(state, player, id, content);
   if (typeof o === 'string') return o;
   if (o.fs.location.state !== 'unit') return `${o.def.name} is not in the field.`;
-  if (!recallTarget(state, player, o.fs)) return `Move ${o.def.name} into one of your settlements first.`;
+  if (!recallTarget(state, player, o.fs)) return `Move ${o.def.name} into or next to one of your settlements first.`;
   return null;
 };
 

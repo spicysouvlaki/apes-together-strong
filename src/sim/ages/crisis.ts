@@ -8,12 +8,14 @@ import { axialToOffset, hexDistance, hexesInRange, hexEquals, type Hex } from '@
 import { RAIDER_PLAYER, type GameState, type PlayerId } from '@contracts/sim-api';
 import type { SimCtx } from '../ctx';
 import { pick } from '../rng';
+import { isUndefended } from '../raids';
 import { spawnUnit } from '../units';
 import {
   CRISIS_START,
   POP_LOSS_INTERVAL,
   POP_LOSS_INTERVAL_WITH_TRADE,
   POP_LOSS_MIN_POP,
+  RAIDER_BAND_SIZE,
   RAIDER_CAP_PER_PLAYER,
   RAIDER_MAX_DISTANCE,
   RAIDER_MIN_DISTANCE,
@@ -101,28 +103,41 @@ export const raiderSpawnTiles = (ctx: SimCtx, center: Hex): Hex[] => {
   return out;
 };
 
-/** Collapse: every few turns, one raider near a random settlement of each living player, up to a cap. */
+/**
+ * Collapse: every few turns a band of raiders gathers near one settlement of each living
+ * player, up to a cap. They gather near an undefended settlement when the player has one
+ * (src/sim/raids.ts), so an unguarded town is what invites them.
+ */
 const spawnRaiders = (ctx: SimCtx): void => {
   const { state } = ctx;
   if (state.turn % RAIDER_SPAWN_INTERVAL !== 0) return;
   const type = raiderUnitType(ctx);
   if (!type) return;
-  const living = livingPlayers(state);
-  const cap = RAIDER_CAP_PER_PLAYER * living.length;
+  const all = livingPlayers(state);
+  const cap = RAIDER_CAP_PER_PLAYER * all.length;
+  // Rotate who is served first, so when the cap is reached it is not always the last seats
+  // that are spared (fun audit pass 2: a hidden turn-order asymmetry).
+  const shift = all.length > 0 ? Math.floor(state.turn / RAIDER_SPAWN_INTERVAL) % all.length : 0;
+  const living = [...all.slice(shift), ...all.slice(0, shift)];
   for (const p of living) {
-    const raiders = Object.values(state.units).filter((u) => u.owner === RAIDER_PLAYER).length;
-    if (raiders >= cap) return;
     const owned = Object.keys(state.settlements)
       .sort()
       .filter((id) => state.settlements[id]?.owner === p.id);
     if (owned.length === 0) continue;
-    const settlement = state.settlements[pick(state, owned)];
+    const open = owned.filter((id) => {
+      const s = state.settlements[id];
+      return !!s && isUndefended(state, s);
+    });
+    const settlement = state.settlements[pick(state, open.length > 0 ? open : owned)];
     if (!settlement) continue;
-    const tiles = raiderSpawnTiles(ctx, settlement.at);
-    if (tiles.length === 0) continue;
-    if (spawnUnit(ctx, RAIDER_PLAYER, type.id, pick(state, tiles))) {
-      ctx.events.push({ type: 'notice', player: p.id, text: `Raiders gather near ${settlement.name}.` });
+    let spawned = 0;
+    for (let k = 0; k < RAIDER_BAND_SIZE; k++) {
+      if (Object.values(state.units).filter((u) => u.owner === RAIDER_PLAYER).length >= cap) break;
+      const tiles = raiderSpawnTiles(ctx, settlement.at);
+      if (tiles.length === 0) break;
+      if (spawnUnit(ctx, RAIDER_PLAYER, type.id, pick(state, tiles))) spawned++;
     }
+    if (spawned > 0) ctx.events.push({ type: 'notice', player: p.id, text: `Raiders gather near ${settlement.name}.` });
   }
 };
 
@@ -131,7 +146,12 @@ const spawnRaiders = (ctx: SimCtx): void => {
 const tradesWith = (state: GameState, player: PlayerId): boolean =>
   state.tradeRoutes.some((r) => r.owner === player || state.settlements[r.to]?.owner === player);
 
-/** Plague: −1 pop in each settlement above the floor every 10 turns (every 5 for trading players). */
+/**
+ * Plague: −1 pop in each settlement above the floor every POP_LOSS_INTERVAL turns, faster for
+ * players with any trade route in or out ("spreads by trade"). Closing routes — the quarantine
+ * response lowers route capacity, and routes over capacity close (src/sim/diplomacy.ts) —
+ * slows it back down, at the price of the routes' gold.
+ */
 const popLoss = (ctx: SimCtx): void => {
   const { state } = ctx;
   for (const p of livingPlayers(state)) {

@@ -46,16 +46,21 @@ export const METER_PRECISION = 100;
 /** The crisis of the ending age starts at this meter value (stages then fire at their `at`). */
 export const CRISIS_START = 70;
 
-/** Collapse: one raider per living player every N turns, while total raiders stay under the cap. */
+/**
+ * Collapse: a band of raiders per living player every N turns, while total raiders stay under
+ * the cap. Bands of 2 and a cap of 4 since fun audit pass 2 (single raiders died against the
+ * first spear they met; nothing was ever pillaged).
+ */
 export const RAIDER_SPAWN_INTERVAL = 2;
-export const RAIDER_CAP_PER_PLAYER = 3;
+export const RAIDER_BAND_SIZE = 2;
+export const RAIDER_CAP_PER_PLAYER = 4;
 /** Raiders appear on unowned land this many tiles from a settlement. */
 export const RAIDER_MIN_DISTANCE = 3;
 export const RAIDER_MAX_DISTANCE = 5;
 
 /** Plague: −1 pop every N turns in settlements above the floor; faster for trading players ("spreads by trade"). */
-export const POP_LOSS_INTERVAL = 10;
-export const POP_LOSS_INTERVAL_WITH_TRADE = 5;
+export const POP_LOSS_INTERVAL = 8;
+export const POP_LOSS_INTERVAL_WITH_TRADE = 4;
 /** Only settlements with population above this lose people. */
 export const POP_LOSS_MIN_POP = 2;
 

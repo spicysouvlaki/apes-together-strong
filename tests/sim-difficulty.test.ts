@@ -43,16 +43,18 @@ describe('difficulty', () => {
     expect(DIFFICULTY_HUMAN_SETTLEMENT_HAPPINESS.normal).toBe(0);
   });
 
-  it("'easy': rivals −20% food, production, gold, science, culture; human settlements +1 happiness", () => {
+  it("'easy': rivals lose a share of food, production, gold, science, culture; human settlements +1 happiness", () => {
+    const k = 1 + DIFFICULTY_RIVAL_YIELD_PERCENT.easy / 100;
+    expect(k).toBeLessThan(1);
     const normal = world('normal');
     const easy = world('easy');
     const rN = settlementYields(normal, cityOf(normal, 'p2'), content);
     const rE = settlementYields(easy, cityOf(easy, 'p2'), content);
-    expect(rE.food).toBeCloseTo(rN.food * 0.8, 1);
-    expect(rE.production).toBeCloseTo(rN.production * 0.8, 1);
+    expect(rE.food).toBeCloseTo(rN.food * k, 1);
+    expect(rE.production).toBeCloseTo(rN.production * k, 1);
     const iN = computeEmpire(normal, 'p2', content).income;
     const iE = computeEmpire(easy, 'p2', content).income;
-    for (const y of ['science', 'culture'] as const) expect(iE[y]).toBeCloseTo(iN[y] * 0.8, 1);
+    for (const y of ['science', 'culture'] as const) expect(iE[y]).toBeCloseTo(iN[y] * k, 1);
     // The human is untouched except for the happiness help.
     const hN = settlementYields(normal, cityOf(normal, 'p1'), content);
     const hE = settlementYields(easy, cityOf(easy, 'p1'), content);
@@ -61,19 +63,23 @@ describe('difficulty', () => {
     expect(settlementYields(easy, cityOf(easy, 'p2'), content).happiness).toBe(rN.happiness);
   });
 
-  it("'hard': rivals +25% to those yields and −15% unit and building costs; the human pays full price", () => {
+  it("'hard': rivals gain a share of those yields and pay less for units and buildings; the human pays full price", () => {
+    const k = 1 + DIFFICULTY_RIVAL_YIELD_PERCENT.hard / 100;
+    const c = 1 + DIFFICULTY_RIVAL_COST_PERCENT.hard / 100;
+    expect(k).toBeGreaterThan(1);
+    expect(c).toBeLessThan(1);
     const normal = world('normal');
     const hard = world('hard');
     const iN = computeEmpire(normal, 'p2', content).income;
     const iH = computeEmpire(hard, 'p2', content).income;
-    for (const y of ['science', 'culture'] as const) expect(iH[y]).toBeCloseTo(iN[y] * 1.25, 1);
-    // Gold compounds: idle production (itself +25%) is banked as gold, then gold gets +25%.
-    expect(iH.gold).toBeGreaterThanOrEqual(iN.gold * 1.25 - 0.01);
+    for (const y of ['science', 'culture'] as const) expect(iH[y]).toBeCloseTo(iN[y] * k, 1);
+    // Gold compounds: idle production (itself boosted) is banked as gold, then gold is boosted.
+    expect(iH.gold).toBeGreaterThanOrEqual(iN.gold * k - 0.01);
     const rN = settlementYields(normal, cityOf(normal, 'p2'), content);
     const rH = settlementYields(hard, cityOf(hard, 'p2'), content);
-    expect(rH.production).toBeCloseTo(rN.production * 1.25, 1);
-    expect(itemCost(hard, cityOf(hard, 'p2'), 'warrior', content)).toBe(Math.round(30 * 0.85));
-    expect(itemCost(hard, cityOf(hard, 'p2'), 'walls', content)).toBe(Math.round(50 * 0.85));
+    expect(rH.production).toBeCloseTo(rN.production * k, 1);
+    expect(itemCost(hard, cityOf(hard, 'p2'), 'warrior', content)).toBe(Math.round(30 * c));
+    expect(itemCost(hard, cityOf(hard, 'p2'), 'walls', content)).toBe(Math.round(50 * c));
     expect(itemCost(hard, cityOf(hard, 'p2'), 'pyramid', content)).toBe(100);
     expect(itemCost(hard, cityOf(hard, 'p1'), 'warrior', content)).toBe(30);
     expect(computeEmpire(hard, 'p1', content).income).toEqual(computeEmpire(normal, 'p1', content).income);

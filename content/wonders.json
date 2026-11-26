@@ -1,12 +1,12 @@
 [
-  { "id": "step_pyramid", "name": "Step Pyramid", "age": "ancient", "cost": 135, "culture": "egyptian", "affinity": 25,
+  { "id": "step_pyramid", "name": "Step Pyramid", "age": "ancient", "cost": 120, "culture": "egyptian", "affinity": 25,
     "yields": { "culture": 2, "faith": 1 }, "gp": { "building": 2 }, "requiresTech": "masonry",
     "description": "+2 culture, +1 faith; +2 building great-people points per turn.",
     "history": {
       "note": "Built at Saqqara for King Djoser around 2650 BCE, traditionally credited to his official Imhotep; Egypt's first monumental stone building.",
       "source": "Encyclopaedia Britannica, 'Step Pyramid of Djoser'"
     } },
-  { "id": "great_pyramid", "name": "Great Pyramid of Giza", "age": "ancient", "cost": 180, "culture": "egyptian", "affinity": 30,
+  { "id": "great_pyramid", "name": "Great Pyramid of Giza", "age": "ancient", "cost": 160, "culture": "egyptian", "affinity": 30,
     "yields": { "culture": 2 }, "gp": { "building": 3 }, "requiresTech": "mathematics",
     "modifiers": [{ "scope": "empire", "effect": { "kind": "cost", "target": "wonder", "percent": -10 } }],
     "description": "+2 culture; +3 building great-people points per turn; other wonders cost 10% less.",
@@ -14,7 +14,7 @@
       "note": "Built for King Khufu at Giza around 2560 BCE from some 2.3 million blocks. The excavated workers' town shows it was raised by organized crews and rotating labor levies who were fed and housed, not by enslaved masses.",
       "source": "M. Lehner and Z. Hawass, Giza and the Pyramids (2017); Encyclopaedia Britannica, 'Pyramids of Giza'"
     } },
-  { "id": "oracle_of_delphi", "name": "Oracle of Delphi", "age": "ancient", "cost": 145, "culture": "greek", "affinity": 25,
+  { "id": "oracle_of_delphi", "name": "Oracle of Delphi", "age": "ancient", "cost": 125, "culture": "greek", "affinity": 25,
     "yields": { "faith": 2, "influence": 2 }, "gp": { "faith": 2 }, "requiresTech": "mysticism",
     "modifiers": [{ "scope": "empire", "effect": { "kind": "gpPoints", "gp": "faith", "percent": 15 } }],
     "description": "+2 faith, +2 influence; +2 faith great-people points per turn; faith great-people points +15%.",
@@ -22,7 +22,7 @@
       "note": "From about the 8th century BCE the Pythia, priestess of Apollo at Delphi, gave oracles that Greek cities sought before founding colonies or going to war. Grateful cities filled the sanctuary with treasuries and offerings.",
       "source": "Encyclopaedia Britannica, 'Delphi'; UNESCO, 'Archaeological Site of Delphi'"
     } },
-  { "id": "lion_gate", "name": "Lion Gate of Mycenae", "age": "ancient", "cost": 135, "culture": "greek", "affinity": 20,
+  { "id": "lion_gate", "name": "Lion Gate of Mycenae", "age": "ancient", "cost": 120, "culture": "greek", "affinity": 20,
     "yields": { "production": 1, "culture": 1 }, "gp": { "military": 2 }, "requiresTech": "bronze_working",
     "modifiers": [{ "scope": "unit", "effect": { "kind": "combat", "add": 3, "vs": "siege" } }],
     "description": "+1 production, +1 culture; +2 military great-people points per turn; all units +3 combat strength against siege units.",
@@ -30,7 +30,7 @@
       "note": "Main entrance of Mycenae, built around 1250 BCE in walls so massive that later Greeks said Cyclopes raised them. Its two carved lions are among the oldest monumental sculptures in Europe.",
       "source": "Encyclopaedia Britannica, 'Lion Gate'; UNESCO, 'Archaeological Sites of Mycenae and Tiryns'"
     } },
-  { "id": "houmuwu_ding", "name": "Houmuwu Ding", "age": "ancient", "cost": 145, "culture": "chinese", "affinity": 25,
+  { "id": "houmuwu_ding", "name": "Houmuwu Ding", "age": "ancient", "cost": 125, "culture": "chinese", "affinity": 25,
     "yields": { "production": 2, "culture": 2 }, "gp": { "building": 2 }, "requiresTech": "bronze_working",
     "modifiers": [{ "scope": "tile", "when": { "resource": ["copper"] }, "effect": { "kind": "yield", "yield": "production", "add": 1 } }],
     "description": "+2 production, +2 culture; +2 building great-people points per turn; +1 production on Copper tiles.",
@@ -38,7 +38,7 @@
       "note": "A bronze ritual cauldron cast at Anyang in the late Shang dynasty (c. 13th–11th century BCE) for a royal mother; its name is also read Simuwu. At about 833 kg it is the heaviest bronze vessel known from ancient China.",
       "source": "National Museum of China, 'Houmuwu Ding'; Encyclopaedia Britannica, 'Anyang'"
     } },
-  { "id": "marib_dam", "name": "Marib Dam", "age": "ancient", "cost": 150, "culture": "arab", "affinity": 25,
+  { "id": "marib_dam", "name": "Marib Dam", "age": "ancient", "cost": 130, "culture": "arab", "affinity": 25,
     "yields": { "food": 2 }, "gp": { "building": 1 }, "requiresTech": "irrigation",
     "modifiers": [{ "scope": "tile", "when": { "terrain": ["desert"] }, "effect": { "kind": "yield", "yield": "food", "add": 1 } }],
     "description": "+2 food; +1 building great-people point per turn; +1 food on desert tiles.",
@@ -46,7 +46,7 @@
       "note": "The Sabaeans of South Arabia dammed Wadi Dhana at Marib from at least the 8th century BCE, turning floodwater into oasis fields that fed their kingdom. Its final breach, around 570 CE, is remembered in Arabic tradition.",
       "source": "Encyclopaedia Britannica, 'Maʾrib'; UNESCO, 'Landmarks of the Ancient Kingdom of Saba, Marib'"
     } },
-  { "id": "tanum_rock_carvings", "name": "Tanum Rock Carvings", "age": "ancient", "cost": 120, "culture": "norse", "affinity": 20,
+  { "id": "tanum_rock_carvings", "name": "Tanum Rock Carvings", "age": "ancient", "cost": 105, "culture": "norse", "affinity": 20,
     "yields": { "culture": 2, "faith": 1 }, "gp": { "exploration": 2 }, "requiresTech": "sailing",
     "modifiers": [{ "scope": "empire", "effect": { "kind": "gpPoints", "gp": "exploration", "percent": 15 } }],
     "description": "+2 culture, +1 faith; +2 exploration great-people points per turn; exploration great-people points +15%.",
@@ -54,7 +54,7 @@
       "note": "Hundreds of carved rock panels at Tanum in Bohuslän, Sweden, made by Nordic Bronze Age communities roughly 1700–500 BCE, show ships, ploughing, hunting and ritual, long before the Viking Age.",
       "source": "UNESCO, 'Rock Carvings in Tanum'"
     } },
-  { "id": "dolmen_of_menga", "name": "Dolmen of Menga", "age": "ancient", "cost": 120, "culture": "spanish", "affinity": 20,
+  { "id": "dolmen_of_menga", "name": "Dolmen of Menga", "age": "ancient", "cost": 105, "culture": "spanish", "affinity": 20,
     "yields": { "faith": 2, "culture": 1 }, "gp": { "faith": 2 }, "requiresTech": "ancestor_worship",
     "description": "+2 faith, +1 culture; +2 faith great-people points per turn.",
     "history": {
@@ -62,7 +62,7 @@
       "source": "UNESCO, 'Antequera Dolmens Site' (2016)"
     } },
 
-  { "id": "parthenon", "name": "Parthenon", "age": "classical", "cost": 380, "culture": "greek", "affinity": 30,
+  { "id": "parthenon", "name": "Parthenon", "age": "classical", "cost": 330, "culture": "greek", "affinity": 30,
     "yields": { "culture": 4 }, "gp": { "building": 2 }, "requiresTech": "philosophy",
     "modifiers": [{ "scope": "empire", "effect": { "kind": "yield", "yield": "culture", "percent": 10 } }],
     "description": "+4 culture; +2 building great-people points per turn; +10% culture.",
@@ -70,7 +70,7 @@
       "note": "Temple of Athena on the Athenian Acropolis, built 447–432 BCE under Pericles, designed by Iktinos and Kallikrates with sculpture overseen by Pheidias. It was partly paid for with tribute from Athens' Delian League allies.",
       "source": "Encyclopaedia Britannica, 'Parthenon'"
     } },
-  { "id": "great_wall", "name": "Great Wall", "age": "classical", "cost": 420, "culture": "chinese", "affinity": 30,
+  { "id": "great_wall", "name": "Great Wall", "age": "classical", "cost": 360, "culture": "chinese", "affinity": 30,
     "yields": { "culture": 1 }, "gp": { "military": 2 }, "requiresTech": "engineering",
     "modifiers": [{ "scope": "unit", "effect": { "kind": "combat", "add": 3, "vs": "cavalry" } }],
     "description": "+1 culture; +2 military great-people points per turn; all units +3 combat strength against cavalry.",
@@ -78,7 +78,7 @@
       "note": "After 221 BCE the Qin emperor linked earlier state walls into a northern frontier wall; later dynasties rebuilt it, most visibly the Ming. Conscripts, soldiers and convicts did the work, and many died doing it.",
       "source": "Encyclopaedia Britannica, 'Great Wall of China'; UNESCO, 'The Great Wall'"
     } },
-  { "id": "house_of_wisdom", "name": "House of Wisdom", "age": "classical", "cost": 400, "culture": "arab", "affinity": 30,
+  { "id": "house_of_wisdom", "name": "House of Wisdom", "age": "classical", "cost": 350, "culture": "arab", "affinity": 30,
     "yields": { "science": 4 }, "gp": { "thought": 3 }, "requiresTech": "paper",
     "modifiers": [{ "scope": "empire", "effect": { "kind": "yield", "yield": "science", "percent": 10 } }],
     "description": "+4 science; +3 thought great-people points per turn; +10% science.",
@@ -86,7 +86,7 @@
       "note": "The Bayt al-Hikma of Abbasid Baghdad, prominent under al-Maʾmūn (r. 813–833), was a palace library tied to the movement translating Greek, Persian and Syriac works into Arabic. Historians debate how large an institution it was.",
       "source": "Encyclopaedia Britannica, 'House of Wisdom'; D. Gutas, Greek Thought, Arabic Culture (1998)"
     } },
-  { "id": "jelling_stones", "name": "Jelling Stones", "age": "classical", "cost": 320, "culture": "norse", "affinity": 25,
+  { "id": "jelling_stones", "name": "Jelling Stones", "age": "classical", "cost": 280, "culture": "norse", "affinity": 25,
     "yields": { "culture": 2, "influence": 2 }, "gp": { "statesman": 2 }, "requiresTech": "recorded_history",
     "modifiers": [{ "scope": "empire", "effect": { "kind": "settlementCap", "add": 1 } }],
     "description": "+2 culture, +2 influence; +2 statesman great-people points per turn; +1 settlement cap.",
@@ -94,7 +94,7 @@
       "note": "Two runestones at Jelling, Denmark. Gorm the Old raised the smaller for his wife Thyra; around 965 their son Harald Bluetooth raised the larger, claiming he had won all Denmark and Norway for himself.",
       "source": "UNESCO, 'Jelling Mounds, Runic Stones and Church'"
     } },
-  { "id": "aqueduct_of_segovia", "name": "Aqueduct of Segovia", "age": "classical", "cost": 340, "culture": "spanish", "affinity": 25,
+  { "id": "aqueduct_of_segovia", "name": "Aqueduct of Segovia", "age": "classical", "cost": 295, "culture": "spanish", "affinity": 25,
     "yields": { "food": 3 }, "gp": { "building": 2 }, "requiresTech": "engineering",
     "modifiers": [{ "scope": "settlement", "effect": { "kind": "yield", "yield": "food", "percent": 5 } }],
     "description": "+3 food; +2 building great-people points per turn; +5% food in every settlement.",
@@ -102,7 +102,7 @@
       "note": "Built by Romans in Hispania around the late 1st or early 2nd century CE. Its granite arches, laid without mortar, rise about 28 m and carried water into Segovia until the 20th century.",
       "source": "UNESCO, 'Old Town of Segovia and its Aqueduct'; Encyclopaedia Britannica, 'Segovia'"
     } },
-  { "id": "silver_tree_of_karakorum", "name": "Silver Tree of Karakorum", "age": "classical", "cost": 340, "culture": "mongol", "affinity": 25,
+  { "id": "silver_tree_of_karakorum", "name": "Silver Tree of Karakorum", "age": "classical", "cost": 295, "culture": "mongol", "affinity": 25,
     "yields": { "gold": 3, "influence": 2 }, "gp": { "statesman": 2 }, "requiresTech": "currency",
     "modifiers": [{ "scope": "empire", "effect": { "kind": "affinityGain", "percent": 10 } }],
     "description": "+3 gold, +2 influence; +2 statesman great-people points per turn; +10% affinity gain with every culture.",
@@ -110,7 +110,7 @@
       "note": "At Möngke Khan's court in Karakorum, Guillaume Boucher, a Parisian goldsmith taken captive in Hungary, built a silver tree whose pipes poured wine, mare's milk, mead and rice wine. William of Rubruck saw it in 1254.",
       "source": "William of Rubruck, The Mission of Friar William of Rubruck, trans. P. Jackson (1990); Encyclopaedia Britannica, 'Karakorum'"
     } },
-  { "id": "shangdu", "name": "Shangdu (Xanadu)", "age": "classical", "cost": 360, "culture": "mongol", "affinity": 25,
+  { "id": "shangdu", "name": "Shangdu (Xanadu)", "age": "classical", "cost": 310, "culture": "mongol", "affinity": 25,
     "yields": { "culture": 2, "food": 1 }, "gp": { "building": 1 }, "requiresTech": "stirrup",
     "modifiers": [{ "scope": "tile", "when": { "terrain": ["steppe"] }, "effect": { "kind": "yield", "yield": "production", "add": 1 } }],
     "description": "+2 culture, +1 food; +1 building great-people point per turn; +1 production on steppe tiles.",
@@ -118,7 +118,7 @@
       "note": "Kublai Khan's summer capital on the Inner Mongolian steppe, laid out from 1256 by his adviser Liu Bingzhong, joining Chinese city planning with Mongol camp life. Marco Polo described it; Ming troops sacked it in 1369.",
       "source": "UNESCO, 'Site of Xanadu' (2012)"
     } },
-  { "id": "inuksuk_point", "name": "Inuksuit of Inuksuk Point", "age": "classical", "cost": 300, "culture": "inuit", "affinity": 30,
+  { "id": "inuksuk_point", "name": "Inuksuit of Inuksuk Point", "age": "classical", "cost": 260, "culture": "inuit", "affinity": 30,
     "yields": { "culture": 2 }, "gp": { "exploration": 2 }, "requiresTech": "compass",
     "requires": { "climate": ["polar", "boreal"] },
     "modifiers": [

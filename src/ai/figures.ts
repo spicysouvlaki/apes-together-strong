@@ -12,6 +12,7 @@ import { queries } from '../sim/queries';
 import { exec, me, type AiCtx } from './ctx';
 import { figureOf } from './decisions';
 import { modifiersScore } from './persona';
+import { expeditionTask } from './units';
 import { enemiesAtWar, ownSettlements } from './world';
 
 /**
@@ -60,6 +61,39 @@ export const seatFigures = (ai: AiCtx): void => {
       }
     }
     if (best) exec(ai, { type: 'seatFigure', figure: best, slot: seat.key });
+  }
+};
+
+/** Is a cabinet seat free right now that would take a figure of this kind? */
+const freeSeatFor = (ai: AiCtx, def: Figure): boolean => {
+  if (!def.uses.includes('cabinet') || me(ai).anarchyTurns > 0) return false;
+  return queries.cabinetSeats(ai.state, ai.player, ai.content).some((seat) => {
+    if (seat.figure || seat.availableTurn > ai.state.turn) return false;
+    return ai.content.cabinetSlots.find((x) => x.id === seat.slot)?.accepts.includes(def.kind) === true;
+  });
+};
+
+/** Expeditions in the field at once (explorer figures deployed as units). */
+export const MAX_EXPEDITIONS = 2;
+
+/**
+ * Explorer figures with no free seat take the field as expeditions (src/ai/units.ts
+ * moveExpeditions: open trade routes, chart unknown land). Fun audit pass 2: explorers were
+ * the most common figures left idle in a city for 10+ turns.
+ */
+export const fieldExplorers = (ai: AiCtx): void => {
+  const figures = ownFigures(ai);
+  let out = figures.filter((f) => f.location.state === 'unit' && figureOf(ai.content, f.id)?.kind === 'explorer').length;
+  const cap = ownSettlements(ai.state, ai.player).find((s) => s.isCapital && s.kind === 'city') ?? ownSettlements(ai.state, ai.player).find((s) => s.kind === 'city');
+  if (!cap) return;
+  // Only when there is work for them (else they would be recalled at once, every turn).
+  if (!expeditionTask(ai, cap.at)) return;
+  for (const f of figures) {
+    if (out >= MAX_EXPEDITIONS) return;
+    if (f.location.state !== 'based') continue;
+    const def = figureOf(ai.content, f.id);
+    if (!def || def.kind !== 'explorer' || !def.uses.includes('unit') || freeSeatFor(ai, def)) continue;
+    if (exec(ai, { type: 'deployFigure', figure: f.id, settlement: cap.id })) out++;
   }
 };
 
@@ -134,7 +168,9 @@ const activationUseful = (ai: AiCtx, def: Figure, focus: LegacyTrack, threatened
       return exploredPercent(ai) < 60 || ai.state.ageProgress >= 85;
     default:
       // Bursts are good any time; the classical culture track counts activations ("great works").
-      return focus === 'culture' || !def.uses.includes('cabinet') || ai.state.ageProgress >= 60;
+      // A figure who could sit in the cabinet but has no free seat waiting acts now rather than
+      // idling in a city (fun audit pass 2).
+      return focus === 'culture' || !def.uses.includes('cabinet') || ai.state.ageProgress >= 60 || !freeSeatFor(ai, def);
   }
 };
 

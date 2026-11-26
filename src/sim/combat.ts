@@ -33,7 +33,6 @@ import {
   FORTIFY_BONUS,
   GARRISON_BONUS,
   HP_PER_STRENGTH_LOST,
-  RAIDER_PILLAGE_GOLD,
   RIVER_CROSSING_PENALTY,
   SETTLEMENT_STRENGTH_BY_AGE,
   SETTLEMENT_STRENGTH_PER_POP,
@@ -43,8 +42,9 @@ import {
   WORK_RADIUS,
 } from './constants';
 import type { SimCtx } from './ctx';
-import { ci, isCivilian, isWater, playerSettlements, tileAt, tilesInRange, unitsAt } from './lookup';
+import { ci, isCivilian, isWater, playerSettlements, stackLayer, tileAt, tilesInRange, unitsAt } from './lookup';
 import { combatBonus } from './modifiers';
+import { pillage } from './raids';
 import { nextRange } from './rng';
 import { auraModifiers, removeUnit, terrainAllows, unitEnv, unitModifiers } from './units';
 
@@ -319,7 +319,9 @@ export const planAttack = (state: GameState, u: Unit, target: Hex, content: Cont
   if (dist < 1) return 'A unit cannot attack its own tile.';
   if (canRanged ? dist > (def.range ?? 0) : dist !== 1) return 'That target is out of range.';
   const there = unitsAt(state, target);
-  const defender = there.find((o) => o.owner !== u.owner && !isCivilian(o)) ?? null;
+  // A military unit shields a commander sharing its tile; a lone commander defends itself.
+  const defender =
+    there.find((o) => o.owner !== u.owner && stackLayer(o) === 'military') ?? there.find((o) => o.owner !== u.owner && !isCivilian(o)) ?? null;
   const civilians = there.filter((o) => o.owner !== u.owner && isCivilian(o));
   const sRaw = tile.settlement ? state.settlements[tile.settlement] : undefined;
   const settlement = sRaw && sRaw.owner !== u.owner ? sRaw : null;
@@ -395,11 +397,7 @@ export const resolveAttack = (ctx: SimCtx, u: Unit, target: Hex, plan: AttackPla
     } else if (u.owner === RAIDER_PLAYER) {
       // Raiders pillage rather than rule (GDD §5 "Collapse"), then scatter with their loot,
       // so a broken settlement is not pillaged every turn while its walls cannot heal.
-      settlement.population = Math.max(1, settlement.population - 1);
-      const victim = state.players[settlement.owner];
-      if (victim) victim.stock.gold = Math.max(0, victim.stock.gold - RAIDER_PILLAGE_GOLD);
-      ctx.events.push({ type: 'notice', player: settlement.owner, text: `Raiders pillaged ${settlement.name}.` });
-      removeUnit(ctx, attackerId);
+      pillage(ctx, u, settlement);
     } else if (u.unitClass !== 'naval') {
       defenderDied = true;
       captureSettlement(ctx, settlement, u.owner, u);

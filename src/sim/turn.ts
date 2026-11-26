@@ -11,8 +11,9 @@ import { agesWorldPhase, updateMilestones } from './ages';
 import { attackTargetsOf, checkEliminations, isHostile, planAttack, resolveAttack } from './combat';
 import { WALL_HEAL_PER_TURN } from './constants';
 import type { SimCtx } from './ctx';
-import { pruneTradeRoutes } from './diplomacy';
-import { ci, hexOfIndex, playerSettlements, unitsAt } from './lookup';
+import { closeRoutesOverCapacity, pruneTradeRoutes } from './diplomacy';
+import { ci, hexOfIndex, playerSettlements, settlementAt, unitsAt } from './lookup';
+import { isUndefended, pillage, pillageTarget, raiderGoal } from './raids';
 import { empireModifiers } from './modifiers';
 import { advanceResearch } from './research';
 import { growSettlement, produceInSettlement } from './settlements';
@@ -123,6 +124,7 @@ export const beginNextTurn = (ctx: SimCtx): void => {
   const { state } = ctx;
   state.turn++;
   pruneTradeRoutes(state);
+  closeRoutesOverCapacity(ctx);
   for (const pid of state.playerOrder) startOfTurnForPlayer(ctx, pid);
   state.currentPlayer = firstAlive(state) ?? state.currentPlayer;
   ctx.events.push({ type: 'turnStarted', turn: state.turn });
@@ -130,18 +132,10 @@ export const beginNextTurn = (ctx: SimCtx): void => {
 
 // --- World phase ------------------------------------------------------------------
 
-const raiderTarget = (state: GameState, u: Unit): { q: number; r: number } | null => {
+/** Fallback goal when no player settlement exists: the nearest non-raider unit. */
+const nearestUnit = (state: GameState, u: Unit): { q: number; r: number } | null => {
   let best: { q: number; r: number } | null = null;
   let bestD = Infinity;
-  for (const sid of Object.keys(state.settlements)) {
-    const s = state.settlements[sid];
-    if (!s) continue;
-    const d = hexDistance(u.at, s.at);
-    if (d < bestD) {
-      bestD = d;
-      best = s.at;
-    }
-  }
   for (const id of Object.keys(state.units)) {
     const o = state.units[id];
     if (!o || o.owner === RAIDER_PLAYER) continue;
@@ -173,7 +167,11 @@ const raiderAttack = (ctx: SimCtx, u: Unit, goal: { q: number; r: number }): boo
   return true;
 };
 
-/** Raiders (GDD §5 "Collapse") move toward and attack the nearest settlement or unit. */
+/**
+ * Raiders (GDD §5 "Collapse", src/sim/raids.ts) pillage an undefended settlement next to them;
+ * otherwise they head for the nearest undefended settlement in reach (else the nearest
+ * settlement), and fight whatever stands in their way.
+ */
 export const moveRaiders = (ctx: SimCtx): void => {
   const { state, content } = ctx;
   refreshUnitsOf(state, RAIDER_PLAYER, content);
@@ -181,9 +179,17 @@ export const moveRaiders = (ctx: SimCtx): void => {
   for (const id of ids) {
     const u = state.units[id];
     if (!u) continue;
-    const goal = raiderTarget(state, u);
+    const prey = pillageTarget(state, u);
+    if (prey) {
+      pillage(ctx, u, prey);
+      continue;
+    }
+    const goal = raiderGoal(state, u) ?? nearestUnit(state, u);
     if (!goal) continue;
-    if (raiderAttack(ctx, u, goal)) continue;
+    const goalSettlement = settlementAt(state, goal);
+    const raid = goalSettlement !== undefined && isUndefended(state, goalSettlement);
+    // Bent on an easy raid, they fight only when something blocks the way.
+    if (!raid && raiderAttack(ctx, u, goal)) continue;
     const paths = findPaths(state, u, content);
     let bestIdx = -1;
     let bestD = hexDistance(u.at, goal);
@@ -199,6 +205,10 @@ export const moveRaiders = (ctx: SimCtx): void => {
       // Raiders may always strike after closing in, even if the move used every point.
       u.movesLeft = Math.max(1, paths.remaining.get(bestIdx) ?? 0);
       u.fortified = false;
+      const reached = pillageTarget(state, u);
+      if (reached) pillage(ctx, u, reached);
+      else raiderAttack(ctx, u, goal);
+    } else if (raid) {
       raiderAttack(ctx, u, goal);
     }
   }

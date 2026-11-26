@@ -25,7 +25,7 @@ import {
   SITE_WEIGHTS,
   type SiteWeights,
 } from './constants';
-import { ci, hexOfIndex, isCivilian, isWater, round2, tileIndex } from './lookup';
+import { ci, hexOfIndex, isWater, round2, stackLayer, tileIndex } from './lookup';
 import { empireModifiers } from './modifiers';
 import { canFoundAt } from './settlements';
 import { canEmbarkPlayer, terrainAllows, visibleTileSet } from './units';
@@ -149,7 +149,7 @@ const reachableSites = (state: GameState, unit: Unit, start: number, content: Co
   for (const i of visibleTileSet(state, unit.owner, content)) visible[i] = 1;
   const foreign = new Uint8Array(n);
   const sameLayer = new Uint8Array(n);
-  const civilian = isCivilian(unit);
+  const layer = stackLayer(unit);
   for (const id of Object.keys(state.units)) {
     const u = state.units[id];
     if (!u || u.id === unit.id) continue;
@@ -157,7 +157,7 @@ const reachableSites = (state: GameState, unit: Unit, start: number, content: Co
     if (i < 0) continue;
     if (u.owner !== unit.owner) {
       if (visible[i]) foreign[i] = 1;
-    } else if (isCivilian(u) === civilian) sameLayer[i] = 1;
+    } else if (stackLayer(u) === layer) sameLayer[i] = 1;
   }
   const seen = new Uint8Array(n);
   const stack = [start];

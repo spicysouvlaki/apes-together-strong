@@ -498,7 +498,7 @@ describe('figureActions.blocked (player-facing reasons)', () => {
     give(state, 'eg_general', 'p1', { state: 'unit', unit });
     expect(figureActions(state, 'eg_general', content).blocked).toEqual({
       seat: 'eg_general is in the field; recall them to a city first.',
-      recall: 'Move eg_general into one of your settlements first.',
+      recall: 'Move eg_general into or next to one of your settlements first.',
     });
     give(state, 'gr_general', 'p1', { state: 'retired' });
     expect(figureActions(state, 'gr_general', content).blocked).toEqual({});

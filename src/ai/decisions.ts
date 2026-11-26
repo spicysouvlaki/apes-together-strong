@@ -214,6 +214,9 @@ const unlocksOf = (content: ContentBundle, tech: string): Unlocks => {
   return map[tech] ?? { buildings: [], units: [], wonders: [] };
 };
 
+/** Research value per own unit that a tech's unit would upgrade (capped at 6 units). */
+export const UPGRADE_TECH_VALUE_PER_UNIT = 0.6;
+
 export const buildingValue = (content: ContentBundle, id: string, pe: Persona): number => {
   const b = content.buildings.find((x) => x.id === id);
   if (!b) return 0;
@@ -237,6 +240,11 @@ const techScore = (ai: AiCtx, id: string, cost: number, focus: LegacyTrack): num
   for (const uid of u.units) {
     const def = content.units.find((x) => x.id === uid);
     if (!def) continue;
+    // Units we already field upgrade for free in our land once this tech is known (src/sim/units
+    // unitUpkeep). Fun audit pass 2: ~40% of AI unit-turns in the classical age were past-age
+    // units waiting on an upgrade tech nobody researched.
+    const upgraders = Object.values(ai.state.units).filter((x) => x.owner === ai.player && content.units.find((d) => d.id === x.type)?.upgradesTo === uid).length;
+    v += UPGRADE_TECH_VALUE_PER_UNIT * Math.min(6, upgraders);
     if (def.canTrade) v += 0.8 + 0.6 * (pe.w.opportunist + pe.w.seafarer);
     else if (def.unitClass === 'naval') v += 0.2 + 0.5 * pe.w.seafarer;
     else v += 0.5 + 0.8 * pe.w.warmonger;

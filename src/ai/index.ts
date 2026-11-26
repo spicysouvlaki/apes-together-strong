@@ -17,10 +17,10 @@ import type { GameState, PlayerId, Sim, SimEvent } from '@contracts/sim-api';
 import { exec, step, type AiCtx } from './ctx';
 import { answerCrisis, answerOffers, chooseGovernment, chooseResearch, focusTrack } from './decisions';
 import { makePlan, manageProduction, sendEnvoys, spendGold } from './economy';
-import { activateFigures, consumeLeftovers, fieldGenerals, seatFigures } from './figures';
+import { activateFigures, consumeLeftovers, fieldExplorers, fieldGenerals, seatFigures } from './figures';
 import { makePersona } from './persona';
 import { runTransition } from './transition';
-import { moveMerchants, moveMilitary, moveNavy, moveScouts, moveSettlers } from './units';
+import { moveExpeditions, moveMerchants, moveMilitary, moveNavy, moveScouts, moveSettlers } from './units';
 import { considerPeace, considerWar } from './war';
 import { hostilesNear, ownSettlements } from './world';
 
@@ -65,6 +65,7 @@ const playTurn = (ai: AiCtx): void => {
   });
   step(ai, seatFigures);
   step(ai, fieldGenerals);
+  step(ai, fieldExplorers);
   step(ai, (a) => activateFigures(a, focus, threatened));
   step(ai, consumeLeftovers);
 
@@ -95,6 +96,7 @@ const playTurn = (ai: AiCtx): void => {
   step(ai, moveNavy);
   step(ai, moveScouts);
   step(ai, moveMerchants);
+  step(ai, moveExpeditions);
   // Activations that needed this turn's production choice (rush a wonder just started).
   step(ai, (a) => activateFigures(a, focus, threatened));
   step(ai, seatFigures);

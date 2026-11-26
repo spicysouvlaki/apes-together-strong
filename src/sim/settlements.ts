@@ -287,10 +287,19 @@ export const completeItem = (ctx: SimCtx, s: Settlement, item: string): boolean 
     announceWonder(ctx, s, def.name);
     addChronicle(state, s.owner, 'wonder', item, `${def.name} was completed in ${s.name}.`);
     ctx.events.push({ type: 'wonderBuilt', wonder: item, player: s.owner, settlement: s.id });
-    // Anyone else building it loses the item (progress stays banked).
+    // Wonder race (fun audit pass 2): anyone else building it loses the item, but every point
+    // of production they invested stays banked for their next project, and they are told so.
     for (const id of Object.keys(state.settlements)) {
       const o = state.settlements[id];
-      if (o && o.id !== s.id && o.production.item === item) o.production.item = null;
+      if (!o || o.id === s.id || o.production.item !== item) continue;
+      o.production.item = null;
+      if (o.owner !== s.owner && state.players[o.owner]) {
+        ctx.events.push({
+          type: 'notice',
+          player: o.owner,
+          text: `${def.name} was completed by another people first. The work ${o.name} put into it is not lost: it goes to the next thing ${o.name} builds.`,
+        });
+      }
     }
   } else {
     return false;

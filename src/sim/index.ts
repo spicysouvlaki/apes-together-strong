@@ -96,8 +96,12 @@ const createGame: Sim['createGame'] = (setup: GameSetup, content: ContentBundle)
   const ctx: SimCtx = { state, content, events: [] };
 
   const unitTypes = startingUnitTypes(content);
+  // Seats draw their start by lot. Mapgen lists the best-quality start first, and handing it
+  // to the first seat (always the human in a real game) was a hidden asymmetry: fun audit
+  // pass 2 found seat 1 on the same kind of start in over half of all maps.
+  const starts = shuffle(state, gen.starts.slice(0, setup.players.length));
   setup.players.forEach((ps, i) => {
-    const start = gen.starts[i];
+    const start = starts[i];
     if (!start) return;
     for (const type of unitTypes) spawnUnit(ctx, ps.id, type, start);
   });

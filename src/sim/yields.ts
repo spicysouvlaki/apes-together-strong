@@ -15,6 +15,10 @@ import {
   CITY_CENTER_MIN_YIELDS,
   COLD_FOOD_PENALTY,
   FEATURE_YIELDS,
+  FOOD_PER_POP,
+  FOOD_SURPLUS_SOFT_CAP_BASE,
+  FOOD_SURPLUS_SOFT_CAP_PER_POP,
+  SATISFIED_FOOD_SHARE,
   FREE_MILITARY_UNITS,
   GROWTH_BASE,
   GROWTH_EXPONENT,
@@ -102,11 +106,14 @@ export const tileYield = (
   return out;
 };
 
-const tileScore = (y: YieldRecord): number => {
+const tileScore = (y: YieldRecord, foodShare = 1): number => {
   let s = 0;
-  for (const k of YIELDS) s += y[k] * (TILE_SCORE[k] ?? 0);
+  for (const k of YIELDS) s += y[k] * (TILE_SCORE[k] ?? 0) * (k === 'food' ? foodShare : 1);
   return s;
 };
+
+/** Food surplus at which citizens start favoring other yields: 2 + half the population, rounded up. */
+export const foodSurplusSoftCap = (population: number): number => FOOD_SURPLUS_SOFT_CAP_BASE + Math.ceil(population * FOOD_SURPLUS_SOFT_CAP_PER_POP);
 
 /**
  * Tiles the settlement may work: owned by its owner within WORK_RADIUS, not another
@@ -155,13 +162,28 @@ export const workedTilesWithYields = (
     }
     out.push({ tile: center, yields: y });
   }
-  const scored = workableTiles(state, s).map((tile) => {
-    const yields = tileYield(state, tile, s.owner, content, all, s);
-    return { tile, yields, score: tileScore(yields) };
-  });
-  // Stable sort: equal scores keep nearest-first order.
-  scored.sort((a, b) => b.score - a.score);
-  for (const x of scored.slice(0, s.population)) out.push({ tile: x.tile, yields: x.yields });
+  const pool = workableTiles(state, s).map((tile) => ({ tile, yields: tileYield(state, tile, s.owner, content, all, s) }));
+  // Citizens pick tiles one at a time, best first (ties: nearest first). Once the city already
+  // grows comfortably, extra food is worth less than production (fun audit pass 2: food-rich
+  // jungle and floodplain capitals worked only 3-food tiles, grew big, unhappy and unproductive).
+  let surplus = (out[0]?.yields.food ?? 0) - FOOD_PER_POP * s.population;
+  const softCap = foodSurplusSoftCap(s.population);
+  for (let k = 0; k < s.population && pool.length > 0; k++) {
+    const share = surplus >= softCap ? SATISFIED_FOOD_SHARE : 1;
+    let best = 0;
+    let bestScore = -Infinity;
+    pool.forEach((x, i) => {
+      const sc = tileScore(x.yields, share);
+      if (sc > bestScore) {
+        bestScore = sc;
+        best = i;
+      }
+    });
+    const [x] = pool.splice(best, 1);
+    if (!x) break;
+    surplus += x.yields.food;
+    out.push(x);
+  }
   return out;
 };
 
