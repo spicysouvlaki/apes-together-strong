@@ -73,6 +73,8 @@ export const queries: SimQueries = {
   envoyCost: (state, player, cityState) => envoyCostFor(state, player, cityState),
   cabinetSeats,
   figureActions,
+  // TODO(sim): implement combatPreview (contracts: added for the attack confirmation UI).
+  combatPreview: () => null,
   settleSites: (state, unitId, content) => {
     const u = state.units[unitId];
     return u ? settleSitesFor(state, u, content) : [];

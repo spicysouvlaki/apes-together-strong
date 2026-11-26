@@ -481,6 +481,25 @@ export interface Sim {
 // (what is legal, what it costs) live in one place. They never mutate state.
 // ---------------------------------------------------------------------------
 
+export interface CombatPreview {
+  /** 'unit' = fights the defender on the tile; 'walls' = damages settlement walls; 'capture' = takes the settlement. */
+  kind: 'unit' | 'walls' | 'capture';
+  ranged: boolean;
+  attackerStrength: number;
+  defenderStrength: number;
+  /** Expected damage with the average roll, and the low/high bounds of the roll. */
+  damageToDefender: { expected: number; min: number; max: number };
+  damageToAttacker: { expected: number; min: number; max: number };
+  defenderHp: number;
+  attackerHp: number;
+  /** Plain-words modifiers that apply, strongest first ("Hills +3", "Fortified +5", "River crossing −5"). */
+  factors: { label: string; value: number; side: 'attacker' | 'defender' }[];
+  /** One-word read for the UI: how this is likely to go for the attacker. */
+  outlook: 'decisive' | 'favorable' | 'even' | 'risky' | 'reckless';
+  /** True when attacking would require declaring war first. */
+  needsWar: boolean;
+}
+
 export interface ProductionOption {
   item: string;
   kind: 'unit' | 'building' | 'wonder';
@@ -555,6 +574,12 @@ export interface SimQueries {
   reachable(state: GameState, unit: UnitId, content: ContentBundle): { hex: Hex; cost: number }[];
   /** Tiles holding something this unit can attack right now. */
   attackTargets(state: GameState, unit: UnitId, content: ContentBundle): Hex[];
+  /**
+   * Expected outcome of `attack` with this unit on `target`, using the same formula and
+   * modifiers as the real resolution but the average roll (no RNG draw, no state change).
+   * Null when the attack is not possible. Only uses information the unit's owner can see.
+   */
+  combatPreview(state: GameState, unit: UnitId, target: Hex, content: ContentBundle): CombatPreview | null;
   canFound(state: GameState, unit: UnitId, content: ContentBundle): boolean;
   /**
    * Explored tiles near the unit (within ~8) where this settler-type unit could legally found
