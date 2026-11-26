@@ -12,5 +12,7 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: ['tests/**/*.test.ts'],
+    // Full-game replay tests take several seconds on CI runners; the 5 s default is too tight.
+    testTimeout: 120_000,
   },
 });
