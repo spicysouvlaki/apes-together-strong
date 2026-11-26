@@ -190,3 +190,26 @@ describe('render picking', () => {
     expect(pickHex({ ox: 0, oy: 5, oz: 0, dx: 0, dy: 1, dz: 0 }, flat)).toBeNull();
   });
 });
+
+describe('render camera: default framing', () => {
+  it('shows about seven hexes across a portrait phone and opens in the close band', async () => {
+    const { defaultDistanceFor, DEFAULT_HEXES_ACROSS, viewHalfExtents } = await import('../src/render/camera-math');
+    const aspect = 375 / 812;
+    const d = defaultDistanceFor(aspect, 40);
+    const across = (viewHalfExtents(d, aspect, 40).w * 2) / Math.sqrt(3);
+    expect(across).toBeCloseTo(DEFAULT_HEXES_ACROSS, 5);
+    expect(zoomBandFor(d * shortAxisFactor(aspect))).toBe('close');
+    // Landscape uses the short (vertical) axis, so it is not absurdly close.
+    expect(defaultDistanceFor(16 / 9, 40)).toBeCloseTo(defaultDistanceFor(1, 40), 5);
+  });
+
+  it('lets a zoomed-in view center an edge tile but centers the whole board when zoomed out', async () => {
+    const { softHalfExtent } = await import('../src/render/camera-math');
+    const b = mapBounds(48, 30);
+    const span = b.maxX - b.minX;
+    const near = clampTarget(b.minX, 20, b, 2, softHalfExtent(6, span), 0);
+    expect(near.x).toBeLessThan(b.minX + 0.5);
+    const far = clampTarget(b.minX, 20, b, 2, softHalfExtent(span / 2 + 3, span), 0);
+    expect(far.x).toBeCloseTo((b.minX + b.maxX) / 2, 5);
+  });
+});

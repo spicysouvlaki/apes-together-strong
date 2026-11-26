@@ -3,6 +3,7 @@
  * Cannot be dismissed until the player sends `finishTransition`.
  */
 import { useEffect, useState } from 'preact/hooks';
+import { Term } from '../shell/GlossarySheet';
 import type { RefinementOption } from '@contracts/sim-api';
 import { closeModal, content, dispatch, game, lookup, me, ownerName, q } from '../store';
 import type { ScreenProps } from './index';
@@ -135,7 +136,9 @@ export const TransitionScreen = (_: ScreenProps<'transition'>) => {
             <div class="card scr-stat">
               <Icon name="culture" size="lg" />
               <b>{recap.rpEarned}</b>
-              <span class="small muted">refinement points earned</span>
+              <span class="small muted">
+                <Term id="refinement_points" /> earned
+              </span>
             </div>
           </div>
           <Section title={`Milestones reached (${recap.milestones.length})`}>

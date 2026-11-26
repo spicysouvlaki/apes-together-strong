@@ -1,11 +1,12 @@
 /** One figure: full card plus the GDD §3 actions the sim says are legal (q.figureActions). */
 import { useState } from 'preact/hooks';
+import { GlossText } from '../shell/GlossarySheet';
 import type { FigureState } from '@contracts/sim-api';
 import { content, dispatch, game, lookup, me, myTurn, ownerName, q } from '../store';
 import type { ScreenProps } from './index';
 import { ConfirmSheet, Empty, FigureCard, Screen, Section, Sheet } from './shared/components';
 import { ancestorYield, consumeBurstText, describeActivate } from './shared/describe';
-import { seatBlockedReason, slotIdOfKey, whereText } from './shared/figures';
+import { slotIdOfKey, whereText } from './shared/figures';
 import { CABINET_COOLDOWN_TURNS } from '../../emergence/constants';
 import { Icon } from '../art/Icon';
 
@@ -41,7 +42,6 @@ export const FigureScreen = ({ modal }: ScreenProps<'figure'>) => {
   }
   const fs = g.figures[def.id];
   const mine = !!fs && fs.owner === player;
-  const p = player ? g.players[player] : undefined;
   const a = mine ? q.figureActions(g, def.id, content) : null;
   const turn = myTurn.value;
   const loc = fs?.location.state;
@@ -51,32 +51,15 @@ export const FigureScreen = ({ modal }: ScreenProps<'figure'>) => {
     setPending(null);
   };
 
-  // Disabled reasons: the sim's own (q.figureActions().blocked) when it gives one, else what
-  // the rules make knowable from public state.
+  // Disabled reasons come from the sim (q.figureActions().blocked), the validators' own words.
   const reasons: string[] = [];
   if (mine && a) {
-    const blocked = a.blocked ?? {};
-    const why = (key: keyof typeof blocked, fallback: () => string): void => {
-      reasons.push(blocked[key] ?? fallback());
-    };
     if (!turn) reasons.push('You can act on your turn.');
-    if (def.uses.includes('cabinet') && a.seat.length === 0 && loc === 'based' && p) {
-      why('seat', () => seatBlockedReason(p, def, g.turn, content, seatLabel, (id) => lookup.figures[id]?.name ?? 'someone'));
+    const order = ['seat', 'unseat', 'deploy', 'recall', 'activate', 'consume'] as const;
+    for (const k of order) {
+      const why = a.blocked[k];
+      if (why) reasons.push(why);
     }
-    if (loc === 'seated' && !a.canUnseat && p && (blocked.unseat || p.anarchyTurns > 0)) why('unseat', () => 'No cabinet changes during anarchy.');
-    if (def.uses.includes('unit') && loc === 'based' && a.deploy.length === 0) why('deploy', () => 'They can only take the field from one of your cities.');
-    if (loc === 'unit' && !a.canRecall) why('recall', () => 'Move them into one of your settlements to bring them home.');
-    if (def.activate && def.uses.includes('activate') && !a.canActivate && (loc === 'based' || loc === 'seated' || loc === 'unit')) {
-      const effect = def.activate.effect;
-      why('activate', () =>
-        effect === 'rush_wonder'
-          ? 'Their deed needs a city building a wonder.'
-          : effect === 'production_burst'
-            ? 'Their deed needs a city building something.'
-            : 'Their deed is not possible right now.',
-      );
-    }
-    if (!a.canConsume && blocked.consume) reasons.push(blocked.consume);
   }
 
   const buttons = mine && a
@@ -227,7 +210,9 @@ export const FigureScreen = ({ modal }: ScreenProps<'figure'>) => {
       )}
       {pending === 'consume' && (
         <Sheet title={`Consume ${def.name}?`} onCancel={() => setPending(null)}>
-          <p class="small muted">They leave play for good and add nothing to your Legacy score. Choose what you gain:</p>
+          <p class="small muted">
+            <GlossText text="They leave play for good and add nothing to your Legacy score. Choose what you gain:" />
+          </p>
           <button class="btn scr-option" onClick={() => setPending('consume-rp')} aria-label="Gain refinement points">
             <span class="grow">
               <b>{def.consumeValue} refinement points</b>

@@ -10,6 +10,7 @@ import { closeModal, content, dispatch, game, lookup, me, myTurn, openModal, q }
 import { YIELD_ICON, YIELD_NAME, capitalize, num, signed, turnsText } from './format';
 import { Icon } from '../art/Icon';
 import { FigurePortrait } from '../art/game-art';
+import { GlossText } from './GlossarySheet';
 
 const CITY_YIELDS: readonly YieldType[] = ['food', 'production', 'gold', 'science', 'culture', 'faith', 'influence', 'happiness'];
 
@@ -113,6 +114,14 @@ export function CitySheet({ settlement }: { settlement: string }) {
           >
             <Icon name="upgrade" /> Upgrade to city · <Icon name="gold" size="sm" /> {upgradeCost}
           </button>
+          {gold < upgradeCost && (
+            <div class="small muted mt4">
+              {Math.ceil(upgradeCost - gold)} more gold needed
+              {(g.players[my]?.income.gold ?? 0) > 0
+                ? `, about ${turnsText(Math.ceil((upgradeCost - gold) / (g.players[my]?.income.gold ?? 1)))} at your income.`
+                : '.'}
+            </div>
+          )}
         </div>
       )}
 
@@ -169,7 +178,9 @@ export function CitySheet({ settlement }: { settlement: string }) {
                               <Icon name="production" size="sm" /> {o.cost} · {turnsText(o.turns)}
                             </span>
                           </span>
-                          <span class="small muted prod-desc">{itemDescription(o)}</span>
+                          <span class="small muted prod-desc">
+                            <GlossText text={itemDescription(o)} />
+                          </span>
                         </button>
                         {o.goldCost > 0 && (
                           <button

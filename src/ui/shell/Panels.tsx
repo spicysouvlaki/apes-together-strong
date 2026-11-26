@@ -23,6 +23,7 @@ import {
 import { AGE_NAME } from './format';
 import { loading, patchSettings, settings } from './shell-state';
 import { Icon } from '../art/Icon';
+import { guide, replayGuide, skipGuide } from './guide-state';
 
 function Header({ title, onBack }: { title: string; onBack?: () => void }) {
   return (
@@ -49,6 +50,19 @@ export const quitToTitle = (): void => {
   route.value = 'title';
 };
 
+const DIFFICULTY_NAME: Record<string, string> = { easy: 'Easy', normal: 'Normal', hard: 'Hard' };
+
+/** This game's difficulty, map, speed and seed (read-only). */
+function GameFacts() {
+  const g = game.value;
+  if (!g) return null;
+  return (
+    <p class="small muted menu-facts">
+      {DIFFICULTY_NAME[g.difficulty] ?? g.difficulty} difficulty · {g.mapSize} map · {g.speed} speed · seed {g.seed}
+    </p>
+  );
+}
+
 export function MenuPanel() {
   return (
     <div class="screen" role="dialog" aria-label="Menu">
@@ -63,10 +77,17 @@ export function MenuPanel() {
         <button class="btn" onClick={() => openModal({ kind: 'chronicle' })}>
           <Icon name="chronicle" /> Chronicle
         </button>
+        <button class="btn" onClick={() => openModal({ kind: 'codex' })}>
+          <Icon name="chronicle" /> How to play
+        </button>
+        <button class="btn" onClick={() => openModal({ kind: 'log' })}>
+          <Icon name="turn" /> Recent events
+        </button>
         <button class="btn" onClick={() => openModal({ kind: 'settings' })}>
           <Icon name="settings" /> Settings
         </button>
         <MuteButton />
+        <GameFacts />
         <button
           class="btn"
           onClick={() =>
@@ -251,6 +272,8 @@ export function SettingsPanel() {
         </label>
         <Volume label="Effects" value={s.sfxVolume} disabled={s.muted} onInput={(v) => patchSettings({ sfxVolume: v })} />
         <Volume label="Ambience" value={s.musicVolume} disabled={s.muted} onInput={(v) => patchSettings({ musicVolume: v })} />
+        <div class="section-title">Guide</div>
+        <GuideSettings />
         <div class="section-title">Comfort</div>
         <label class="card row toggle">
           <span class="grow">Reduce motion</span>
@@ -268,6 +291,41 @@ export function SettingsPanel() {
             onChange={(e) => patchSettings({ colorblindPatterns: (e.target as HTMLInputElement).checked })}
           />
         </label>
+      </div>
+    </div>
+  );
+}
+
+/** Skip or replay the in-game guide (progress is per game). */
+function GuideSettings() {
+  const off = guide.value.disabled;
+  const inGame = route.value === 'game' && game.value !== null;
+  return (
+    <div class="card">
+      <div class="small">
+        {off ? 'The guide is off.' : 'The guide offers one short tip at a time over your first turns.'}
+      </div>
+      <div class="row mt8">
+        {!off && (
+          <button
+            class="btn"
+            onClick={() => {
+              skipGuide();
+              pushToast('Guide skipped. You can replay it here any time.', 'info');
+            }}
+          >
+            Skip the guide
+          </button>
+        )}
+        <button
+          class="btn"
+          onClick={() => {
+            replayGuide();
+            pushToast(inGame ? 'The guide starts over for this game.' : 'The guide is back on.', 'info');
+          }}
+        >
+          Replay the guide
+        </button>
       </div>
     </div>
   );

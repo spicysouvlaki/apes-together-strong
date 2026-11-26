@@ -7,7 +7,11 @@
 import { BoxGeometry, ConeGeometry, CylinderGeometry, IcosahedronGeometry, SphereGeometry, TorusGeometry, type BufferGeometry } from 'three';
 import { assemble, lin, paint, team } from './geometry';
 
-const SKIN = lin('#d6a479');
+/**
+ * Skin marker (materials.ts propMaterial): g < 0 means "owner's skin tone × r", packed per
+ * instance in aInst.w from PlayerState.skinTone (palette.ts SKIN_TONES).
+ */
+const SKIN: [number, number, number] = [1, -1, 0];
 const WOOD = lin('#6f4c30');
 const METAL = lin('#b8bcc2');
 const LEATHER = lin('#7d5434');

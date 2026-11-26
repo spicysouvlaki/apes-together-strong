@@ -5,7 +5,7 @@
  */
 import { hexEquals, type Hex } from '@contracts/hex';
 import { RAIDER_PLAYER, type GameState, type PlayerId, type SettlementId, type UnitId } from '@contracts/sim-api';
-import { settlementAt, unitsAt } from './hexutil';
+import { settlementAt, tileIndexOf, unitsAt } from './hexutil';
 
 export type TapIntent =
   | { kind: 'move'; unit: UnitId; to: Hex }
@@ -13,6 +13,8 @@ export type TapIntent =
   | { kind: 'attack'; unit: UnitId; target: Hex; declareWarOn: PlayerId | null }
   | { kind: 'selectUnit'; unit: UnitId; cycleIndex: number }
   | { kind: 'openCity'; settlement: SettlementId; cycleIndex: number }
+  /** A unit is selected and the tap is on an explored tile out of reach this turn: plan a route. */
+  | { kind: 'plan'; unit: UnitId; to: Hex }
   | { kind: 'deselect'; hex: Hex };
 
 export interface TapInput {
@@ -62,7 +64,13 @@ export const resolveTap = (input: TapInput): TapIntent => {
   const entries: ({ kind: 'city'; id: SettlementId } | { kind: 'unit'; id: UnitId })[] = [];
   if (mySettlement) entries.push({ kind: 'city', id: mySettlement.id });
   for (const u of units) entries.push({ kind: 'unit', id: u.id });
-  if (entries.length === 0) return { kind: 'deselect', hex };
+  if (entries.length === 0) {
+    // Far explored tiles become route targets (multi-turn moves); the sim decides if a route exists.
+    const idx = tileIndexOf(state.map, hex);
+    const explored = idx !== null && !!state.players[me]?.explored[idx];
+    if (sel && explored && !(sel.at.q === hex.q && sel.at.r === hex.r)) return { kind: 'plan', unit: sel.id, to: hex };
+    return { kind: 'deselect', hex };
+  }
 
   let prev = -1;
   if (input.lastTap && hexEquals(input.lastTap.hex, hex)) prev = input.lastTap.cycleIndex;

@@ -209,23 +209,6 @@ export const labelQuadGeometry = (): BufferGeometry => {
   return g;
 };
 
-/**
- * One side of a hex border band, facing +x (east): the trapezoid between hex radii `outer` and
- * `inner`, cut along the corner rays so the six sides of a tile join without gaps. Rotate per
- * edge with borders.ts EDGE_ROTATION. Local x runs across the band, z along the edge.
- */
-export const borderBandGeometry = (outer: number, inner: number): BufferGeometry => {
-  const pos: number[] = [];
-  const c = Math.cos(Math.PI / 6);
-  const a0 = [outer * c, 0, -outer / 2];
-  const a1 = [outer * c, 0, outer / 2];
-  const b0 = [inner * c, 0, -inner / 2];
-  const b1 = [inner * c, 0, inner / 2];
-  pushTri(pos, a0, b0, a1);
-  pushTri(pos, b0, b1, a1);
-  return flatGeometry(pos);
-};
-
 /** Flat ribbon of unit length along +x from x = 0, `width` wide (river segments). */
 export const ribbonGeometry = (width: number): BufferGeometry => {
   const pos: number[] = [];
@@ -251,20 +234,46 @@ export const riverNodeGeometry = (radius: number): BufferGeometry => {
 
 // --- Relief ---------------------------------------------------------------------------------------
 
-/** Soft rounded mounds for hills (smooth normals; tinted with the tile color). */
+/**
+ * Hills: a cluster of faceted low-poly knolls (flat-shaded like the rest of the diorama, not
+ * smooth cushions), jittered so no two facets match, with a darker skirt, a sunlit crown and a
+ * few exposed-rock facets on the slopes. Tinted per instance with the tile color.
+ */
 export const hillMoundGeometry = (): BufferGeometry => {
-  const bump = (r: number, x: number, z: number, h: number): BufferGeometry => {
-    const g = new SphereGeometry(r, 10, 4, 0, Math.PI * 2, 0, Math.PI / 2);
-    g.scale(1, h / r, 1);
+  const knoll = (r: number, h: number, x: number, z: number, seed: number): BufferGeometry => {
+    const g = new SphereGeometry(r, 7, 3, seed * 0.7, Math.PI * 2, 0, Math.PI / 2);
+    const p = g.getAttribute('position');
+    for (let i = 0; i < p.count; i++) {
+      const kx = Math.round(p.getX(i) * 1000);
+      const kz = Math.round(p.getZ(i) * 1000);
+      const ky = Math.round(p.getY(i) * 1000);
+      const j = unit01(hashTile(kx + seed * 31, kz, ky));
+      const y = p.getY(i);
+      const s = y > r * 0.98 ? 1 : 0.86 + j * 0.28;
+      p.setXYZ(i, p.getX(i) * s, y * (h / r) * (y > 1e-4 ? 0.9 + j * 0.2 : 1), p.getZ(i) * s);
+    }
     g.translate(x, 0, z);
-    g.deleteAttribute('uv');
-    return paintBy(g, (_x, y) => {
-      const k = 0.86 + Math.min(1, y / h) * 0.2;
-      return [k, k, k * 0.97];
-    });
+    const ng = g.toNonIndexed();
+    ng.deleteAttribute('uv');
+    const pos = ng.getAttribute('position');
+    const col = new Float32Array(pos.count * 3);
+    for (let f = 0; f < pos.count; f += 3) {
+      const cy = (pos.getY(f) + pos.getY(f + 1) + pos.getY(f + 2)) / 3;
+      const t = Math.min(1, cy / h);
+      const rocky = t > 0.3 && t < 0.8 && unit01(hashTile(f, seed, 17)) < 0.16;
+      const k = 0.8 + t * 0.3;
+      const c: Rgb = rocky ? [0.78, 0.72, 0.64] : [k, k, k * 0.96];
+      for (let v = 0; v < 3; v++) col.set(c, (f + v) * 3);
+    }
+    ng.setAttribute('color', new Float32BufferAttribute(col, 3));
+    return ng;
   };
-  // One broad rise filling most of the tile plus two softer shoulders: reads as terrain, not bushes.
-  return assemble([bump(0.62, -0.04, 0.04, 0.2), bump(0.36, 0.3, -0.26, 0.17), bump(0.3, -0.34, 0.3, 0.12)], true);
+  return assemble([
+    knoll(0.4, 0.27, -0.12, 0.06, 1),
+    knoll(0.3, 0.2, 0.3, -0.22, 2),
+    knoll(0.26, 0.15, -0.3, 0.38, 3),
+    knoll(0.2, 0.11, 0.34, 0.3, 4),
+  ]);
 };
 
 const ROCK = lin('#a39b90');
@@ -438,20 +447,18 @@ export const palmGeometry = (): BufferGeometry => {
 
 /** Grass tuft: a few thin blades, dark base to light tips (tinted with the tile color). */
 export const tuftGeometry = (): BufferGeometry => {
+  // A small fanned clump: blades lean outward from a shared root (reads as a soft tuft from
+  // the default camera, not a dark dash); bases only slightly darker than the tips.
   const parts: BufferGeometry[] = [];
-  const blades: [number, number, number, number][] = [
-    [0, 0, 0.09, 0],
-    [0.025, 0.01, 0.07, 0.35],
-    [-0.02, 0.015, 0.075, -0.4],
-    [0.005, -0.025, 0.06, 0.2],
-  ];
-  for (const [x, z, h, tilt] of blades) {
-    const g = new ConeGeometry(0.012, h, 3, 1, true);
+  const n = 6;
+  for (let k = 0; k < n; k++) {
+    const a = (k / n) * Math.PI * 2 + (k % 2) * 0.3;
+    const h = 0.055 + (k % 3) * 0.012;
+    const g = new ConeGeometry(0.014, h, 3, 1, true);
     g.translate(0, h / 2, 0);
-    g.rotateZ(tilt * 0.6);
-    g.rotateX(tilt * 0.3);
-    g.translate(x, 0, z);
-    parts.push(paintBy(g, (_x, y) => scaleRgb([1, 1, 1], 0.7 + (y / h) * 0.55)));
+    g.rotateZ(0.55 + (k % 2) * 0.15);
+    g.rotateY(a);
+    parts.push(paintBy(g, (_x, y) => scaleRgb([1, 1, 1], 0.86 + (y / h) * 0.34)));
   }
   return assemble(parts);
 };
@@ -852,11 +859,14 @@ export const flagGeometry = (): BufferGeometry => {
 // --- Strategic + misc -----------------------------------------------------------------------------------
 
 export const readyMarkerGeometry = (): BufferGeometry => {
-  const g = new ConeGeometry(0.07, 0.1, 4);
-  g.rotateX(Math.PI);
-  g.rotateY(Math.PI / 4);
-  g.translate(0, 0.05, 0);
-  return g;
+  // A small gold-leaf gem pointing down at the unit (lit, faceted: reads as an object, not a
+  // flat UI sticker): a short upper cap and a longer lower point.
+  const top = new ConeGeometry(0.05, 0.03, 6);
+  top.translate(0, 0.095, 0);
+  const tip = new ConeGeometry(0.05, 0.08, 6);
+  tip.rotateX(Math.PI);
+  tip.translate(0, 0.04, 0);
+  return assemble([paint(top, lin('#f3d27a')), paint(tip, lin('#d9a93a'))]);
 };
 
 /** Small heater shield (fortified marker); faces +z. */

@@ -4,6 +4,7 @@
  * Portrait, one-handed, 44px targets, safe-area aware.
  */
 import { computed } from '@preact/signals';
+import { useEffect, useRef } from 'preact/hooks';
 import {
   askConfirm,
   content,
@@ -31,12 +32,17 @@ import { TickNumber } from './TickNumber';
 import { lookup } from '../store';
 import { firstFounder, idleUnits, nextIdleUnit } from './hexutil';
 import { selectUnit } from './MapView';
-import { endTurnSent, foundNudgeTurn, idleConfirmedTurn, legendOpen, skipped } from './shell-state';
+import { endTurnSent, enemyConfirmedTurn, foundNudgeTurn, hudBottomPx, idleSheetTurn, legendOpen } from './shell-state';
+import { orders, resting } from './standing-orders';
+import { guideClass } from './guide-state';
+import { AdviceCard } from './AdviceCard';
+import { IdleSheet, idleSheetOpen } from './IdleSheet';
+import { exposedUnit } from './orders';
 import { YieldLegend } from './YieldLegend';
 import { UnitSheet } from './UnitSheet';
 import { quitToTitle } from './Panels';
 
-const SHELL_KINDS: ReadonlySet<ModalKind> = new Set(['city', 'tileInfo', 'menu', 'saves', 'settings']);
+const SHELL_KINDS: ReadonlySet<ModalKind> = new Set(['city', 'tileInfo', 'menu', 'saves', 'settings', 'codex', 'log']);
 export const isRegistered = (kind: ModalKind): boolean => SHELL_KINDS.has(kind) || !!screens[kind as ScreenKind];
 
 const pending = computed(() => {
@@ -50,7 +56,9 @@ const founder = computed(() => {
   const g = game.value;
   const my = me.value;
   if (!g || !my || foundNudgeTurn.value === g.turn) return null;
-  return firstFounder(g, my, (id) => !!content.units.find((u) => u.id === id)?.canFound);
+  const id = firstFounder(g, my, (t) => !!content.units.find((u) => u.id === t)?.canFound);
+  // A settler already marching to its site needs no nudge.
+  return id && !orders.value[id] ? id : null;
 });
 
 const plan = computed(() => planEndTurn(pending.value, isRegistered, founder.value));
@@ -117,7 +125,7 @@ function TopBar() {
           <Icon name={happinessIcon(p.happiness)} /> <span class="tnum">{num(p.happiness)}</span>
         </span>
         <button
-          class={`hud-age${crisis ? ' crisis' : ''}`}
+          class={`hud-age${crisis ? ' crisis' : ''}${guideClass('age')}`}
           aria-label={`${AGE_NAME[g.age]} age, ${Math.floor(g.ageProgress)} percent${crisis ? ', crisis under way' : ''}. Open legacy.`}
           onClick={() => openModal({ kind: 'legacy' })}
         >
@@ -135,29 +143,41 @@ function TopBar() {
 
 const endTurn = (): void => {
   const g = game.value;
-  if (!g || !myTurn.value || endTurnSent.value) return;
+  const my = me.value;
+  if (!g || !my || !myTurn.value || endTurnSent.value) return;
   const pl = plan.value;
   if (pl.mode === 'next' && pl.next) {
     openDecision(pl.next);
     return;
   }
-  const idle = pl.idleCities[0];
-  if (idle && idleConfirmedTurn.value !== g.turn) {
-    idleConfirmedTurn.value = g.turn;
-    askConfirm({
-      title: 'A city has nothing to build',
-      body: 'You can end the turn anyway; the production is lost.',
-      confirmLabel: 'End turn',
-      cancelLabel: 'Choose production',
-      onConfirm: () => sendEndTurn(),
-      onCancel: () => openDecision({ type: 'production', settlement: idle }),
-    });
+  // Once per turn: a unit with moves left stands next to an enemy (playtest: units left exposed).
+  if (enemyConfirmedTurn.value !== g.turn) {
+    const exposed = exposedUnit(g, my, (a, b) => q.atWar(g, a, b));
+    if (exposed) {
+      enemyConfirmedTurn.value = g.turn;
+      const name = (exposed.figure ? lookup.figures[exposed.figure]?.name : undefined) ?? lookup.units[exposed.type]?.name ?? 'unit';
+      askConfirm({
+        title: `An enemy is next to your ${name}`,
+        body: 'It still has moves: it could attack, fortify or step back. End the turn anyway?',
+        confirmLabel: 'End turn',
+        cancelLabel: 'Show me',
+        onConfirm: endTurn,
+        onCancel: () => selectUnit(exposed.id, { focus: true }),
+      });
+      return;
+    }
+  }
+  // Once per turn: list what is still idle, with a jump to each (units and cities).
+  const idleUnitCount = idleUnits(g, my, resting.value).length;
+  if ((idleUnitCount > 0 || pl.idleCities.length > 0) && idleSheetTurn.value !== g.turn) {
+    idleSheetTurn.value = g.turn;
+    idleSheetOpen.value = true;
     return;
   }
   sendEndTurn();
 };
 
-const sendEndTurn = (): void => {
+export const sendEndTurn = (): void => {
   if (endTurnSent.value) return;
   selectUnit(null);
   endTurnSent.value = true; // cleared by the next snapshot or error (app-wiring.ts)
@@ -189,7 +209,7 @@ function EndTurnButton() {
   const isNext = pl.mode === 'next' && !!pl.next && !busy;
   return (
     <button
-      class={`btn btn-primary end-turn${pl.mode === 'next' ? ' is-next' : ''}${busy ? ' is-busy' : ''}`}
+      class={`btn btn-primary end-turn${pl.mode === 'next' ? ' is-next' : ''}${busy ? ' is-busy' : ''}${busy ? '' : guideClass('endTurn', isNext && pl.next ? `decision:${pl.next.type}` : null)}`}
       disabled={disabled}
       onClick={endTurn}
       aria-label={badge > 0 ? `${label}. ${badge} things still open.` : label}
@@ -222,7 +242,7 @@ function AdvisoryChip() {
   const next = pl.mode === 'end' ? pl.next : null;
   if (!next || !myTurn.value) return null;
   return (
-    <button class="btn advisory" onClick={() => openDecision(next)} aria-label={`Open ${decisionLabel(next)}`}>
+    <button class={`btn advisory${guideClass(`decision:${next.type}`)}`} onClick={() => openDecision(next)} aria-label={`Open ${decisionLabel(next)}`}>
       <span>{decisionLabel(next)}</span>
       <Icon name="next" size="sm" />
     </button>
@@ -233,15 +253,15 @@ function NextUnit() {
   const g = game.value;
   const my = me.value;
   if (!g || !my || !myTurn.value) return null;
-  const count = idleUnits(g, my, skipped.value).length;
+  const count = idleUnits(g, my, resting.value).length;
   const sel = selection.value.unit;
   const goNext = (): void => {
-    const u = nextIdleUnit(g, my, skipped.value, sel);
+    const u = nextIdleUnit(g, my, resting.value, sel);
     if (u) selectUnit(u.id, { focus: true });
   };
   if (count === 0) return null;
   return (
-    <button class="btn next-unit" onClick={goNext} aria-label={`Next unit. ${count} waiting for orders.`}>
+    <button class={`btn next-unit${guideClass('nextUnit', 'decision:found')}`} onClick={goNext} aria-label={`Next unit. ${count} waiting for orders.`}>
       <Icon name="next" size="sm" /> Unit <span class="badge">{count}</span>
     </button>
   );
@@ -282,7 +302,7 @@ function QuickButtons() {
         return (
           <button
             key={b.kind}
-            class="quick-btn"
+            class={`quick-btn${guideClass(`quick:${b.kind}`, b.kind === 'tree' ? 'decision:research' : null)}`}
             aria-label={badge ? `${QUICK_ARIA[b.kind] ?? b.label}, ${badgeText(b.kind, badge)}` : (QUICK_ARIA[b.kind] ?? b.label)}
             onClick={() => openModal(b.kind === 'tree' ? { kind: 'tree', tree: researchTree() } : { kind: b.kind })}
           >
@@ -345,6 +365,28 @@ const thinkingName = (): string => {
   return p ? (p.civName ?? `${lookup.leaders[p.leader]?.name ?? 'A rival'}'s people`) : '';
 };
 
+/** The bottom HUD column; reports its height so the camera keeps selected things above it. */
+function BottomStack({ children }: { children: preact.ComponentChildren }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === 'undefined') return undefined;
+    const ro = new ResizeObserver(() => {
+      hudBottomPx.value = Math.round(el.getBoundingClientRect().height);
+    });
+    ro.observe(el);
+    return () => {
+      ro.disconnect();
+      hudBottomPx.value = 0;
+    };
+  }, []);
+  return (
+    <div class="hud-bottom" ref={ref}>
+      {children}
+    </div>
+  );
+}
+
 export function Hud() {
   const p = myPlayer.value;
   if (p && !p.alive) return modal.value ? null : <Defeat />;
@@ -357,7 +399,8 @@ export function Hud() {
       <TopBar />
       <HudBanner />
       {!sheetOpen && (
-        <div class="hud-bottom">
+        <BottomStack>
+          <AdviceCard />
           <div class="hud-controls">
             <QuickButtons />
             <div class="hud-right">
@@ -367,8 +410,9 @@ export function Hud() {
             </div>
           </div>
           {unitSelected && <UnitSheet key={selection.value.unit} />}
-        </div>
+        </BottomStack>
       )}
+      {idleSheetOpen.value && !sheetOpen && <IdleSheet onEndTurn={sendEndTurn} openDecision={openDecision} />}
       {thinking.value !== null && (
         <div class="thinking" role="status" aria-live="polite">
           <span class="thinking-slip">

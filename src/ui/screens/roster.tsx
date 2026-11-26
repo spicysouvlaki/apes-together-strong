@@ -1,5 +1,6 @@
 /** Figure roster (GDD §3 states, §6 culture weight): who you have and how your culture is forming. */
 import { content, game, me, openModal, q } from '../store';
+import { GlossText } from '../shell/GlossarySheet';
 import type { ScreenProps } from './index';
 import { Empty, Portrait, Screen, Section, WeightBars, CultureChip } from './shared/components';
 import { ancestorYield, KIND_LABEL } from './shared/describe';
@@ -27,7 +28,7 @@ export const RosterScreen = (_: ScreenProps<'roster'>) => {
         </>
       }
     >
-      <Section title="Your culture" note="Weight grows with each figure you hold and their time in the cabinet. It decides what you can refine at the next age.">
+      <Section title="Your culture" note={<GlossText text="Culture weight grows with each figure you hold and their time in the cabinet. It decides what you can refine at the next age." />}>
         {weights.length ? <WeightBars rows={weights} /> : <Empty>No one has joined you yet. Famous people arrive as your people earn renown.</Empty>}
       </Section>
       {groups.map((grp) => (

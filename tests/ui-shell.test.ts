@@ -286,8 +286,8 @@ describe('playtest fixes (shell)', () => {
   it('explains what the selected unit can do next', async () => {
     const { unitHint } = await import('../src/ui/shell/unit-hints');
     const base = { isFounder: false, canFound: false, isTrader: false, tradeTargets: 0, movesLeft: 2, canMove: true, canAttack: false, hasAttacked: false, military: true };
-    expect(unitHint(base)).toBe('Tap a lit tile to move.');
-    expect(unitHint({ ...base, canAttack: true })).toBe('Tap a red tile to attack. Tap a lit tile to move.');
+    expect(unitHint(base)).toBe('Tap a lit tile to move, or a far tile to plan a route.');
+    expect(unitHint({ ...base, canAttack: true })).toBe('Tap a red tile to attack. Tap a lit tile to move, or a far tile to plan a route.');
     expect(unitHint({ ...base, movesLeft: 0, canMove: false })).toMatch(/No moves left/);
     expect(unitHint({ ...base, isFounder: true, military: false })).toMatch(/Can’t settle here/);
     expect(unitHint({ ...base, isFounder: true, canFound: true })).toMatch(/Found settlement/);
@@ -329,5 +329,59 @@ describe('war targets (attack a neutral = declare war first)', () => {
       warTargets: [{ hex: theirs.at, owner: 'p2' }],
     });
     expect(tap).toEqual({ kind: 'attack', unit: mineMil.id, target: theirs.at, declareWarOn: 'p2' });
+  });
+});
+
+describe('turn news (playtest QoL)', () => {
+  const names: EventNames = {
+    owner: (id) => `Owner ${id}`,
+    figure: (id) => `Fig ${id}`,
+    settlement: (id) => (id === 'mine' ? { name: 'Ur', owner: 'p1', at: { q: 3, r: 4 } } : { name: 'Kish', owner: 'p2', at: { q: 9, r: 9 } }),
+    item: (id) => `Item ${id}`,
+    research: (id) => `Tech ${id}`,
+    milestone: (k) => `M ${k}`,
+    crisis: (id) => `Crisis ${id}`,
+    deed: (id) => `Deed ${id}`,
+  };
+  const t = (ev: SimEvent) => eventToToast(ev, 'p1', names);
+
+  it('announces a new age', () => {
+    expect(t({ type: 'ageStarted', age: 'classical' })).toMatchObject({ tone: 'culture', text: expect.stringMatching(/Classical age begins/) });
+  });
+
+  it('tells where things happened so a tap can center the map there', () => {
+    const at = { q: 5, r: 6 };
+    const fight: SimEvent = {
+      type: 'combat',
+      attacker: 'u9',
+      attackerOwner: 'p2',
+      defenderOwner: 'p1',
+      defender: 'u1',
+      at,
+      damageToAttacker: 3,
+      damageToDefender: 20,
+      attackerDied: false,
+      defenderDied: false,
+    };
+    expect(t(fight)?.at).toEqual(at);
+    expect(t({ type: 'settlementGrew', settlement: 'mine', population: 3 })?.at).toEqual({ q: 3, r: 4 });
+    expect(t({ type: 'settlementCaptured', settlement: 'mine', from: 'p1', to: 'p2' })?.at).toEqual({ q: 3, r: 4 });
+  });
+
+  it('folds overflow into one line that opens the turn log', async () => {
+    const { rankToasts } = await import('../src/ui/shell/event-toasts');
+    const info = { text: 'grew', tone: 'info' as const, action: null };
+    const many = rankToasts([info, info, info, info, info]);
+    expect(many).toHaveLength(3);
+    expect(many[2]).toMatchObject({ text: '+3 more updates this turn.', action: { kind: 'log' } });
+  });
+
+  it('keeps the last 50 events for the log', async () => {
+    const { pushLog, turnLog, LOG_MAX } = await import('../src/ui/shell/shell-state');
+    turnLog.value = [];
+    for (let i = 0; i < 60; i++) pushLog(i, [{ text: `e${i}`, tone: 'info' }]);
+    expect(turnLog.value).toHaveLength(LOG_MAX);
+    expect(turnLog.value[0]).toEqual({ turn: 10, text: 'e10', tone: 'info' });
+    expect(turnLog.value[LOG_MAX - 1]?.text).toBe('e59');
   });
 });

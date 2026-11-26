@@ -1,5 +1,6 @@
 /** Cabinet (GDD §3 "Seat", §7 governments): seats of the current government and who sits in them. */
 import { useState } from 'preact/hooks';
+import { GlossText, Term } from '../shell/GlossarySheet';
 import { content, dispatch, game, lookup, me, myTurn, openModal, q } from '../store';
 import type { ScreenProps } from './index';
 import { Empty, Portrait, Screen, Section, Sheet } from './shared/components';
@@ -61,7 +62,7 @@ export const CabinetScreen = (_: ScreenProps<'cabinet'>) => {
     >
       {p.anarchyTurns > 0 && (
         <div class="scr-banner scr-banner-bad" role="status">
-          Anarchy: no cabinet bonuses for {p.anarchyTurns} more {p.anarchyTurns === 1 ? 'turn' : 'turns'}.
+          <Term id="anarchy">Anarchy</Term>: no cabinet bonuses for {p.anarchyTurns} more {p.anarchyTurns === 1 ? 'turn' : 'turns'}.
         </div>
       )}
       <Section title="Government">
@@ -83,7 +84,7 @@ export const CabinetScreen = (_: ScreenProps<'cabinet'>) => {
         )}
       </Section>
       <Council seats={seats.map((s) => ({ key: s.key, figure: s.figure }))} />
-      <Section title="Seats" note="Seated figures give their bonus every turn and count double toward culture weight. A vacated seat takes two turns to fill again.">
+      <Section title="Seats" note={<GlossText text="Seated figures give their bonus every turn and count double toward culture weight. A vacated seat takes two turns to fill again." />}>
         {seats.length === 0 && <Empty>Choose a government to open cabinet seats.</Empty>}
         <ul class="scr-list">
           {seats.map((s) => {

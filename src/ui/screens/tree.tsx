@@ -1,5 +1,6 @@
 /** Tech and civic trees (GDD §7 "Trees"): current-age nodes on a scrollable grid. */
 import { useState } from 'preact/hooks';
+import { GlossText } from '../shell/GlossarySheet';
 import type { Tech } from '@contracts/content-schemas';
 import { closeModal, content, dispatch, game, lookup, me, myTurn, openModal, q } from '../store';
 import type { ScreenProps } from './index';
@@ -165,7 +166,9 @@ export const TreeScreen = ({ modal }: ScreenProps<'tree'>) => {
           }
         >
           <p class="scr-tag">{STATE_LABEL[nodeState]}</p>
-          <p>{node.description}</p>
+          <p>
+            <GlossText text={node.description} />
+          </p>
           <p class="small">
             Cost {glyph} {node.cost} {pointName}
             {turnsOf(node.id) !== null && ` · about ${turnsOf(node.id)} ${turnsOf(node.id) === 1 ? 'turn' : 'turns'}`}

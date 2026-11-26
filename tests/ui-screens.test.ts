@@ -304,25 +304,3 @@ describe('chronicle assembly (real finished game)', () => {
     expect(buildChronicle(state, 'p2', content)?.ages.length).toBeGreaterThan(0);
   });
 });
-
-describe('seat blocked reasons (playtest fix)', () => {
-  it('says which seat is cooling down, taken, or missing', async () => {
-    const { seatBlockedReason } = await import('../src/ui/screens/shared/figures');
-    const general = content.figures.find((f) => f.kind === 'general' && f.uses.includes('cabinet'));
-    expect(general).toBeDefined();
-    const def = general!;
-    const slotFor = content.cabinetSlots.find((s) => s.accepts.includes(def.kind))!;
-    const other = content.cabinetSlots.find((s) => !s.accepts.includes(def.kind))!;
-    const name = (k: string) => content.cabinetSlots.find((s) => s.id === slotIdOfKey(k))?.name ?? k;
-    const fig = () => 'Someone';
-    const p = (cabinet: Record<string, string | null>, cooldown: Record<string, number> = {}, anarchy = 0) =>
-      ({ cabinet, cabinetCooldown: cooldown, anarchyTurns: anarchy }) as unknown as Parameters<typeof seatBlockedReason>[0];
-    const key = `${slotFor.id}#0`;
-    expect(seatBlockedReason(p({ [key]: null }, {}, 2), def, 5, content, name, fig)).toMatch(/anarchy \(2 more turns\)/);
-    expect(seatBlockedReason(p({ [`${other.id}#0`]: null }), def, 5, content, name, fig)).toMatch(/no seat for them/);
-    expect(seatBlockedReason(p({ [key]: 'x' }), def, 5, content, name, fig)).toMatch(/taken/);
-    expect(seatBlockedReason(p({ [key]: null }, { [key]: 7 }), def, 5, content, name, fig)).toBe(
-      `The ${slotFor.name} seat was just vacated; it can be filled again on turn 7.`,
-    );
-  });
-});

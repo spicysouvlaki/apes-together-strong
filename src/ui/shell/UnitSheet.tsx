@@ -4,11 +4,15 @@
  */
 import { useState } from 'preact/hooks';
 import { askConfirm, content, dispatch, game, lookup, me, myTurn, openModal, q, selection } from '../store';
-import { capitalize, num } from './format';
-import { selectUnit } from './MapView';
-import { nextIdleUnit } from './hexutil';
-import { highlights, skipUnit, skipped } from './shell-state';
+import { capitalize, num, turnsText } from './format';
+import { cancelRoute, confirmRoute, previewRoute, refreshOverlay, selectUnit } from './MapView';
+import { idleUnits, nextIdleUnit } from './hexutil';
+import { highlights, siteHints, skipUnit } from './shell-state';
 import { unitHint } from './unit-hints';
+import { exploreNow, orders, planRoute, plannedRoute, resting, setOrder } from './standing-orders';
+import { canExplore } from './orders';
+import { shortWhere, siteFacts, siteSummary, whereWord } from './site-hints';
+import { guideClass } from './guide-state';
 import { Icon } from '../art/Icon';
 import { FigurePortrait } from '../art/game-art';
 import type { IconName } from '../art/icons-data';
@@ -32,9 +36,19 @@ export function UnitSheet() {
   const military = u.unitClass !== 'civilian';
 
   const advance = (): void => {
-    const next = nextIdleUnit(g, my, skipped.value, u.id);
+    const next = nextIdleUnit(g, my, resting.value, u.id);
     selectUnit(next && next.id !== u.id ? next.id : null, { focus: true });
   };
+  const order = orders.value[u.id] ?? null;
+  const plan = plannedRoute.value?.unit === u.id ? plannedRoute.value : null;
+  const explorer = canExplore(def);
+  const sites = siteHints.value?.unit === u.id ? siteHints.value.sites : [];
+  const idleCount = idleUnits(g, my, resting.value).length;
+  // Remaining route of a standing march, for "about N turns left".
+  const marchTurns = order?.kind === 'goto' ? (planRoute(u.id, order.to)?.turns ?? null) : null;
+  const here = def?.canFound ? siteFacts(g, u.at, content) : null;
+  const hereSummary = here ? siteSummary(here) : '';
+  const hereRank = sites.findIndex((x) => x.hex.q === u.at.q && x.hex.r === u.at.r);
 
   return (
     <section class="sheet unit-sheet" aria-label={`Selected unit: ${name}`}>
@@ -73,7 +87,7 @@ export function UnitSheet() {
         )}
       </div>
 
-      <p class="small muted unit-hint" role="status">
+      {!def?.canFound && <p class="small muted unit-hint" role="status">
         {unitHint({
           isFounder: !!def?.canFound,
           canFound,
@@ -86,7 +100,96 @@ export function UnitSheet() {
           military,
           canDeclare: reach.warTargets.length > 0,
         })}
-      </p>
+      </p>}
+      {def?.canFound && !plan && (
+        <div class="site-note small" role="note">
+          {canFound ? (
+            <>
+              <strong>{hereRank === 0 ? 'Best site nearby: ' : hereRank > 0 ? 'A good site: ' : 'You can settle here: '}</strong>
+              {hereSummary ? `${here?.terrain.toLowerCase() ?? 'land'} with ${hereSummary}.` : `plain ${here?.terrain.toLowerCase() ?? 'land'}, no river, coast or resources close by.`}
+            </>
+          ) : (
+            <>
+              <strong>Not here.</strong> Settle on open land outside other borders, four or more tiles from any settlement.
+            </>
+          )}
+          {sites.length > 0 && hereRank !== 0 && (
+            <>
+              <div class="site-row" aria-label="Best sites nearby, dotted on the map">
+                <span class="muted site-label">Dotted:</span>
+                {sites.map((site, i) => {
+                  const f = siteFacts(g, site.hex, content);
+                  const why = f ? siteSummary(f, 2) : '';
+                  if (site.hex.q === u.at.q && site.hex.r === u.at.r) return null;
+                  return (
+                    <button
+                      key={`${site.hex.q},${site.hex.r}`}
+                      class="btn site-btn"
+                      disabled={!canAct}
+                      aria-label={`Site ${i + 1}: ${whereWord(u.at, site.hex)}${why ? `, ${why}` : ''}. Plan a route there.`}
+                      onClick={() => previewRoute(u.id, site.hex)}
+                    >
+                      <span class="site-n" aria-hidden="true">{i + 1}</span>
+                      <span aria-hidden="true">{shortWhere(u.at, site.hex)}</span>
+                      {f?.river && <Icon name="river" size="sm" />}
+                    </button>
+                  );
+                })}
+              </div>
+              {(() => {
+                const best = sites[0];
+                const f = best ? siteFacts(g, best.hex, content) : null;
+                const why = f ? siteSummary(f, 3) : '';
+                return best && why ? (
+                  <div class="muted site-best">
+                    Site 1: {why}.
+                  </div>
+                ) : null;
+              })()}
+            </>
+          )}
+        </div>
+      )}
+      {plan && (
+        <div class="route-card card row" role="status">
+          <div class="grow small">
+            <strong>Route: about {turnsText(plan.turns)}</strong>
+            <div class="muted">Go, or tap the tile again.</div>
+          </div>
+          <button class="btn btn-ghost" onClick={cancelRoute}>
+            Cancel
+          </button>
+          <button class="btn btn-primary" disabled={!canAct} onClick={confirmRoute}>
+            <Icon name="move" /> Go
+          </button>
+        </div>
+      )}
+      {!plan && order && (
+        <div class="route-card card row" role="status">
+          <div class="grow small">
+            {order.kind === 'explore' ? (
+              <>
+                <strong>Exploring</strong> · moves on its own each turn until nothing is left or an enemy comes near.
+              </>
+            ) : (
+              <>
+                <strong>Marching</strong> · {whereWord(u.at, order.to)}
+                {marchTurns ? `, about ${turnsText(marchTurns)} left` : ''}. Moves on at the start of each turn.
+              </>
+            )}
+          </div>
+          <button
+            class="btn"
+            disabled={!canAct}
+            onClick={() => {
+              setOrder(u.id, null);
+              refreshOverlay();
+            }}
+          >
+            {order.kind === 'explore' ? 'Stop' : 'Cancel order'}
+          </button>
+        </div>
+      )}
       {routePick ? (
         <div class="unit-actions">
           <div class="small muted">Open a trade route to:</div>
@@ -115,9 +218,10 @@ export function UnitSheet() {
         <div class="unit-actions">
           {def?.canFound && (
             <button
-              class="btn btn-primary"
+              class={`btn btn-primary${guideClass('found')}`}
               disabled={!canAct || !canFound}
               onClick={() => {
+                setOrder(u.id, null);
                 dispatch({ type: 'foundSettlement', unit: u.id });
                 selectUnit(null);
               }}
@@ -135,6 +239,7 @@ export function UnitSheet() {
               class="btn"
               disabled={!canAct}
               onClick={() => {
+                setOrder(u.id, null);
                 dispatch({ type: 'fortify', unit: u.id });
                 advance();
               }}
@@ -152,6 +257,35 @@ export function UnitSheet() {
           >
             <Icon name="skip" /> Skip
           </button>
+          {explorer && order?.kind !== 'explore' && (
+            <button
+              class={`btn${guideClass('explore')}`}
+              disabled={!canAct}
+              aria-label="Explore automatically every turn"
+              onClick={() => {
+                setOrder(u.id, { kind: 'explore' });
+                plannedRoute.value = null;
+                // Take this turn's step right away through the same runner as later turns.
+                exploreNow(u.id);
+                advance();
+              }}
+            >
+              <Icon name="moves" /> Explore
+            </button>
+          )}
+          {idleCount > 1 && (
+            <button
+              class="btn"
+              disabled={!canAct}
+              aria-label={`Skip all ${idleCount} units waiting for orders this turn`}
+              onClick={() => {
+                for (const x of idleUnits(g, my, resting.value)) skipUnit(x.id);
+                selectUnit(null);
+              }}
+            >
+              <Icon name="skip" /> Skip all
+            </button>
+          )}
           {fig && u.figure && (
             <button class="btn" onClick={() => openModal({ kind: 'figure', figure: u.figure as string })}>
               <Icon name="figures" /> Figure
@@ -180,6 +314,7 @@ export function UnitSheet() {
                   confirmLabel: 'Disband',
                   danger: true,
                   onConfirm: () => {
+                    setOrder(u.id, null);
                     dispatch({ type: 'disbandUnit', unit: u.id });
                     selectUnit(null);
                   },

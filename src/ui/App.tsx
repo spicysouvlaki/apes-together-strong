@@ -6,6 +6,7 @@ import { game, route } from './store';
 import { Hud } from './shell/Hud';
 import { MapView } from './shell/MapView';
 import { ConfirmDialog, ModalHost, Toasts } from './shell/Overlays';
+import { GlossarySheet } from './shell/GlossarySheet';
 import { Setup } from './shell/Setup';
 import { Title } from './shell/Title';
 
@@ -23,6 +24,7 @@ export function App() {
       )}
       <Toasts />
       <ModalHost />
+      <GlossarySheet />
       <ConfirmDialog />
     </>
   );

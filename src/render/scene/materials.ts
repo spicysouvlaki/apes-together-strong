@@ -142,11 +142,13 @@ vec3 lightRig(vec3 n) {
   vec3 hemi = mix(uGround, uSky, n.y * 0.5 + 0.5);
   return hemi + uSunColor * k * k * 0.95 + uFillColor * max(dot(n, uFillDir), 0.0);
 }
-// Explored-but-not-visible: desaturated with a paper wash, never muddy dark.
+// Explored-but-not-visible: a warm sepia memory, like a hand-tinted engraving. Enough of the
+// original hue survives that grass, desert and forest stay tellable; never muddy dark.
 vec3 memoryTint(vec3 c, float m) {
   float l = luma(c);
-  vec3 g = mix(c, vec3(l), 0.48);
-  g = mix(g, uPaper * (0.3 + l * 0.7), 0.28) * 0.9;
+  vec3 sepia = vec3(1.26, 0.94, 0.54) * (0.08 + l * 1.04);
+  vec3 g = mix(c, sepia, 0.7);
+  g = mix(g, uPaper * (0.45 + l * 0.6), 0.14);
   return mix(c, g, clamp(m, 0.0, 1.0));
 }
 vec3 finish(vec3 c, float depth) {
@@ -270,6 +272,19 @@ void main() {
 #else
   vCol = vc.r < 0.0 ? ic * -vc.r : vc;
 #endif
+  // Skin-marked vertices (g < 0) take the owner's skin tone, packed as 0xRRGGBB in aInst.w
+  // (0 = default tone); r carries the shade.
+  if (vc.g < -0.5) {
+    float pk = aInst.w;
+    vec3 sk = vec3(0.67, 0.37, 0.2);
+    if (pk > 0.5) {
+      float r = floor(pk / 65536.0);
+      float g = floor((pk - r * 65536.0) / 256.0);
+      float b = pk - r * 65536.0 - g * 256.0;
+      sk = pow(vec3(r, g, b) / 255.0, vec3(2.2));
+    }
+    vCol = sk * vc.r;
+  }
   vN = instNormal(im, normal);
   vW = w.xyz;
   vInst = aInst;
@@ -385,7 +400,7 @@ void main() {
     else if (depth < 0.31 + wav) c = uStrata1;
     else c = uStrata2;
     if (kind > 1.5 && kind < 3.5) c = mix(c, top * 0.82, 0.38);
-    if (kind > 4.5) c = mix(c, vec3(0.32, 0.3, 0.29), 0.4);
+    if (kind > 4.5) c = mix(c, top * 0.7, 0.35);
     c *= 0.88 + 0.24 * d2.a * d2.r;
     // Baked occlusion: darker toward the base and in the seams.
     c *= mix(1.0, 0.5, smoothstep(0.05, 0.7, depth));
@@ -500,17 +515,22 @@ varying vec4 vInst;
 varying vec3 vCol;
 varying vec3 vLocal;
 void main() {
-  float depth = texture2D(uMapField, mapUv(vW.xz, uMapSize)).r;
-  float deep = smoothstep(0.12, 0.95, depth);
-  vec3 c = mix(uShallow, uDeep, deep);
-  c = mix(c, vCol, 0.15);
   float t = uTime * uAnim;
-  vec2 q = vW.xz * 0.32;
-  float r1 = texture2D(uDetail, q + vec2(t * 0.011, t * 0.006)).r;
-  float r2 = texture2D(uDetail, q * 1.63 + vec2(-t * 0.008, t * 0.01)).r;
-  float rip = r1 + r2 - 1.0;
-  c *= 1.0 + rip * 0.06;
-  c += uFoam * smoothstep(0.44, 0.56, rip) * 0.05 * (0.4 + deep);
+  // Grain-scale noise breaks the bilinear tile-field steps (no banding in the depth ramp).
+  vec4 g0 = texture2D(uDetail, vW.xz * 0.9 + 0.13);
+  float depth = texture2D(uMapField, mapUv(vW.xz, uMapSize)).r + (g0.r - 0.5) * 0.09 + (g0.a - 0.5) * 0.05;
+  float deep = smoothstep(0.08, 1.0, depth);
+  deep = deep * deep * (3.0 - 2.0 * deep);
+  // Open sea stops short of the darkest blue so it never reads as murky blotches.
+  vec3 c = mix(uShallow, uDeep, deep * 0.82);
+  c = mix(c, vCol, 0.15);
+  // Open-sea ripples: fine wind streaks (stretched noise, two drifting layers), not blotches.
+  vec2 q = vW.xz;
+  float r1 = texture2D(uDetail, q * vec2(0.55, 1.9) + vec2(t * 0.012, t * 0.004)).r;
+  float r2 = texture2D(uDetail, q * vec2(0.9, 2.6) + vec2(-t * 0.009, t * 0.007) + 0.41).r;
+  float rip = r1 * 0.55 + r2 * 0.45 - 0.5;
+  c *= 1.0 + rip * 0.07;
+  c += uFoam * smoothstep(0.17, 0.26, rip) * 0.07 * (0.3 + deep);
   int mask = int(vInst.y + 0.5);
   float sd = mask > 0 ? edgeDist(vLocal.xz, mask) : 9.0;
   float wob = 0.03 * sin(t * 1.4 + (vW.x * 2.3 + vW.z * 3.1)) + (r1 - 0.5) * 0.05;
@@ -553,14 +573,67 @@ varying float vDepth;
 varying vec4 vInst;
 varying vec3 vCol;
 varying vec3 vLocal;
-float rose(vec2 p, vec2 c) {
+float hash21(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+float stroke(float d, float w) { return 1.0 - smoothstep(w * 0.5, w, d); }
+// Rhumb lines only (both roses): 16 faint rays.
+float rays(vec2 p, vec2 c) {
   vec2 v = p - c;
   float r = length(v);
   float a = atan(v.y, v.x) * 2.5464791; // 16 rays
   float off = abs(fract(a + 0.5) - 0.5) * 0.3926991 * r;
-  float rays = (1.0 - smoothstep(0.012, 0.035, off)) * (1.0 - smoothstep(4.0, 22.0, r)) * 0.6;
-  float ring = (1.0 - smoothstep(0.015, 0.04, abs(r - 1.3))) + (1.0 - smoothstep(0.01, 0.03, abs(r - 1.55))) * 0.7;
-  return max(rays, ring);
+  return (1.0 - smoothstep(0.012, 0.035, off)) * smoothstep(1.7, 2.2, r) * (1.0 - smoothstep(5.0, 26.0, r));
+}
+// Compass rose: an eight-point star (cardinal points long, half of each point inked), two
+// rings with ticks, and a north fleur (a small diamond). Returns (ink amount, fill amount).
+vec2 rose(vec2 p, vec2 c) {
+  vec2 v = p - c;
+  float r = length(v);
+  if (r > 2.0) return vec2(0.0);
+  float a = atan(v.y, v.x);
+  float card = pow(abs(cos(2.0 * a)), 14.0);
+  float diag = pow(abs(sin(2.0 * a)), 14.0);
+  float R = 0.12 + max(card * 1.15, diag * 0.62);
+  float inside = 1.0 - smoothstep(R - 0.02, R, r);
+  // Each point split down its spine: one half inked, one half paper.
+  float half_ = step(0.0, sin(8.0 * a));
+  float edge = stroke(abs(r - R) * (0.4 + r), 0.03);
+  float ring = stroke(abs(r - 1.42), 0.03) + stroke(abs(r - 1.58), 0.025) * 0.8;
+  float ticks = stroke(abs(fract(a * 5.0929582) - 0.5) * r * 0.196, 0.025) * step(1.42, r) * step(r, 1.58);
+  vec2 n = v - vec2(0.0, -1.85);
+  float fleur = 1.0 - smoothstep(0.1, 0.13, abs(n.x) * 1.6 + abs(n.y));
+  float ink = max(max(edge, ring), max(ticks, fleur));
+  return vec2(ink, inside * half_);
+}
+// Wave glyph "~~" for open parchment sea, one per jittered cell (sparse).
+float waves(vec2 p) {
+  vec2 cell = floor(p / 1.7);
+  float h = hash21(cell);
+  if (h > 0.32) return 0.0;
+  vec2 q = p - (cell + 0.5) * 1.7 - (vec2(hash21(cell + 3.1), hash21(cell + 7.7)) - 0.5) * 0.7;
+  float ink = 0.0;
+  for (int k = 0; k < 2; k++) {
+    vec2 o = q - vec2(float(k) * 0.12, float(k) * 0.13);
+    float len = 0.32 - float(k) * 0.1;
+    float y = 0.045 * sin(o.x * 10.0 + 1.2);
+    ink = max(ink, stroke(abs(o.y - y), 0.022) * (1.0 - smoothstep(len - 0.04, len, abs(o.x))));
+  }
+  return ink;
+}
+// A sea serpent, very rarely: three humps breaking the water, a head, waterline dashes.
+float serpent(vec2 p) {
+  vec2 cell = floor(p / 7.0);
+  float h = hash21(cell + 19.3);
+  if (h > 0.2) return 0.0;
+  vec2 q = (p - (cell + 0.5) * 7.0 - (vec2(hash21(cell + 2.3), hash21(cell + 5.9)) - 0.5) * 3.0) * vec2(1.0, -1.0);
+  if (hash21(cell + 11.0) > 0.5) q.x = -q.x;
+  float s = sin(q.x * 6.0);
+  float y = 0.16 * max(s, 0.0);
+  float body = stroke(abs(q.y - y), 0.035) * step(0.02, y) * (1.0 - smoothstep(0.85, 0.9, abs(q.x + 0.15)));
+  float water = stroke(abs(q.y + 0.01), 0.018) * step(0.5, fract(q.x * 4.0)) * (1.0 - smoothstep(1.0, 1.1, abs(q.x)));
+  vec2 hd = q - vec2(0.88, 0.2);
+  float head = stroke(abs(length(hd * vec2(0.8, 1.2)) - 0.07), 0.025) + stroke(length(hd - vec2(0.02, 0.01)), 0.03);
+  float neck = stroke(abs(q.y - 0.2 * smoothstep(0.55, 0.85, q.x)), 0.03) * step(0.52, q.x) * step(q.x, 0.84);
+  return max(max(body, water), max(head, neck));
 }
 void main() {
   vec4 d = texture2D(uDetail, vW.xz * 0.19);
@@ -568,14 +641,27 @@ void main() {
   float stain = texture2D(uDetail, vW.xz * 0.035 + 0.2).r;
   vec3 c = uPaper * (0.94 + 0.09 * d.r) * (0.97 + 0.05 * d2.a);
   c = mix(c, uPaperShade, smoothstep(0.5, 0.78, stain) * 0.45);
-  float lines = max(rose(vW.xz, uCompass.xy), rose(vW.xz, uCompass.zw));
-  c = mix(c, uInk, lines * 0.16);
+  // Ink is applied with a little paper grain so strokes look drawn, not vector-perfect.
+  float grain = 0.75 + 0.25 * d2.r;
+  float lines = max(rays(vW.xz, uCompass.xy), rays(vW.xz, uCompass.zw));
+  c = mix(c, uInk, lines * 0.14);
+  vec2 ra = rose(vW.xz, uCompass.xy);
+  vec2 rb = rose(vW.xz, uCompass.zw);
+  vec2 rr = max(ra, rb);
+  c = mix(c, mix(uInk, vec3(0.42, 0.11, 0.08), 0.35), rr.y * 0.42 * grain);
+  c = mix(c, uInk, rr.x * 0.55 * grain);
+  c = mix(c, uInk, waves(vW.xz) * 0.3 * grain);
+  c = mix(c, uInk, serpent(vW.xz) * 0.38 * grain);
   int mask = int(vInst.y + 0.5);
   if (mask > 0) {
-    float sd = edgeDist(vLocal.xz, mask) + (d.r - 0.5) * 0.12;
-    float wash = 1.0 - smoothstep(0.0, 0.32, sd);
-    c = mix(c, mix(uPaperShade, uInk, 0.35), wash * 0.55);
-    c = mix(c, uInk, (1.0 - smoothstep(0.0, 0.035, sd)) * 0.6);
+    // Edge of the known world: a soft sepia wash, the inked shoreline, and old-map ripple
+    // rules running parallel to it, fading seaward.
+    float sd = edgeDist(vLocal.xz, mask) + (d.r - 0.5) * 0.1;
+    float wash = 1.0 - smoothstep(0.0, 0.42, sd);
+    c = mix(c, mix(uPaperShade, uInk, 0.3), wash * 0.5);
+    float rule = stroke(abs(fract(sd * 6.5 - 0.15) - 0.5) / 6.5, 0.012) * (1.0 - smoothstep(0.08, 0.5, sd)) * step(0.06, sd);
+    c = mix(c, uInk, rule * 0.3 * grain);
+    c = mix(c, uInk, (1.0 - smoothstep(0.0, 0.035, sd)) * 0.65);
   }
   c = finish(c * 0.98, vDepth);
   ${OUT}

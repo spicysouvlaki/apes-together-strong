@@ -6,6 +6,7 @@ import { Empty, FigureCard, Screen } from './shared/components';
 import { nextOffer, offerPosition, offerView } from './shared/offer';
 import { Icon } from '../art/Icon';
 import { KIND_ICON } from '../art/portrait-spec';
+import { guide } from '../shell/guide-state';
 
 const motionOff = (): boolean =>
   document.documentElement.classList.contains('reduce-motion') || matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -95,6 +96,20 @@ export const OfferScreen = ({ modal }: ScreenProps<'offer'>) => {
         <h2>{view.title}</h2>
         {view.story && <p class="scr-offer-story">{view.story}</p>}
       </div>
+      {!guide.value.disabled && (g.players[player]?.stats.figuresRecruited ?? 0) === 0 && (
+        <aside class="advice advice-inline" aria-label="The Chronicler on great people">
+          <div class="advice-who">
+            <span class="advice-quill" aria-hidden="true">
+              <Icon name="chronicle" size="sm" />
+            </span>
+            <span class="advice-name">The Chronicler</span>
+          </div>
+          <p class="advice-text">
+            Every one of these people really lived. They came because of how and where you play; the line under each name says what drew them.
+            Welcome one: later you can seat them in your cabinet, deploy them on the map, spend them on a great deed, or consume them for points.
+          </p>
+        </aside>
+      )}
       {offer.candidates.map((id, i) => {
         const def = lookup.figures[id];
         if (!def) return null;

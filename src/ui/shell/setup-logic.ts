@@ -3,7 +3,7 @@
  * UI-side randomness is fine here (outside the sim); the resulting GameSetup carries the seed
  * the sim will use.
  */
-import type { GameSetup, GameSpeed, MapSize, PlayerSetup } from '@contracts/sim-api';
+import type { Difficulty, GameSetup, GameSpeed, MapSize, PlayerSetup } from '@contracts/sim-api';
 
 /**
  * Banner colors: the Okabe–Ito colorblind-safe palette (plus white/black for secondaries).
@@ -35,6 +35,32 @@ export const SPEEDS: readonly { id: GameSpeed; label: string }[] = [
   { id: 'standard', label: 'Standard' },
   { id: 'epic', label: 'Epic' },
 ];
+
+/** Difficulty only scales rivals (GDD §9 "yield bonuses and depth, never hidden information"). */
+export const DIFFICULTIES: readonly { id: Difficulty; label: string }[] = [
+  { id: 'easy', label: 'Easy' },
+  { id: 'normal', label: 'Normal' },
+  { id: 'hard', label: 'Hard' },
+];
+
+/** One plain line per difficulty, from the sim's percentages (sim/constants.ts). */
+export const difficultyNote = (
+  d: Difficulty,
+  yieldPercent: Record<Difficulty, number>,
+  costPercent: Record<Difficulty, number>,
+  humanHappiness: Record<Difficulty, number> = { easy: 0, normal: 0, hard: 0 },
+): string => {
+  const y = yieldPercent[d];
+  const c = costPercent[d];
+  const yields = y === 0 ? 'Rivals play on even terms with you' : y < 0 ? `Rivals gather ${-y}% less food, production, gold, science and culture` : `Rivals gather ${y}% more food, production, gold, science and culture`;
+  const cost = c < 0 ? ` and build ${-c}% cheaper` : c > 0 ? ` and build ${c}% dearer` : '';
+  const h = humanHappiness[d];
+  const mood = h > 0 ? `; each of your settlements adds ${h} happiness` : '';
+  return `${yields}${cost}${mood}.`;
+};
+
+/** A stored difficulty if it is a known one, else 'normal'. */
+export const knownDifficulty = (d: unknown): Difficulty => (DIFFICULTIES.some((x) => x.id === d) ? (d as Difficulty) : 'normal');
 
 export const MIN_RIVALS = 1;
 export const MAX_RIVALS = 2;
@@ -80,6 +106,8 @@ export interface SetupChoices {
   speed: GameSpeed;
   rivals: number;
   seed: number;
+  /** Default 'normal'. */
+  difficulty?: Difficulty;
 }
 
 /** Parse the editable seed field; null when it is not a usable positive integer. */
@@ -130,5 +158,5 @@ export const buildGameSetup = (c: SetupChoices, leaderIds: readonly string[], dr
       skinTone: Math.floor(rand() * SKIN_TONES.length),
     });
   }
-  return { seed: c.seed, mapSize: c.mapSize, speed: c.speed, players };
+  return { seed: c.seed, mapSize: c.mapSize, speed: c.speed, players, difficulty: c.difficulty ?? 'normal' };
 };

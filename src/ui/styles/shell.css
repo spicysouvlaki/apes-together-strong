@@ -377,3 +377,89 @@ input[type='range'] { min-height: var(--tap); accent-color: var(--woad); }
 .tick-drop { animation: tick-drop 360ms ease-out; display: inline-block; }
 @keyframes tick-pop { 40% { transform: translateY(-2px) scale(1.12); color: var(--verdigris); } }
 @keyframes tick-drop { 40% { transform: translateY(1px); color: var(--madder); } }
+
+/* --- Guide: the chronicler's slip above the controls ----------------------- */
+.advice {
+  position: relative; margin: 0 10px 8px; padding: 8px 12px 10px 14px; border-radius: 2px; pointer-events: auto;
+  background: var(--grain), linear-gradient(#fbf5e3, #f0e3c4);
+  border: 1px solid rgba(70, 48, 20, 0.4);
+  box-shadow: inset 0 0 0 3px rgba(251, 245, 227, 0.9), inset 0 0 0 4px rgba(184, 137, 43, 0.35), var(--shadow-lift);
+  animation: toast-in 280ms cubic-bezier(0.2, 1.3, 0.4, 1);
+}
+.advice::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 5px; background: var(--gold-leaf); }
+.advice-who { display: flex; align-items: center; gap: 8px; min-height: 28px; }
+.advice-quill {
+  width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; flex: none; color: #f7e4c8;
+  background: radial-gradient(circle at 36% 30%, #c45a45, var(--wax) 55%, #5a1810);
+}
+.advice-name {
+  flex: 1; min-width: 0; font-family: var(--font-display); font-weight: 650; font-size: 0.8rem; color: var(--madder);
+  font-variant-caps: all-small-caps; text-transform: lowercase; letter-spacing: 0.08em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.advice-close {
+  width: var(--tap); height: var(--tap); margin: -8px -10px -8px 0; flex: none; border: 0; background: transparent; color: var(--ink-soft);
+  display: grid; place-items: center; border-radius: 4px; cursor: pointer;
+}
+.advice-close:active { background: rgba(120, 90, 40, 0.12); }
+.advice-text { margin: 2px 0 0; font-family: var(--font-display); font-style: italic; font-size: 0.92rem; line-height: 1.35; }
+.advice-inline { margin: 4px 0 14px; animation: none; }
+
+/* The control a tip points at: a breathing gold ring (static under reduce motion). */
+.guide-pulse { outline: 3px solid var(--madder); outline-offset: 3px; animation: guide-pulse 1.4s ease-in-out infinite; }
+@keyframes guide-pulse {
+  0%, 100% { outline-color: rgba(155, 52, 38, 0.95); outline-offset: 2px; }
+  50% { outline-color: rgba(155, 52, 38, 0.3); outline-offset: 7px; }
+}
+
+/* --- Settler sites, routes and orders in the unit sheet ------------------- */
+.site-note { margin: 0 0 8px; padding: 8px 10px; border-left: 3px solid var(--verdigris); background: rgba(59, 117, 102, 0.08); }
+.site-list { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+.site-btn { justify-content: flex-start; text-align: left; min-height: var(--tap); padding: 0 10px; font-family: var(--font-text); font-weight: 400; font-size: 0.88rem; }
+.site-text { overflow: hidden; text-overflow: ellipsis; }
+.site-n {
+  width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; flex: none; font-family: var(--font-display); font-weight: 700;
+  font-size: 0.78rem; color: var(--paper-hi); background: var(--verdigris);
+}
+.route-card { margin: 0 0 8px; flex-wrap: wrap; }
+.route-card .btn { min-height: var(--tap); }
+
+/* --- Glossary terms and sheet ------------------------------------------- */
+.term {
+  display: inline; cursor: pointer; color: inherit; font: inherit; padding: 0;
+  text-decoration: underline dotted rgba(155, 52, 38, 0.75); text-decoration-thickness: 1.5px; text-underline-offset: 3px;
+  /* A thin target grows to 44px tall without moving the text. */
+  position: relative;
+}
+.term::after { content: ''; position: absolute; left: -2px; right: -2px; top: 50%; height: var(--tap); transform: translateY(-50%); }
+.gloss-backdrop { position: fixed; inset: 0; z-index: 35; background: rgba(30, 20, 10, 0.35); animation: fade-in 160ms ease-out; }
+.gloss-sheet { z-index: 36; max-height: 70vh; }
+.gloss-text { margin: 8px 0 4px; }
+
+/* --- Idle sheet, turn log, codex, menu ---------------------------------- */
+.idle-sheet { max-height: 80vh; overflow-y: auto; }
+.idle-list { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.idle-row { justify-content: flex-start; text-align: left; }
+.log-sheet { max-height: 70vh; }
+.log-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.log-item { padding: 4px 0 4px 10px; border-left: 3px solid var(--ink-faint); font-size: 0.9rem; }
+.log-item.tone-good { border-color: var(--verdigris); }
+.log-item.tone-bad { border-color: var(--madder); color: var(--madder-deep); }
+.log-item.tone-culture { border-color: var(--gold); font-style: italic; }
+.codex-nav { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 4px; }
+.codex-chip { min-height: var(--tap); padding: 0 12px; font-size: 0.86rem; cursor: pointer; font-family: var(--font-display); font-weight: 600; }
+.codex-yields { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.codex [id^='codex-'] { scroll-margin-top: 8px; }
+.menu-facts { margin: 4px 2px 0; text-align: center; text-transform: none; }
+.setup-note { margin: 6px 0 0; font-style: italic; }
+.site-row { display: flex; align-items: center; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
+.site-label { font-style: italic; }
+.site-row .site-btn { padding: 0 10px 0 6px; gap: 6px; font-family: var(--font-display); font-weight: 600; }
+.site-best { margin-top: 4px; font-style: italic; }
+.advice-compact { display: flex; align-items: center; gap: 8px; padding: 2px 10px 2px 12px; }
+.advice-compact .advice-text { flex: 1; margin: 0; font-size: 0.86rem; }
+.advice-compact .advice-close { margin: 0 -10px 0 0; }
+/* The End Turn plaque has a fixed slot beside the quick buttons: its label grows with text
+   size only within a band, so "End Turn" never truncates at 150%. */
+.end-turn { font-size: clamp(13px, 1rem, 17px); }
+.end-turn .end-turn-kicker { font-size: clamp(10px, 0.68rem, 12px); }
+.end-turn-two > span { max-width: 96px; }

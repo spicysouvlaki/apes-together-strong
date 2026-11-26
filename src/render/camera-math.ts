@@ -10,7 +10,11 @@ export type ZoomBand = 'close' | 'regional' | 'strategic';
 
 /** Camera distance (world units from the look-at target). */
 export const MIN_DISTANCE = 5;
-export const CLOSE_MAX = 16;
+/**
+ * Close band ends a little past the default framing (DEFAULT_HEXES_ACROSS on a phone is a
+ * normalized distance of ~16.7), so a new game opens in full diorama detail.
+ */
+export const CLOSE_MAX = 19;
 export const REGIONAL_MAX = 44;
 /** Fraction of a threshold a band must overshoot before switching back (no flicker). */
 export const BAND_HYSTERESIS = 0.06;
@@ -36,6 +40,19 @@ export const nextZoomBand = (distance: number, current: ZoomBand): ZoomBand => {
     case 'strategic':
       return distance >= REGIONAL_MAX * (1 - h) ? 'strategic' : raw;
   }
+};
+
+/** How many hexes span the short screen axis at the default framing (GDD §11 first impression). */
+export const DEFAULT_HEXES_ACROSS = 7;
+
+/**
+ * Camera distance that shows `hexes` pointy-top hexes (√3 wide each) across the short screen
+ * axis at the look-at point. Pure; accounts for the aspect so portrait phones are not too far.
+ */
+export const defaultDistanceFor = (aspect: number, fovYDeg: number, hexes = DEFAULT_HEXES_ACROSS): number => {
+  const tanY = Math.tan(((fovYDeg / 2) * Math.PI) / 180);
+  const across = hexes * Math.sqrt(3);
+  return across / (2 * tanY * Math.max(0.1, Math.min(1, aspect)));
 };
 
 /** Pitch (radians above the horizon): tilted when close, nearly top-down when far. */
@@ -91,6 +108,17 @@ export const clampTarget = (
     return Math.max(lo, Math.min(hi, v));
   };
   return { x: axis(x, b.minX, b.maxX, viewHalfW), z: axis(z, b.minZ, b.maxZ, viewHalfH) };
+};
+
+/**
+ * Half extent to clamp the target with. Zoomed in, only a fraction of the view is kept over the
+ * map, so the start or a coastal capital can sit at the screen center even next to the map
+ * edge (the first-impression framing); as the view approaches the map's size it blends to the
+ * full extent, so zooming all the way out still centers the board.
+ */
+export const softHalfExtent = (half: number, mapSpan: number): number => {
+  const k = Math.max(0, Math.min(1, half / Math.max(1e-6, mapSpan / 2)));
+  return half * (0.25 + 0.75 * k * k);
 };
 
 /** Approximate half extents of the ground visible at `distance` (for clampTarget). */

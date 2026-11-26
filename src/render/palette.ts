@@ -34,9 +34,9 @@ export const ART = {
   strata0: '#8e6d4c',
   strata1: '#735539',
   strata2: '#53402e',
-  // Board plinth (sides of the whole map).
-  plinth0: '#7d5d40',
-  plinth1: '#5a4230',
+  // Board: the chart's vellum sheet (its cut edge, light to shaded).
+  plinth0: '#d9c49b',
+  plinth1: '#a98d64',
   // Water.
   waterShallow: '#79c2bd',
   waterDeep: '#2c6688',
@@ -45,6 +45,20 @@ export const ART = {
   // Blob shadows.
   shadow: '#2b2016',
 } as const;
+
+/**
+ * Figurine skin tones by PlayerState.skinTone index. Mirrors the setup screen's swatches
+ * (src/ui/shell/setup-logic.ts SKIN_TONES); the renderer may not import the UI, so keep in sync.
+ */
+export const SKIN_TONES: readonly string[] = ['#f6d7c3', '#e8b796', '#c98e63', '#a46a43', '#7a4b2c', '#4f301c'];
+
+/** Packed 0xRRGGBB (a float-exact integer) for the figurine shader; 0 = default tone. */
+export const packedSkin = (index: number | undefined): number => {
+  if (index === undefined || !Number.isFinite(index)) return 0;
+  const n = SKIN_TONES.length;
+  const hex = SKIN_TONES[((Math.round(index) % n) + n) % n] ?? SKIN_TONES[2] ?? '#c98e63';
+  return parseInt(hex.slice(1), 16);
+};
 
 export const artRgb = (k: keyof typeof ART): Rgb => {
   const v = ART[k];

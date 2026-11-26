@@ -433,8 +433,32 @@ const [W, H] = sizes[params.get('size') ?? 'small'] ?? [48, 30];
 const seed = Number(params.get('seed') ?? 7) || 7;
 const notes: string[] = [];
 
+/** Real sim game (game=1): the opening exactly as a new player sees it. */
+let simApi: typeof import('../sim/index') | null = null;
+let simQueries: typeof import('../sim/queries') | null = null;
+
 const build = async (): Promise<Built> => {
   const content = getContent();
+  if (params.get('game') === '1') {
+    simApi = await import('../sim/index');
+    simQueries = await import('../sim/queries');
+    const colors = [
+      { primary: '#2f5d8a', secondary: '#e9d9a6' },
+      { primary: '#a33b2b', secondary: '#f1e3c0' },
+      { primary: '#4e7d3a', secondary: '#efe2c2' },
+    ];
+    const players = colors.map((c, k) => ({
+      id: `p${k + 1}`,
+      isHuman: k === 0,
+      leader: content.leaders[k % content.leaders.length]?.id ?? '',
+      dream: content.dreams[k % content.dreams.length]?.id ?? '',
+      colors: c,
+      skinTone: Number(params.get('skin') ?? k * 2),
+    }));
+    const { state } = simApi.createGame({ seed, mapSize: (params.get('size') ?? 'small') as GameState['mapSize'], speed: 'standard', players }, content);
+    notes.push('real game');
+    return { state, content };
+  }
   if (params.get('real') === '1') {
     try {
       const { generateMap } = await import('../sim/mapgen');
@@ -470,7 +494,7 @@ const main = async (): Promise<void> => {
 
   let band = 'close';
   const push = (): void => {
-    const visible = computeFog(state, 'p1');
+    const visible = simQueries ? [...simQueries.queries.visibleTiles(state, 'p1', content)] : computeFog(state, 'p1');
     renderer.setState(state, viewer, viewer === null ? [] : visible);
     renderer.setHints({ readyUnits: Object.values(state.units).filter((u) => u.owner === 'p1' && u.movesLeft > 0).map((u) => u.id) });
   };
@@ -645,6 +669,87 @@ const main = async (): Promise<void> => {
     infoEl.textContent = `quality ${renderer.getQuality()}`;
   });
   if (params.get('bench') === '1') setTimeout(runBench, 500);
+
+  // game=1 helpers (console): found with the settler, end turns (AIs just pass).
+  const apply = (player: string, command: Parameters<NonNullable<typeof simApi>['applyCommand']>[2]): boolean => {
+    if (!simApi) return false;
+    const res = simApi.applyCommand(state, player, command, content);
+    if (res.ok) state = res.state;
+    else console.warn(res.error);
+    return res.ok;
+  };
+  const demoApi = {
+    found: (): void => {
+      const s = Object.values(state.units).find((u) => u.owner === 'p1' && u.type === 'settler');
+      if (s && apply('p1', { type: 'foundSettlement', unit: s.id })) {
+        push();
+        const at = Object.values(state.settlements).find((x) => x.owner === 'p1')?.at;
+        if (at) renderer.flash(at, 'found');
+      }
+    },
+    endTurns: (k = 1): void => {
+      for (let t = 0; t < k; t++) {
+        for (let guard = 0; guard < 8; guard++) {
+          const cur = state.currentPlayer;
+          if (!apply(cur, { type: 'endTurn' })) break;
+          if (state.currentPlayer === 'p1') break;
+        }
+      }
+      push();
+    },
+    move: (id: string, q: number, r: number): void => {
+      if (apply('p1', { type: 'moveUnit', unit: id, to: { q, r } })) push();
+    },
+  };
+  (window as unknown as { demo: typeof demoApi }).demo = demoApi;
+
+  // Motion inspection (works even when the tab is hidden and rAF is throttled): freeze the
+  // clock, step it by hand and composite canvas crops at chosen times into a film strip.
+  //   film(() => renderer.flash(hex, 'combat'), [30, 90, 200, 400], [x, y, w, h])  (canvas px)
+  const debugFrame = (renderer as unknown as { debugFrame: () => unknown }).debugFrame;
+  let frozen: number | null = null;
+  const realNow = performance.now.bind(performance);
+  const film = (start: () => void, times: number[], rect: [number, number, number, number]): string => {
+    if (frozen === null) {
+      frozen = realNow();
+      performance.now = () => frozen ?? realNow();
+    }
+    debugFrame();
+    start();
+    const [x0, y0, w, h] = rect;
+    const cols = 3;
+    const out = document.createElement('canvas');
+    out.width = w * cols;
+    out.height = h * Math.ceil(times.length / cols);
+    const ctx = out.getContext('2d');
+    let acc = 0;
+    times.forEach((t, k) => {
+      frozen = (frozen ?? 0) + (t - acc);
+      acc = t;
+      debugFrame();
+      ctx?.drawImage(canvas, x0, y0, w, h, (k % cols) * w, Math.floor(k / cols) * h, w, h);
+      if (ctx) {
+        ctx.fillStyle = '#000';
+        ctx.font = '20px sans-serif';
+        ctx.fillText(`${t}ms`, (k % cols) * w + 6, Math.floor(k / cols) * h + 22);
+      }
+    });
+    let img = document.getElementById('film') as HTMLImageElement | null;
+    if (!img) {
+      img = document.createElement('img');
+      img.id = 'film';
+      document.body.appendChild(img);
+    }
+    img.style.cssText = `position:fixed;left:0;top:0;width:${out.width / 2}px;height:${out.height / 2}px;z-index:10;pointer-events:none`;
+    img.src = out.toDataURL();
+    return `${out.width}x${out.height}`;
+  };
+  const unfreeze = (): void => {
+    frozen = null;
+    performance.now = realNow;
+    document.getElementById('film')?.remove();
+  };
+  Object.assign(window, { film, unfreeze });
 
   setInterval(() => {
     const s = renderer.stats();

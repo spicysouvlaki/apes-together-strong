@@ -1,6 +1,6 @@
 /** Roster grouping and public figure counts (GDD §3 figure states, §6 culture weight). Pure. */
 import type { ContentBundle, Figure } from '@contracts/content-schemas';
-import type { CultureId, FigureState, GameState, PlayerId, PlayerState } from '@contracts/sim-api';
+import type { CultureId, FigureState, GameState, PlayerId } from '@contracts/sim-api';
 
 export type RosterGroupId = 'seated' | 'field' | 'home' | 'hall' | 'consumed';
 
@@ -114,41 +114,3 @@ export const weightRows = (
     .filter((x) => x.weight > 0)
     .sort((a, b) => b.weight - a.weight || a.i - b.i)
     .map(({ culture, weight }) => ({ culture, weight }));
-
-/**
- * Why a based figure cannot be seated, read from public state (the player's own cabinet,
- * cooldowns and the content's seat rules). Only consulted when q.figureActions returned no seat,
- * so it explains the sim's answer rather than deciding it. Mirrors the validator's order:
- * anarchy, no matching seat, all taken, cooling down. `seatName` turns a slot key into a label.
- *
- * TODO(contracts): FigureActions should carry the validator's reasons so the UI can stop
- * explaining them itself.
- */
-export const seatBlockedReason = (
-  p: PlayerState,
-  def: Figure,
-  turn: number,
-  content: ContentBundle,
-  seatName: (key: string) => string,
-  figureName: (id: string) => string,
-): string => {
-  if (p.anarchyTurns > 0) return `No cabinet changes during anarchy (${p.anarchyTurns} more ${p.anarchyTurns === 1 ? 'turn' : 'turns'}).`;
-  const keys = Object.keys(p.cabinet);
-  if (keys.length === 0) return 'Choose a government to open cabinet seats.';
-  const suits = keys.filter((k) => content.cabinetSlots.find((s) => s.id === slotIdOfKey(k))?.accepts.includes(def.kind));
-  if (suits.length === 0) {
-    const names = [...new Set(keys.map(seatName))].join(', ');
-    return `Your government has no seat for them (seats: ${names}).`;
-  }
-  const free = suits.filter((k) => !p.cabinet[k]);
-  if (free.length === 0) {
-    const who = suits.map((k) => `${seatName(k)}: ${figureName(p.cabinet[k] ?? '')}`).join('; ');
-    return `Every seat that suits them is taken (${who}). Unseat someone first.`;
-  }
-  const soonest = Math.min(...free.map((k) => p.cabinetCooldown[k] ?? 0));
-  if (soonest > turn) {
-    const k = free.find((x) => (p.cabinetCooldown[x] ?? 0) === soonest) ?? free[0] ?? '';
-    return `The ${seatName(k)} seat was just vacated; it can be filled again on turn ${soonest}.`;
-  }
-  return 'No free cabinet seat suits them right now.';
-};

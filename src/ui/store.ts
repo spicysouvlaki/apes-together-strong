@@ -44,7 +44,10 @@ export type Modal =
   | { kind: 'tileInfo'; hex: Hex }
   | { kind: 'menu' }
   | { kind: 'saves' }
-  | { kind: 'settings' };
+  | { kind: 'settings' }
+  | { kind: 'codex' }
+  /** Recent events as sentences, newest turn first (the "+N more updates" toast opens it). */
+  | { kind: 'log' };
 
 export type ModalKind = Modal['kind'];
 
@@ -54,6 +57,8 @@ export interface Toast {
   /** Tapping the toast opens this. */
   action: Modal | null;
   tone: 'info' | 'good' | 'bad' | 'culture';
+  /** Where it happened; tapping the toast centers the map there. */
+  at?: Hex;
 }
 
 export interface Selection {

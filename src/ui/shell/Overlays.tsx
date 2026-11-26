@@ -4,7 +4,9 @@
  */
 import { useEffect } from 'preact/hooks';
 import type { ComponentType } from 'preact';
-import { closeModal, confirmRequest, dismissToast, modal, openModal, toasts, type Modal, type Toast } from '../store';
+import { closeModal, confirmRequest, dismissToast, focusMap, modal, openModal, toasts, type Modal, type Toast } from '../store';
+import { CodexScreen } from './Codex';
+import { TurnLog } from './TurnLog';
 import { screens, type ScreenKind } from '../screens';
 import { CitySheet } from './CitySheet';
 import { toastDuration } from './event-toasts';
@@ -22,18 +24,19 @@ function ToastItem({ t }: { t: Toast }) {
       class={`toast tone-${t.tone}`}
       onClick={() => {
         dismissToast(t.id);
+        if (t.at) focusMap(t.at);
         if (t.action) openModal(t.action);
       }}
-      aria-label={t.action ? `${t.text} Tap to open.` : t.text}
+      aria-label={t.action ? `${t.text} Tap to open.` : t.at ? `${t.text} Tap to show on the map.` : t.text}
     >
       <span class="toast-text">{t.text}</span>
-      {t.action && <Icon name="chevron" size="sm" />}
+      {(t.action || t.at) && <Icon name="chevron" size="sm" />}
     </button>
   );
 }
 
 /** Map sheets leave the map in view; every other modal is a full screen. */
-const SHEET_KINDS: ReadonlySet<string> = new Set(['city', 'tileInfo']);
+const SHEET_KINDS: ReadonlySet<string> = new Set(['city', 'tileInfo', 'log']);
 
 export function Toasts() {
   const list = toasts.value;
@@ -105,6 +108,10 @@ export function ModalHost() {
       return <SavesPanel />;
     case 'settings':
       return <SettingsPanel />;
+    case 'codex':
+      return <CodexScreen />;
+    case 'log':
+      return <TurnLog />;
     default: {
       // The registry is keyed by kind; each screen takes the modal that opened it.
       const Screen = screens[m.kind as ScreenKind] as ComponentType<{ modal: Modal }> | undefined;

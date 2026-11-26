@@ -45,11 +45,21 @@
  *   Taps outside the map produce no callback. Picking is O(1) (ray -> plane -> axial round,
  *   corrected for tile height).
  *
+ * FIRST FRAME / FRAMING
+ *   On the first snapshot (and on a map-size change) the camera centers the viewer's capital,
+ *   else their first unit, in the HUD-free area at the default framing: ~7 hexes across the
+ *   short screen axis (camera-math defaultDistanceFor), which is in the 'close' band. Zoomed
+ *   in, an edge tile may sit at the screen center (the start is often near the map edge);
+ *   zoomed out, the board centers. focus(hex) keeps the player's zoom unless
+ *   `{ zoom: 'default' }` is passed.
+ *
  * FOG OF WAR
  *   `visible` = tile indices currently in sight (pass `queries.visibleTiles`); explored comes
- *   from `state.players[viewer].explored`. Unexplored = aged parchment (paper grain, stains,
- *   faint rhumb lines, an ink wash along the edge of what is known), no terrain hint.
- *   Explored-not-visible = desaturated with a paper wash (not darkened). Other players' units and
+ *   from `state.players[viewer].explored`. Unexplored = an illustrated old chart: paper grain
+ *   and stains, rhumb lines, a compass rose placed just beyond the viewer's start (inside the
+ *   opening frame), sparse inked wave glyphs and the odd sea serpent, and at the edge of what
+ *   is known a sepia wash with ripple rules; no terrain hint. The vellum sheet runs well past
+ *   the map edge. Explored-not-visible = a warm sepia memory that keeps terrain readable. Other players' units and
  *   settlements show only on visible tiles; the viewer's own always show. `viewer = null`
  *   reveals everything (debug/spectate).
  *
@@ -63,12 +73,17 @@
  *   Terrain colors come from content, graded for distinguishability (terrain-style.ts) and then
  *   into one pastel family (palette.ts). Resources are small props (sheaves, orchards, animals,
  *   ore, fish rings, bales) over a soft halo in their class color (bonus gold, luxury magenta,
- *   strategic steel); unknown ids keep the class marker. Territory: crisp outer-edge borders
- *   (keyline + owner primary + secondary, borders.ts) and a soft wash. Units are figurines on a
- *   round base with a team-colored band and a rim: white = yours, dark = rival, red = at war;
- *   figure-units/commanders add a gold ring. Rival settlements at war with the viewer get a red
- *   ring and a red ⚔ label. Labels are serif parchment cartouches ('Fraunces', redrawn once the
- *   font loads), de-overlapped on camera moves (label-layout.ts).
+ *   strategic steel); unknown ids keep the class marker. Territory: ONE continuous inked band per
+ *   territory, only on its outer boundary, mitred at every corner and hugging tile heights
+ *   (borders.ts buildBorderMesh, one draw call): ink keyline, owner primary, thin secondary
+ *   rule, soft inner wash; patterns cut the primary strip only when enabled. Units are
+ *   figurines (owner skin tone from PlayerState.skinTone) on a round base with a team band and
+ *   a rim: white = yours, dark = rival, red = at war; figure-units/commanders add a gold ring;
+ *   trees clear around visible units. Rival settlements at war with the viewer get a red ring
+ *   and a red ⚔ label. Labels are vellum banner cartouches ('Fraunces', both unicode-range
+ *   subsets requested explicitly and redrawn once loaded, so ā ð ḥ render in the face) that
+ *   hang on a short ink leader ABOVE the settlement; de-overlap only moves labels up, and never
+ *   into the HUD bands (safe area).
  *
  * SETTLEMENTS
  *   Built from per-culture motif kits keyed by the culture `architecture` of `namedFor`, blended
@@ -92,22 +107,29 @@
  *   r.zoomBy(factor)             >1 zooms out about the screen center (buttons, bench)
  *   createRenderer(…, { quality: 'low' }) / r.setQuality('low' | 'high') / r.getQuality()
  *                                'low' drops micro-detail, blob shadows and ambient animation
- *   r.flash(hex, kind)           combat: ring + unit hit-shake + dust; found: settlement pop-in +
- *                                dust; capture: banner swap flourish; recruit: golden sparkle.
- *                                Under reduceMotion only the ring shows.
+ *   r.flash(hex, kind)           combat: shock ring + unit hit-shake + dust; found: settlement
+ *                                pop-in + dust; capture: banner swap (swells, spins in) + town
+ *                                bounce + confetti in the new owner's colors; recruit: golden
+ *                                sparkle. Under reduceMotion only the ring shows.
+ *   r.focus(hex, { zoom: 'default' })  also reset to the default framing (e.g. "go to capital")
  *   r.stats().frameMs            CPU ms per rendered frame (EMA)
  *   Trade routes owned by the viewer draw as a dotted line between their settlements.
  *
  * PERFORMANCE
  *   ~50-60 draw calls at close/regional zoom regardless of map size (everything is instanced;
- *   empty layers cost nothing; labels are one atlas-backed instanced draw), ~15 at strategic.
- *   Measured (375x812 @2x): small map 57 draws / ~170k tris high, 51 / ~100k low; fully revealed
- *   standard map ~450k / ~290k tris. Renders on demand (camera motion, new state, animations);
- *   ambient animation (water ripples/foam, banner sway, attack pulse, selected-unit bob) runs at
- *   ~30 fps for ~9 s after the last interaction, then the map sleeps; never under reduceMotion or
- *   quality 'low'. `stats().fps` is the rate while something moves, not idle.
+ *   empty layers cost nothing; labels are one atlas-backed instanced draw; the territory band
+ *   is one merged mesh), ~15 at strategic. Measured (375x812 @2x, demo real=1): default framing
+ *   56 draws / ~150k tris high, 50 / ~85k low; strategic 14 draws. Renders on demand (camera
+ *   motion, new state, animations); ambient animation (water ripples/foam, banner sway, attack
+ *   pulse, selected-unit bob) runs at ~30 fps for ~9 s after the last interaction, then drops to
+ *   a cheap perpetual idle at ~13 fps so the world never freezes; neither runs under
+ *   reduceMotion or quality 'low' (the map then sleeps between inputs). `stats().fps` is the
+ *   rate while something moves, not idle.
  *   Handles webglcontextlost/restored by re-uploading everything from the last snapshot.
- *   Demo: /render-demo.html?real=1 (&bench=1, &quality=low, &age=classical, &reveal=1).
+ *   Demo: /render-demo.html?real=1 (&bench=1, &quality=low, &age=classical, &reveal=1);
+ *   ?game=1 is a real sim game at turn 1 (window.demo.found(), .endTurns(n), .move(id, q, r));
+ *   window.film(start, [ms…], [x, y, w, h]) freezes the clock and composites canvas crops at
+ *   those times into a film strip (inspects motion even when the tab is hidden).
  */
 import type { ContentBundle } from '@contracts/content-schemas';
 import type { Hex } from '@contracts/hex';
@@ -173,8 +195,12 @@ export interface Renderer {
   setState(state: GameState, viewer: PlayerId | null, visible: readonly number[]): void;
   /** Partial update: omitted fields keep their previous value. Pass `null`/`[]` to clear. */
   setSelection(sel: Partial<RenderSelection>): void;
-  /** Smoothly center the camera on a hex (in the HUD-free area, see setSafeArea). */
-  focus(hex: Hex, opts?: { instant?: boolean; safeArea?: Partial<SafeArea> }): void;
+  /**
+   * Smoothly center the camera on a hex (in the HUD-free area, see setSafeArea).
+   * `zoom: 'default'` also resets the zoom to the default framing (~7 hexes across the short
+   * screen axis), e.g. for "go to capital"; without it the player's zoom is kept.
+   */
+  focus(hex: Hex, opts?: { instant?: boolean; safeArea?: Partial<SafeArea>; zoom?: 'default' }): void;
   /** Returns an unsubscribe function. */
   onTap(cb: (hex: Hex) => void): () => void;
   onLongPress(cb: (hex: Hex) => void): () => void;

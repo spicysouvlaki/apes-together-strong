@@ -4,9 +4,17 @@ import resources from '../content/resources.json';
 import { CITY_STATE_PREFIX, RAIDER_PLAYER } from '../src/contracts/sim-api';
 import { BANNER_COLORS } from '../src/ui/shell/setup-logic';
 import { CITY_STATE_COLORS, RAIDER_COLORS, parseHexColor } from '../src/render/colors';
-import { EDGE_ROTATION, computeBorderEdges, createEdgeList } from '../src/render/borders';
+import {
+  BORDER_STRIPS,
+  EDGE_ROTATION,
+  buildBorderMesh,
+  computeBorderEdges,
+  createBorderMeshData,
+  createEdgeList,
+  type BorderColors,
+} from '../src/render/borders';
 import { computeRiverSegments } from '../src/render/rivers';
-import { LabelLayout } from '../src/render/label-layout';
+import { LABEL_SHIFTS, LabelLayout } from '../src/render/label-layout';
 import { CITY_STATE_PATTERN, PATTERN, PLAYER_PATTERNS, RAIDER_PATTERN, patternFor, patternKeep } from '../src/render/patterns';
 import { GhostMemory } from '../src/render/ghosts';
 import { FOG_EXPLORED, FOG_UNEXPLORED, FOG_VISIBLE } from '../src/render/colors';
@@ -143,6 +151,100 @@ describe('render borders', () => {
   });
 });
 
+describe('render borders: continuous band mesh', () => {
+  const W = 9;
+  const H = 9;
+  // A radius-2 blob owned by p1 around the center, plus a lone p2 tile touching it.
+  const center = hexAtIndex(4 * W + 4, W);
+  const owners: (string | null)[] = new Array<string | null>(W * H).fill(null);
+  for (let i = 0; i < W * H; i++) {
+    const h = hexAtIndex(i, W);
+    const dq = h.q - center.q;
+    const dr = h.r - center.r;
+    if ((Math.abs(dq) + Math.abs(dr) + Math.abs(dq + dr)) / 2 <= 2) owners[i] = 'p1';
+  }
+  const p2 = tileIndex({ q: center.q + 3, r: center.r }, W, H);
+  owners[p2] = 'p2';
+  const x = new Float32Array(W * H);
+  const z = new Float32Array(W * H);
+  const top = new Float32Array(W * H).fill(0.2);
+  for (let i = 0; i < W * H; i++) {
+    const w = hexToWorld(hexAtIndex(i, W));
+    x[i] = w.x;
+    z[i] = w.z;
+  }
+  const colors = (): BorderColors => ({ primary: [0.2, 0.3, 0.8], secondary: [0.9, 0.85, 0.6], ink: [0.1, 0.1, 0.1], pattern: 0 });
+  const build = () => {
+    const edges = computeBorderEdges(owners, W, H, () => true, createEdgeList());
+    return { edges, mesh: buildBorderMesh(edges, owners, W, H, () => true, { x, z, top }, colors, createBorderMeshData(16)) };
+  };
+
+  const inTri = (px: number, pz: number, t: number[]): boolean => {
+    const [ax, az, bx, bz, cx, cz] = t as [number, number, number, number, number, number];
+    const d1 = (px - bx) * (az - bz) - (ax - bx) * (pz - bz);
+    const d2 = (px - cx) * (bz - cz) - (bx - cx) * (pz - cz);
+    const d3 = (px - ax) * (cz - az) - (cx - ax) * (pz - az);
+    const neg = d1 < -1e-9 || d2 < -1e-9 || d3 < -1e-9;
+    const pos = d1 > 1e-9 || d2 > 1e-9 || d3 > 1e-9;
+    return !(neg && pos);
+  };
+
+  it('edges between same-owner tiles never produce border geometry', () => {
+    const { mesh } = build();
+    expect(mesh.vertexCount).toBeGreaterThan(0);
+    // Every emitted edge faces a different owner (or the map edge).
+    for (let k = 0; k < mesh.quadCount; k++) {
+      const i = mesh.quadTile[k] ?? -1;
+      const d = HEX_DIRECTIONS[mesh.quadDir[k] ?? 0];
+      if (!d) throw new Error('bad dir');
+      const h = hexAtIndex(i, W);
+      const ni = tileIndex({ q: h.q + d.q, r: h.r + d.r }, W, H);
+      expect(ni >= 0 && owners[ni] === owners[i]).toBe(false);
+    }
+    // And no triangle covers the middle of any edge shared by two same-owner tiles.
+    const tris: number[][] = [];
+    for (let v = 0; v + 2 < mesh.vertexCount; v += 3) {
+      tris.push([mesh.pos[v * 3] ?? 0, mesh.pos[v * 3 + 2] ?? 0, mesh.pos[v * 3 + 3] ?? 0, mesh.pos[v * 3 + 5] ?? 0, mesh.pos[v * 3 + 6] ?? 0, mesh.pos[v * 3 + 8] ?? 0]);
+    }
+    let shared = 0;
+    for (let i = 0; i < W * H; i++) {
+      if (owners[i] === null) continue;
+      const h = hexAtIndex(i, W);
+      for (const d of HEX_DIRECTIONS) {
+        const j = tileIndex({ q: h.q + d.q, r: h.r + d.r }, W, H);
+        if (j < 0 || owners[j] !== owners[i]) continue;
+        shared++;
+        const mx = ((x[i] ?? 0) + (x[j] ?? 0)) / 2;
+        const mz = ((z[i] ?? 0) + (z[j] ?? 0)) / 2;
+        for (const t of tris) expect(inTri(mx, mz, t)).toBe(false);
+      }
+    }
+    expect(shared).toBeGreaterThan(0);
+  });
+
+  it('the outline is continuous: every strip end meets another strip end exactly', () => {
+    const { mesh } = build();
+    const per = BORDER_STRIPS.length * 6;
+    const key = (v: number): string => `${(mesh.pos[v * 3] ?? 0).toFixed(4)},${(mesh.pos[v * 3 + 2] ?? 0).toFixed(4)}`;
+    const ends = new Map<string, number>();
+    for (let e = 0; e < mesh.quadCount; e++) {
+      const base = e * per + 6; // primary strip (index 1)
+      const a = base;
+      const b = base + 1;
+      const q = base + 2;
+      const d = base + 5;
+      for (const [o, inn] of [
+        [a, d],
+        [b, q],
+      ] as const) {
+        const k = `${key(o)}|${key(inn)}`;
+        ends.set(k, (ends.get(k) ?? 0) + 1);
+      }
+    }
+    for (const [, n] of ends) expect(n).toBe(2);
+  });
+});
+
 describe('render rivers', () => {
   // 6 x 3 map; row-major indices.
   const W = 6;
@@ -220,9 +322,33 @@ describe('render label layout', () => {
     for (let k = 0; k < 6; k++) rects.push([100, 100, 80, 20, 6 - k]);
     const L = make(rects);
     const shown = [...L.visible.slice(0, 6)].filter((v) => v === 1).length;
-    expect(shown).toBe(4);
+    expect(shown).toBe(LABEL_SHIFTS.length);
     expect(L.visible[0]).toBe(1);
     expect(L.visible[5]).toBe(0);
+  });
+});
+
+describe('render label layout: leaders and HUD', () => {
+  it('never moves a label down over its settlement', () => {
+    expect(Math.min(...LABEL_SHIFTS)).toBe(0);
+  });
+
+  it('keeps labels out of the HUD bands, moving them up or hiding them', () => {
+    const L = new LabelLayout(4);
+    // Label 0 would sit under the bottom HUD at its home slot; label 1 under the top bar.
+    L.x[0] = 100;
+    L.y[0] = 700;
+    L.w[0] = 80;
+    L.h[0] = 20;
+    L.x[1] = 100;
+    L.y[1] = 110;
+    L.w[1] = 80;
+    L.h[1] = 20;
+    L.count = 2;
+    L.solve(0, 100, 690);
+    expect(L.visible[0]).toBe(1);
+    expect(L.shift[0]).toBeGreaterThan(0);
+    expect(L.visible[1]).toBe(0);
   });
 });
 

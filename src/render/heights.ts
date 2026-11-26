@@ -30,6 +30,9 @@ export const tileTop = (tile: Pick<Tile, 'elevation' | 'feature'>, info: HeightI
   let e = Number.isFinite(tile.elevation) ? Math.max(0, Math.min(MAX_ELEVATION, tile.elevation)) : 0;
   // Hills read as hills even if the map generator left elevation at 0.
   if (tile.feature === 'hills' && e < 1) e = 1;
-  if (info.isMountain && e < 2) e = 2;
-  return LAND_TOP + ELEVATION_STEP * e;
+  if (info.isMountain && e < 1.5) e = 1.5;
+  // Steps above the first are half height: highlands still read as raised, but mountain and
+  // plateau tiles don't stand on tall dark columns (the peak geometry carries the height).
+  const stepped = e <= 1 ? e : 1 + (e - 1) * 0.5;
+  return LAND_TOP + ELEVATION_STEP * stepped;
 };

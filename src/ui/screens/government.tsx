@@ -1,5 +1,6 @@
 /** Government choice (GDD §7 "Governments"): seats + modifiers; mid-age change costs anarchy. */
 import { useState } from 'preact/hooks';
+import { Term } from '../shell/GlossarySheet';
 import { ANARCHY_TURNS } from '../../sim/constants';
 import { closeModal, content, dispatch, game, lookup, me, myTurn, q } from '../store';
 import type { ScreenProps } from './index';
@@ -33,7 +34,7 @@ export const GovernmentList = (props: { onChosen?: () => void }) => {
       </p>
       {!free && (
         <p class="scr-banner scr-banner-info small">
-          Changing government mid-age brings {ANARCHY_TURNS} turns of anarchy: no cabinet bonuses meanwhile.
+          Changing government mid-age brings {ANARCHY_TURNS} turns of <Term id="anarchy" />: no cabinet bonuses meanwhile.
         </p>
       )}
       <ul class="scr-list">

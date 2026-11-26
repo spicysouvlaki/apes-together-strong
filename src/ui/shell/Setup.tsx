@@ -3,17 +3,22 @@
  * skin tone, map size, speed, rivals, seed. Builds a GameSetup and starts the game.
  */
 import { useMemo, useState } from 'preact/hooks';
-import type { GameSpeed, MapSize } from '@contracts/sim-api';
+import type { Difficulty, GameSpeed, MapSize } from '@contracts/sim-api';
+import { DIFFICULTY_HUMAN_SETTLEMENT_HAPPINESS, DIFFICULTY_RIVAL_COST_PERCENT, DIFFICULTY_RIVAL_YIELD_PERCENT } from '../../sim/constants';
+import { GlossText } from './GlossarySheet';
 import { content, lookup, route, startNewGame } from '../store';
 import {
   BANNER_COLORS,
+  DIFFICULTIES,
   MAP_SIZES,
   MAX_RIVALS,
   MIN_RIVALS,
   SKIN_TONES,
   SPEEDS,
   buildGameSetup,
+  difficultyNote,
   dreamOffer,
+  knownDifficulty,
   parseSeed,
   randomSeed,
 } from './setup-logic';
@@ -44,9 +49,10 @@ export function Setup() {
   const [primary, setPrimary] = useState(lastHuman?.colors.primary ?? BANNER_COLORS[0]?.hex ?? '#0072b2');
   const [secondary, setSecondary] = useState(lastHuman?.colors.secondary ?? '#ffffff');
   const [skinTone, setSkinTone] = useState(lastHuman?.skinTone ?? 2);
-  const [mapSize, setMapSize] = useState<MapSize>('small');
+  const [mapSize, setMapSize] = useState<MapSize>(last?.mapSize ?? 'small');
   const [speed, setSpeed] = useState<GameSpeed>(last?.speed ?? 'standard');
-  const [rivals, setRivals] = useState(MAX_RIVALS);
+  const [rivals, setRivals] = useState(last ? Math.max(MIN_RIVALS, Math.min(MAX_RIVALS, last.players.length - 1)) : MAX_RIVALS);
+  const [difficulty, setDifficulty] = useState<Difficulty>(knownDifficulty(last?.difficulty));
   const [seedText, setSeedText] = useState(() => String(randomSeed(Math.random)));
   const seed = parseSeed(seedText);
   const busy = loading.value;
@@ -54,7 +60,7 @@ export function Setup() {
   const start = (): void => {
     if (seed === null || !leader || !dream) return;
     const setup = buildGameSetup(
-      { leader, dream, primary, secondary, skinTone, mapSize, speed, rivals, seed },
+      { leader, dream, primary, secondary, skinTone, mapSize, speed, rivals, seed, difficulty },
       content.leaders.map((l) => l.id),
       content.dreams.map((d) => d.id),
     );
@@ -87,7 +93,9 @@ export function Setup() {
               </span>
               <span class="leader-text">
                 <strong>{l.name}</strong>
-                <span class="small muted">{l.ability}</span>
+                <span class="small muted">
+                  <GlossText text={l.ability} />
+                </span>
               </span>
             </button>
           ))}
@@ -190,6 +198,15 @@ export function Setup() {
               </button>
             ))}
           </div>
+          <div class="small muted mt8">Difficulty</div>
+          <div class="segmented" role="radiogroup" aria-label="Difficulty">
+            {DIFFICULTIES.map((d) => (
+              <button key={d.id} role="radio" aria-checked={difficulty === d.id} class={difficulty === d.id ? 'on' : ''} onClick={() => setDifficulty(d.id)}>
+                {d.label}
+              </button>
+            ))}
+          </div>
+          <p class="small muted setup-note">{difficultyNote(difficulty, DIFFICULTY_RIVAL_YIELD_PERCENT, DIFFICULTY_RIVAL_COST_PERCENT, DIFFICULTY_HUMAN_SETTLEMENT_HAPPINESS)}</p>
           <div class="small muted mt8">Rivals</div>
           <div class="segmented" role="radiogroup" aria-label="Number of rivals">
             {Array.from({ length: MAX_RIVALS - MIN_RIVALS + 1 }, (_, i) => i + MIN_RIVALS).map((n) => (

@@ -16,14 +16,17 @@ import {
   me,
   modal,
   myTurn,
+  lookup,
   openModal,
   ownerName,
   q,
   selection,
   setMapFocusHandler,
 } from '../store';
-import { homeHex, idleUnits } from './hexutil';
-import { highlights, lastTap, settings, skipped } from './shell-state';
+import { homeHex, idleUnits, nextIdleUnit } from './hexutil';
+import { highlights, hudBottomPx, lastTap, settings, siteHints } from './shell-state';
+import { planRoute, plannedRoute, resting, setOrder } from './standing-orders';
+import { pushToast } from '../store';
 import { resolveTap } from './tap-intent';
 import { warTargetsFor } from './war-targets';
 
@@ -44,16 +47,79 @@ export const selectUnit = (unitId: string | null, opts: { focus?: boolean } = {}
   if (!g || !my || !u || u.owner !== my) {
     selection.value = { unit: null, settlement: null, tile: selection.value.tile };
     highlights.value = { reachable: [], attackable: [], warTargets: [] };
+    plannedRoute.value = null;
+    siteHints.value = null;
     rendererRef?.setSelection({ unit: null, reachable: [], attackable: [], path: [] });
     return;
   }
   const reachable = q.reachable(g, u.id, content).map((r) => r.hex);
   const attackable = q.attackTargets(g, u.id, content);
   const warTargets = warTargetsFor(g, my, u.id, (s, id) => q.attackTargets(s, id, content), new Set(q.visibleTiles(g, my, content)));
+  if (plannedRoute.value && plannedRoute.value.unit !== u.id) plannedRoute.value = null;
+  // A settler shows the best sites nearby (top 3), GDD §7 "Settlements".
+  siteHints.value = lookup.units[u.type]?.canFound ? { unit: u.id, sites: q.settleSites(g, u.id, content).slice(0, 3) } : null;
   selection.value = { unit: u.id, settlement: null, tile: u.at };
   highlights.value = { reachable, attackable, warTargets };
-  rendererRef?.setSelection({ unit: u.id, tile: u.at, reachable, attackable, path: [] });
+  rendererRef?.setSelection({ unit: u.id, tile: u.at, reachable, attackable, path: overlayPath() });
   if (opts.focus) rendererRef?.focus(u.at);
+};
+
+/**
+ * The renderer has one dot channel (`path`). It shows the planned route when there is one, else
+ * the top founding sites of a selected settler (dots mark "a good place"). Renderer gap: no
+ * dedicated "good site" highlight exists, so both share the dots.
+ */
+const overlayPath = (): Hex[] => plannedRoute.value?.path ?? siteHints.value?.sites.map((s) => s.hex) ?? [];
+
+/** Preview a route for the selected unit (or confirm it on a second tap of the same tile). */
+export const previewRoute = (unit: string, to: Hex): void => {
+  const cur = plannedRoute.value;
+  if (cur && cur.unit === unit && cur.tapped.q === to.q && cur.tapped.r === to.r) {
+    confirmRoute();
+    return;
+  }
+  const plan = planRoute(unit, to);
+  if (!plan) {
+    pushToast('No known route there. Explore more of the map first, or pick another tile.', 'info');
+    return;
+  }
+  plannedRoute.value = plan;
+  rendererRef?.setSelection({ tile: plan.to, path: plan.path });
+};
+
+export const cancelRoute = (): void => {
+  plannedRoute.value = null;
+  const u = selection.value.unit;
+  const at = u ? game.value?.units[u]?.at : null;
+  rendererRef?.setSelection({ tile: at ?? null, path: overlayPath() });
+};
+
+/** Go: move as far as possible now, keep the rest as a standing order. */
+export const confirmRoute = (): void => {
+  const plan = plannedRoute.value;
+  const g = game.value;
+  if (!plan || !g) return;
+  plannedRoute.value = null;
+  const u = g.units[plan.unit];
+  if (!u) return;
+  setOrder(plan.unit, { kind: 'goto', to: plan.to });
+  const reach = highlights.value.reachable;
+  const attack = highlights.value.attackable;
+  // The furthest step of the route we can take this turn (never an attack).
+  let step: Hex | null = null;
+  for (const h of plan.path) if (reach.some((r) => r.q === h.q && r.r === h.r) && !attack.some((a) => a.q === h.q && a.r === h.r)) step = h;
+  if (step) {
+    if (step.q === plan.to.q && step.r === plan.to.r) setOrder(plan.unit, null);
+    dispatch({ type: 'moveUnit', unit: plan.unit, to: step });
+  }
+  rendererRef?.setSelection({ path: [], tile: null });
+  const next = nextIdleUnit(g, me.value ?? '', resting.value, plan.unit);
+  selectUnit(next && next.id !== plan.unit ? next.id : null, { focus: !!next && next.id !== plan.unit });
+};
+
+/** Show or refresh the dots after a plan/site change without reselecting. */
+export const refreshOverlay = (): void => {
+  rendererRef?.setSelection({ path: overlayPath() });
 };
 
 const onTap = (hex: Hex): void => {
@@ -79,12 +145,20 @@ const onTap = (hex: Hex): void => {
     atWar: (a, b) => q.atWar(g, a, b),
   });
   switch (intent.kind) {
+    case 'plan':
+      lastTap.value = null;
+      previewRoute(intent.unit, intent.to);
+      return;
     case 'move':
       lastTap.value = null;
+      plannedRoute.value = null;
+      setOrder(intent.unit, null); // a direct order replaces any standing one
       dispatch({ type: 'moveUnit', unit: intent.unit, to: intent.to });
       return;
     case 'attack': {
       lastTap.value = null;
+      plannedRoute.value = null;
+      setOrder(intent.unit, null);
       const attack = (): void => dispatch({ type: 'attack', unit: intent.unit, target: intent.target });
       const enemy = intent.declareWarOn;
       if (enemy) {
@@ -193,11 +267,28 @@ export function MapView() {
     });
 
     const stopPatterns = effect(() => r.setPatterns(settings.value.colorblindPatterns));
+    // Keep the selected unit in the strip of map the bottom HUD leaves visible (the unit sheet
+    // of a settler can be tall). Refocus only when the stack grew past the unit.
+    // Refocus at most once per selected unit, so a route preview growing the sheet never moves
+    // the tile the player is about to tap again.
+    let lastBottom = HUD_BOTTOM_PX;
+    let refocused: string | null = null;
+    const stopSafe = effect(() => {
+      const bottom = Math.max(HUD_BOTTOM_PX, hudBottomPx.value);
+      r.setSafeArea({ bottom });
+      const sel = untracked(() => selection.value.unit);
+      const u = sel ? untracked(() => game.value?.units[sel]) : undefined;
+      if (u && sel !== refocused && bottom > lastBottom + 40) {
+        refocused = sel;
+        r.focus(u.at);
+      }
+      lastBottom = bottom;
+    });
     // Chevrons over own units that still want orders this turn (skipped ones drop out).
     const stopHints = effect(() => {
       const g = game.value;
       const my = me.value;
-      const ready = g && my && g.currentPlayer === my && g.phase === 'playing' ? idleUnits(g, my, skipped.value).map((u) => u.id) : [];
+      const ready = g && my && g.currentPlayer === my && g.phase === 'playing' ? idleUnits(g, my, resting.value).map((u) => u.id) : [];
       r.setHints({ readyUnits: ready });
     });
 
@@ -205,6 +296,7 @@ export function MapView() {
       stop();
       stopOutline();
       stopPatterns();
+      stopSafe();
       stopHints();
       offTap();
       offLong();

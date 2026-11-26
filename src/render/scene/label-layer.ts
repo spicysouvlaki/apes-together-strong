@@ -33,10 +33,20 @@ const COLS = ATLAS_W / SLOT_W;
 const ROWS = ATLAS_H / SLOT_H;
 export const LABEL_CAPACITY = COLS * ROWS;
 
-/** Label height as a fraction of camera distance (constant on-screen size). */
-const LABEL_SIZE = 0.028;
+/** Label (slot) height as a fraction of camera distance (constant on-screen size). */
+const LABEL_SIZE = 0.03;
+/**
+ * Slot rows: the cartouche sits in the top PILL_H px; below it hangs an inked leader down to
+ * the anchor (the settlement's roofline), so the name floats above the buildings instead of
+ * on them (GDD §11 readability).
+ */
+const PILL_TOP = 2;
+const PILL_H = 36;
+const PILL_FRAC = PILL_H / SLOT_H;
+const LEADER_FRAC = (SLOT_H - PILL_TOP - PILL_H) / SLOT_H;
 
 const vertexShader = /* glsl */ `
+// Shifted labels move by whole cartouche heights (label-layout.ts works in those units).
 attribute vec4 aUv;
 attribute float aAspect;
 attribute vec2 aShift;
@@ -46,7 +56,7 @@ varying float vAlpha;
 void main() {
   vec4 mv = modelViewMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
   float s = uSize * -mv.z;
-  mv.xy += vec2(position.x * aAspect, position.y + aShift.x) * s;
+  mv.xy += vec2(position.x * aAspect, position.y + aShift.x * ${PILL_FRAC.toFixed(4)}) * s;
   gl_Position = projectionMatrix * mv;
   // Hidden labels collapse to a degenerate point (no fragments).
   if (aShift.y < 0.5) gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
@@ -128,6 +138,16 @@ export class LabelLayer {
       };
       void fonts.ready.then(redraw);
       fonts.addEventListener?.('loadingdone', redraw);
+      // Canvas text does not reliably trigger a webfont download, and the face is split by
+      // unicode-range (latin / latin-ext): ask for both subsets explicitly (ā, ð, ḥ…) so names
+      // like "Dūmat al-Jandal" or "Niðarós" are typeset in Fraunces, then redraw.
+      if (typeof fonts.load === 'function') {
+        void Promise.all([fonts.load(`600 23px Fraunces`, 'Aa ā ð ḥ ī'), fonts.load(`700 17px Fraunces`, '0123456789')])
+          .then((faces) => {
+            if (faces.some((f) => f.length > 0)) redraw();
+          })
+          .catch(() => undefined);
+      }
     }
   }
 
@@ -192,7 +212,14 @@ export class LabelLayer {
    * Re-run de-overlap for the current camera. `viewH` = viewport height in px. Cheap (≤ 64
    * labels); call after camera changes.
    */
-  layout(camera: Camera & { projectionMatrix: { elements: ArrayLike<number> } }, viewW: number, viewH: number): void {
+  layout(
+    camera: Camera & { projectionMatrix: { elements: ArrayLike<number> } },
+    viewW: number,
+    viewH: number,
+    /** HUD-free band (px from the top) labels must stay inside. */
+    minY = 0,
+    maxY = Infinity,
+  ): void {
     const L = this.layoutSolver;
     const n = this.n;
     L.count = n;
@@ -204,14 +231,14 @@ export class LabelLayer {
       this.v.set(this.anchors[i * 3] ?? 0, this.anchors[i * 3 + 1] ?? 0, this.anchors[i * 3 + 2] ?? 0).project(camera);
       const sx = (this.v.x * 0.5 + 0.5) * viewW;
       L.x[i] = sx;
-      L.y[i] = (-this.v.y * 0.5 + 0.5) * viewH;
-      // The drawn pill fills ~80% of the slot height.
-      L.h[i] = hPx * 0.84;
+      // Collision box = the cartouche only (the leader below it may cross other labels' land).
+      L.y[i] = (-this.v.y * 0.5 + 0.5) * viewH - hPx * LEADER_FRAC;
+      L.h[i] = hPx * PILL_FRAC;
       L.w[i] = hPx * (asp[i] ?? 4);
       // Labels behind the camera or far off screen never block others.
       if (this.v.z > 1 || sx < -viewW || sx > viewW * 2) L.w[i] = 0;
     }
-    L.solve(2);
+    L.solve(2, minY, maxY);
     const sh = this.aShift.array as Float32Array;
     let changed = false;
     for (let i = 0; i < n; i++) {
@@ -261,71 +288,90 @@ export class LabelLayer {
     ctx.beginPath();
     ctx.rect(x0, y0, SLOT_W, SLOT_H);
     ctx.clip();
-    ctx.globalAlpha = spec.ghost ? 0.72 : 1;
+    ctx.globalAlpha = spec.ghost ? 0.7 : 1;
     // Typeset to the UI's display serif (bundled as 'Fraunces'); Georgia until it loads.
-    const nameFont = `600 28px Fraunces, "Fraunces Variable", Georgia, serif`;
-    const popFont = `700 21px Fraunces, "Fraunces Variable", Georgia, serif`;
-    const name = (spec.capital ? '★ ' : '') + (spec.name ?? spec.text);
+    const nameFont = `600 23px Fraunces, "Fraunces Variable", Georgia, serif`;
+    const popFont = `700 17px Fraunces, "Fraunces Variable", Georgia, serif`;
+    const name = spec.name ?? spec.text;
     const pop = spec.population !== undefined ? String(spec.population) : '';
-    const pad = 10;
-    const sw = 18; // crest
-    const h = SLOT_H - 10;
-    const top = y0 + 5;
+    const pad = 8;
+    const sw = 13; // crest
+    const h = PILL_H;
+    const top = y0 + PILL_TOP;
     const left = x0 + 3;
+    const ink = spec.war ? '#9e2b22' : '#3b2c1e';
     ctx.font = popFont;
-    const popW = pop ? Math.max(h - 14, ctx.measureText(pop).width + 14) : 0;
+    const popW = pop ? Math.max(h - 12, ctx.measureText(pop).width + 11) : 0;
     ctx.font = nameFont;
-    const fixed = pad + sw + 8 + (pop ? 8 + popW : 0) + pad + (spec.war ? 26 : 0);
+    const starW = spec.capital ? 15 : 0;
+    const fixed = pad + sw + 6 + starW + (pop ? 6 + popW : 0) + pad + (spec.war ? 22 : 0);
     // Long names truncate at ~220 px so a label never dominates the screen.
     const maxText = Math.min(220, SLOT_W - 8 - fixed);
     let t = name;
     while (t.length > 1 && ctx.measureText(t).width > maxText) t = t.slice(0, -2) + '…';
     const tw = Math.min(maxText, ctx.measureText(t).width);
     const w = Math.ceil(fixed + tw);
-    const rad = 11;
-    const pill = (inset: number): void => {
+    const cxm = left + w / 2;
+    // Leader: a fine ink stem from the cartouche down to the roofline, ending in a small bead.
+    ctx.strokeStyle = 'rgba(59, 44, 30, 0.8)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(cxm, top + h);
+    ctx.lineTo(cxm, y0 + SLOT_H - 4);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(cxm, y0 + SLOT_H - 3.5, 2.6, 0, Math.PI * 2);
+    ctx.fillStyle = spec.war ? '#9e2b22' : '#3b2c1e';
+    ctx.fill();
+    // Vellum cartouche: a banner with notched ends, a hairline ink border, owner-color rule.
+    const notch = 6;
+    const banner = (inset: number): void => {
       ctx.beginPath();
-      ctx.roundRect(left + inset, top + inset, w - inset * 2, h - inset * 2, Math.max(2, rad - inset));
+      ctx.moveTo(left + inset, top + inset);
+      ctx.lineTo(left + w - inset, top + inset);
+      ctx.lineTo(left + w - notch - inset * 0.4, top + h / 2);
+      ctx.lineTo(left + w - inset, top + h - inset);
+      ctx.lineTo(left + inset, top + h - inset);
+      ctx.lineTo(left + notch + inset * 0.4, top + h / 2);
+      ctx.closePath();
     };
-    // Parchment cartouche: warm paper fill, ink keyline, a fine inner rule.
-    pill(0);
+    banner(0);
     const grad = ctx.createLinearGradient(0, top, 0, top + h);
-    grad.addColorStop(0, spec.ghost ? 'rgba(232, 224, 208, 0.95)' : 'rgba(251, 245, 228, 0.98)');
-    grad.addColorStop(1, spec.ghost ? 'rgba(218, 208, 188, 0.95)' : 'rgba(238, 225, 196, 0.98)');
+    grad.addColorStop(0, spec.ghost ? 'rgba(236, 228, 210, 0.9)' : 'rgba(250, 244, 226, 0.94)');
+    grad.addColorStop(1, spec.ghost ? 'rgba(222, 211, 190, 0.9)' : 'rgba(236, 223, 194, 0.94)');
     ctx.fillStyle = grad;
     ctx.fill();
-    ctx.lineWidth = 3;
-    ctx.strokeStyle = spec.war ? '#c4372c' : '#4a3826';
-    if (spec.ghost) ctx.setLineDash([7, 5]);
+    ctx.lineWidth = 1.6;
+    ctx.strokeStyle = ink;
+    if (spec.ghost) ctx.setLineDash([6, 4]);
     ctx.stroke();
     ctx.setLineDash([]);
-    pill(4);
-    ctx.lineWidth = 1.5;
-    ctx.strokeStyle = spec.war ? 'rgba(196, 55, 44, 0.6)' : spec.color;
-    ctx.stroke();
+    // Owner-color rule along the bottom of the cartouche (reads as the realm's ribbon).
+    ctx.fillStyle = spec.war ? 'rgba(196, 55, 44, 0.85)' : spec.color;
+    ctx.fillRect(left + notch + 2, top + h - 5, w - notch * 2 - 4, 2.5);
     // Crest: owner color + pattern; city-states get a diamond.
-    const sx = left + pad + sw / 2;
-    const sy = top + h / 2;
+    const sx = left + pad + notch * 0.5 + sw / 2;
+    const sy = top + h / 2 - 1;
     ctx.beginPath();
     if (spec.cityState) {
       ctx.moveTo(sx, sy - sw / 2 - 2);
-      ctx.lineTo(sx + sw / 2 + 2, sy);
+      ctx.lineTo(sx + sw / 2 + 1, sy);
       ctx.lineTo(sx, sy + sw / 2 + 2);
-      ctx.lineTo(sx - sw / 2 - 2, sy);
+      ctx.lineTo(sx - sw / 2 - 1, sy);
       ctx.closePath();
     } else {
       // Heater shield.
-      const hw = sw / 2 + 1;
+      const hw = sw / 2;
       ctx.moveTo(sx - hw, sy - hw);
       ctx.lineTo(sx + hw, sy - hw);
       ctx.lineTo(sx + hw, sy + 1);
-      ctx.quadraticCurveTo(sx + hw, sy + hw, sx, sy + hw + 3);
+      ctx.quadraticCurveTo(sx + hw, sy + hw, sx, sy + hw + 2);
       ctx.quadraticCurveTo(sx - hw, sy + hw, sx - hw, sy + 1);
       ctx.closePath();
     }
     ctx.fillStyle = spec.color;
     ctx.fill();
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 1.5;
     ctx.strokeStyle = '#3a2c1f';
     ctx.stroke();
     if (spec.pattern) {
@@ -334,53 +380,58 @@ export class LabelLayer {
       this.drawPattern(ctx, spec.pattern as PatternId, sx - sw / 2 - 2, sy - sw / 2 - 2, sw + 4);
       ctx.restore();
     }
+    let cx = left + pad + notch * 0.5 + sw + 6;
+    if (spec.capital) {
+      // Capital: a small gold-leaf star before the name.
+      this.star(ctx, cx + 6, sy, 6.5, 2.8);
+      cx += starW;
+    }
     // Name.
-    ctx.fillStyle = '#2e2218';
+    ctx.fillStyle = '#2a1f15';
     ctx.textBaseline = 'middle';
     ctx.font = nameFont;
-    let cx = left + pad + sw + 8;
     ctx.fillText(t, cx, sy + 1);
-    cx += tw + 8;
+    cx += tw + 6;
     if (pop) {
       // Population seal: ink roundel with paper digits (legible at any size).
-      const bh = h - 14;
+      const bh = h - 13;
       const bx = cx;
       const by = sy - bh / 2;
       ctx.beginPath();
       ctx.roundRect(bx, by, popW, bh, bh / 2);
-      ctx.fillStyle = '#4a3826';
+      ctx.fillStyle = ink;
       ctx.fill();
       ctx.fillStyle = '#fbf3df';
       ctx.font = popFont;
       ctx.textAlign = 'center';
       ctx.fillText(pop, bx + popW / 2, sy + 1);
       ctx.textAlign = 'left';
-      cx += popW + 8;
+      cx += popW + 6;
     }
     if (spec.wall !== undefined && spec.wall < 1) {
-      // Wall HP (GDD §7): a bar along the bottom of the pill, green -> red.
-      const bw = w - rad * 1.2;
-      const bx = left + rad * 0.6;
-      const by = top + h - 9;
+      // Wall HP (GDD §7): a bar under the cartouche, green -> red.
+      const bw = w - notch * 2 - 6;
+      const bx = left + notch + 3;
+      const by = top + h - 6;
       ctx.fillStyle = '#3b3b3b';
-      ctx.fillRect(bx, by, bw, 7);
+      ctx.fillRect(bx, by, bw, 5);
       ctx.fillStyle = spec.wall > 0.6 ? '#5cbf4a' : spec.wall > 0.3 ? '#e3c13b' : '#d9493b';
-      ctx.fillRect(bx + 1, by + 1, Math.max(2, (bw - 2) * spec.wall), 5);
+      ctx.fillRect(bx + 1, by + 1, Math.max(2, (bw - 2) * spec.wall), 3);
     }
     if (spec.war) {
       // Crossed swords, drawn as two strokes.
-      ctx.strokeStyle = '#d23a2f';
-      ctx.lineWidth = 4;
+      ctx.strokeStyle = '#b8322a';
+      ctx.lineWidth = 3;
       ctx.lineCap = 'round';
       ctx.beginPath();
-      ctx.moveTo(cx, sy - 10);
-      ctx.lineTo(cx + 18, sy + 9);
-      ctx.moveTo(cx + 18, sy - 10);
-      ctx.lineTo(cx, sy + 9);
+      ctx.moveTo(cx, sy - 8);
+      ctx.lineTo(cx + 14, sy + 7);
+      ctx.moveTo(cx + 14, sy - 8);
+      ctx.lineTo(cx, sy + 7);
       // Crossguards near the hilts make it read as swords, not a close button.
-      ctx.moveTo(cx + 10, sy + 9);
-      ctx.lineTo(cx + 17, sy + 2);
-      ctx.moveTo(cx + 8, sy + 9);
+      ctx.moveTo(cx + 8, sy + 7);
+      ctx.lineTo(cx + 13, sy + 2);
+      ctx.moveTo(cx + 6, sy + 7);
       ctx.lineTo(cx + 1, sy + 2);
       ctx.stroke();
     }
@@ -389,6 +440,21 @@ export class LabelLayer {
     this.slotWidth[slot] = used;
     this.slotAspect[slot] = used / SLOT_H;
     this.dirtyTexture = true;
+  }
+
+  private star(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, ri: number): void {
+    ctx.beginPath();
+    for (let k = 0; k < 10; k++) {
+      const a = -Math.PI / 2 + (k * Math.PI) / 5;
+      const rr = k % 2 === 0 ? r : ri;
+      ctx.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr);
+    }
+    ctx.closePath();
+    ctx.fillStyle = '#c9a03a';
+    ctx.fill();
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = '#6b4f1c';
+    ctx.stroke();
   }
 
   /** Paint the pattern's "cut" pixels in white over the swatch (same rule as the borders). */

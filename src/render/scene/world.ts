@@ -37,6 +37,7 @@ import {
   FOG_VISIBLE,
   PALETTE,
   classifyFog,
+  hashString,
   mix,
   ownerColors,
   parseHexColor,
@@ -48,12 +49,13 @@ import { BASE_Y, FOG_TOP, WATER_TOP, tileTop } from '../heights';
 import { hexAtIndex, hexToWorld, mapBounds, tileIndex, worldToHex } from '../layout';
 import { labelSpec, wallFraction } from '../labels';
 import type { ZoomBand } from '../camera-math';
-import { EDGE_ROTATION, computeBorderEdges, createEdgeList } from '../borders';
+import { DIR_BUCKET, buildBorderMesh, computeBorderEdges, createBorderMeshData, createEdgeList, type BorderColors } from '../borders';
+import { BorderMesh } from './border-mesh';
 import { computeRiverSegments, type RiverSegment } from '../rivers';
 import { GhostMemory, type GhostSettlement } from '../ghosts';
 import { patternFor } from '../patterns';
 import { RESOURCE_CLASS_STYLE, gradeTerrainColors, resourceClassOf, type ResourceClass } from '../terrain-style';
-import { SURFACE, artDirectTerrain, scaleRgb, surfaceKind, tileVariation, type SurfaceKind } from '../palette';
+import { ART, SKIN_TONES, SURFACE, artDirectTerrain, packedSkin, scaleRgb, surfaceKind, tileVariation, type SurfaceKind } from '../palette';
 import { hashTile, microDensity, scatterInHex, treeCount, unit01, type RenderQuality } from '../scatter';
 import { PIECE_KINDS, buildCultureIndex, motifWeights, settlementLayout, type CultureIndex, type Piece, type PieceKind } from '../architecture';
 import { fillMapField, waterDistance } from '../textures';
@@ -61,7 +63,6 @@ import {
   RESOURCE_PROPS,
   TILE_RADIUS,
   baseRingGeometry,
-  borderBandGeometry,
   broadleafGeometry,
   coniferGeometry,
   discGeometry,
@@ -92,7 +93,7 @@ import {
 import { FIGURES, FIGURE_TOP, figureFor, figureGeometry, unitBaseGeometry, type FigureKind } from './figurines';
 import { Instances } from './instances';
 import { LabelLayer } from './label-layer';
-import { borderPatternMaterial, createPatternUniforms, type PatternUniforms } from './pattern-material';
+import { createPatternUniforms, type PatternUniforms } from './pattern-material';
 import {
   SOFT,
   createSceneUniforms,
@@ -124,18 +125,10 @@ const POP_MS = 650;
 const SHAKE_MS = 360;
 const FLOURISH_MS = 900;
 /** Figurines read better a bit larger than their geometry's nominal size. */
-const UNIT_SCALE = 1.85;
+const UNIT_SCALE = 2.2;
 /** Selected-unit ring pulses this long after a selection change, then rests (battery). */
 const PULSE_MS = 1800;
 const PARTICLES = 64;
-
-// Border bands (hex radii; they stay on the flat part of the top, inside the bevel).
-const BAND_OUTER = 0.86;
-const KEY_INNER = 0.7;
-const PRIMARY_OUTER = 0.845;
-const PRIMARY_INNER = 0.715;
-const SECONDARY_INNER = 0.665;
-const COS30 = Math.cos(Math.PI / 6);
 
 const RIVER_WIDTH = 0.26;
 /** Distance between trade-route dots (world units). */
@@ -160,11 +153,10 @@ const C = {
   ownRim: rgb('#fff8ea'),
   rivalRim: rgb('#2a2522'),
   warRim: rgb('#e0453a'),
-  ready: rgb('#fff1b0'),
   shield: rgb('#d6dde6'),
   trade: rgb('#fff2c4'),
   white: [1, 1, 1] as Rgb,
-  dust: rgb('#d9c7a2'),
+  dust: rgb('#bfa57c'),
   sparkle: rgb('#ffd85a'),
 };
 const FLASH_COLORS: Record<FlashKind, Rgb> = {
@@ -232,6 +224,8 @@ interface UnitDraw {
   fortified: boolean;
   scale: number;
   water: boolean;
+  /** Packed owner skin tone (palette.ts packedSkin). */
+  skin: number;
 }
 
 interface SettlementDraw {
@@ -263,6 +257,8 @@ interface Particle {
   life: number;
   size: number;
   color: Rgb;
+  /** Floats up and shrinks (sparkles, confetti) instead of puffing out and settling (dust). */
+  rise: boolean;
   active: boolean;
 }
 
@@ -281,12 +277,6 @@ export interface WorldOptions {
   quality?: RenderQuality;
 }
 
-/** Bucket of a neighbor direction by its world angle (k·60°), for the hex-edge masks. */
-const DIR_BUCKET: readonly number[] = HEX_DIRECTIONS.map((d) => {
-  const w = hexToWorld(d);
-  const k = Math.round(Math.atan2(w.z, w.x) / (Math.PI / 3));
-  return ((k % 6) + 6) % 6;
-});
 
 export class World {
   readonly root = new Group();
@@ -323,6 +313,7 @@ export class World {
   private riverTiles: GameState['map']['tiles'] | null = null;
   private riverSegs: RiverSegment[] = [];
   private readonly edges = createEdgeList(512);
+  private borderData = createBorderMeshData(2048);
   private readonly ghostMemory = new GhostMemory();
   private readonly scatter = new Float32Array(32);
 
@@ -342,9 +333,7 @@ export class World {
   private readonly riverRibbons: Instances;
   private readonly riverNodes: Instances;
   private readonly territoryFill: Instances;
-  private readonly borderKey: Instances;
-  private readonly borderPrimary: Instances;
-  private readonly borderSecondary: Instances;
+  private readonly borders: BorderMesh;
   private readonly staticShadows: Instances;
   private readonly resourceHalos: Instances;
   private readonly hlFill: Instances;
@@ -430,13 +419,6 @@ export class World {
     const unlit = this.mat(new MeshBasicMaterial());
     const decal = (factor: number): MeshBasicMaterial =>
       this.mat(new MeshBasicMaterial({ polygonOffset: true, polygonOffsetFactor: factor, polygonOffsetUnits: factor }));
-    const borderPrimaryMat = this.mat(
-      borderPatternMaterial(this.patternUniforms, PRIMARY_OUTER * COS30, PRIMARY_INNER * COS30, {
-        polygonOffset: true,
-        polygonOffsetFactor: -4,
-        polygonOffsetUnits: -4,
-      }),
-    );
     const landMat = this.mat(landMaterial(U));
     const waterMat = this.mat(waterMaterial(U));
     const parchMat = this.mat(parchmentMaterial(U));
@@ -465,17 +447,7 @@ export class World {
     this.territoryFill = I(hexFlatGeometry(TILE_RADIUS - 0.04), soft(-2), 256, B, 'territory', 2);
     this.riverRibbons = I(ribbonGeometry(RIVER_WIDTH), ribbonMat, 256, B, 'river-ribbons', 1);
     this.riverNodes = I(riverNodeGeometry(RIVER_WIDTH / 2), nodeMat, 256, B, 'river-nodes', 1);
-    this.borderKey = new Instances(g(borderBandGeometry(BAND_OUTER, KEY_INNER)), decal(-3), 512, B, 'border-keyline', 3);
-    this.borderPrimary = new Instances(
-      g(borderBandGeometry(PRIMARY_OUTER, PRIMARY_INNER)),
-      borderPrimaryMat,
-      512,
-      B,
-      'border-primary',
-      4,
-      'aPattern',
-    );
-    this.borderSecondary = new Instances(g(borderBandGeometry(KEY_INNER, SECONDARY_INNER)), decal(-3), 512, B, 'border-secondary', 3);
+    this.borders = new BorderMesh(B, this.patternUniforms, 3);
     this.staticShadows = I(flatDiscGeometry(14), soft(-1), 1024, D, 'shadows', 1);
     this.resourceHalos = I(flatDiscGeometry(16), soft(-2), 128, D, 'resource-halos', 2);
     this.hlFill = I(hexFlatGeometry(0.93), soft(-5), 64, B, 'hl-fill', 5);
@@ -511,11 +483,11 @@ export class World {
     for (const k of FIGURES) figs[k] = I(figureGeometry(k), propFixed, 64, D, `figure-${k}`);
     this.figures = figs as Record<FigureKind, Instances>;
     this.unitBases = I(unitBaseGeometry(), propFixed, 128, D, 'unit-bases');
-    this.unitRims = new Instances(g(baseRingGeometry(0.17, 0.014)), unlit, 128, D, 'unit-rims');
+    this.unitRims = new Instances(g(baseRingGeometry(0.172, 0.02)), unlit, 128, D, 'unit-rims');
     this.goldRings = new Instances(g(baseRingGeometry(0.255, 0.022)), unlit, 32, D, 'gold-rings');
     this.unitGlow = I(flatDiscGeometry(20), soft(-6), 8, D, 'unit-glow', 6);
     this.unitShadows = I(flatDiscGeometry(14), soft(-2), 128, D, 'unit-shadows', 2);
-    this.readyMarks = new Instances(g(readyMarkerGeometry()), unlit, 64, D, 'ready-marks');
+    this.readyMarks = I(readyMarkerGeometry(), propFixed, 64, D, 'ready-marks');
     this.shields = I(shieldGeometry(), propFixed, 64, D, 'fortify-shields');
     this.hpBack = new Instances(g(boxGeometry(0.5, 0.085, 0.02)), unlit, 64, D, 'hp-back');
     this.hpFront = new Instances(g(boxGeometry(0.46, 0.055, 0.03)), unlit, 64, D, 'hp-front');
@@ -530,19 +502,22 @@ export class World {
     this.csIcons = new Instances(g(discGeometry(0.72, 0.08, 6)), unlit, 32, S, 'cs-icons');
     this.unitDots = new Instances(g(discGeometry(0.3, 0.06, 10)), unlit, 256, S, 'unit-dots');
 
-    // Board plinth: strata sides under the whole map, and a water top filling the ragged edges.
-    const plGeo = g(plinthGeometry(parseHexColor('#6e5038'), parseHexColor('#4c3828')));
+    // Board: the chart is a thick sheet of vellum. Its top continues the unexplored parchment
+    // into the ragged hex rows at the map edge, and its sides are the paper's cut edge, so the
+    // end of the world reads as the end of the map, not a brown tray.
+    const plGeo = g(plinthGeometry(parseHexColor(ART.plinth0), parseHexColor(ART.plinth1)));
     this.plinth = new Mesh(plGeo, this.mat(propMaterial(U)));
     this.plinth.visible = false;
     this.plinth.frustumCulled = false;
     const topGeo = g(new PlaneGeometry(1, 1));
     topGeo.rotateX(-Math.PI / 2);
-    this.plinthTop = new Mesh(topGeo, waterMat);
+    this.plinthTop = new Mesh(topGeo, parchMat);
     this.plinthTop.visible = false;
     this.plinthTop.frustumCulled = false;
     this.base.add(this.plinth, this.plinthTop);
 
-    this.flashGeometry = g(hexRingGeometry(0.55, 0.95));
+    // A crisp expanding hex outline (an inked shock ring), not a filled stamp.
+    this.flashGeometry = g(hexRingGeometry(0.8, 0.94));
     for (let i = 0; i < FLASH_POOL; i++) {
       const material = new MeshBasicMaterial({ transparent: true, depthWrite: false, side: DoubleSide });
       this.materials.push(material);
@@ -553,7 +528,7 @@ export class World {
       this.flashes.push({ mesh, material, start: 0, active: false });
     }
     for (let i = 0; i < PARTICLES; i++) {
-      this.particles.push({ x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, start: 0, life: 1, size: 0, color: C.dust, active: false });
+      this.particles.push({ x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, start: 0, life: 1, size: 0, color: C.dust, rise: false, active: false });
     }
     this.applyQuality();
   }
@@ -653,6 +628,7 @@ export class World {
     if (width !== this.width || height !== this.height || this.fog.length !== n) this.resize(width, height);
     const viewerState = viewer !== null ? state.players[viewer] : undefined;
     classifyFog(n, viewer === null ? null : (viewerState?.explored ?? []), vis, this.fog);
+    this.placeRose(state, viewer);
     const ageIdx = Math.max(0, AGES.indexOf(state.age));
     const high = this.quality === 'high';
 
@@ -660,6 +636,13 @@ export class World {
     for (const s of Object.values(state.settlements)) {
       const i = tileIndex(s.at, width, height);
       if (i >= 0) this.settledTile[i] = 1;
+    }
+    // Units get a small clearing so trees never hide the figurine (2 = unit, 1 = settlement).
+    for (const u of Object.values(state.units)) {
+      const i = tileIndex(u.at, width, height);
+      // Only for units the viewer can see (a clearing must not betray a hidden rival).
+      if (viewer !== null && u.owner !== viewer && this.fog[i] !== FOG_VISIBLE) continue;
+      if (i >= 0 && this.settledTile[i] === 0) this.settledTile[i] = 2;
     }
 
     // Pass 1: per-tile facts.
@@ -756,6 +739,55 @@ export class World {
     this.applyQuality();
   }
 
+  private roseKey = '';
+
+  /**
+   * First impression (GDD §11): the main compass rose is drawn on the unexplored parchment just
+   * beyond the start, inside the default framing, so the opening screen reads as an aged chart
+   * rather than empty paper. Chosen once per game/viewer so it never jumps around.
+   */
+  private placeRose(state: GameState, viewer: PlayerId | null): void {
+    const key = `${state.seed}|${viewer ?? '*'}|${this.width}x${this.height}`;
+    if (key === this.roseKey) return;
+    let anchor: Hex | null = null;
+    if (viewer !== null) {
+      const own = Object.values(state.settlements).filter((s) => s.owner === viewer);
+      anchor = (own.find((s) => s.isCapital) ?? own[0])?.at ?? Object.values(state.units).find((u) => u.owner === viewer)?.at ?? null;
+    }
+    if (!anchor) return;
+    this.roseKey = key;
+    const w = hexToWorld(anchor);
+    const candidates: [number, number][] = [
+      [3.4, -5.6],
+      [-3.4, -5.6],
+      [3.6, 5.2],
+      [-3.6, 5.2],
+      [0, -7.5],
+    ];
+    // The whole rose (radius ~1.8) must sit on parchment: unexplored tiles or off the map
+    // (the vellum sheet past the edge draws it too).
+    const clear = (cx: number, cz: number): boolean => {
+      for (let k = -1; k < 8; k++) {
+        const a = (k * Math.PI) / 4;
+        const r = k < 0 ? 0 : 1.9;
+        const i = tileIndex(worldToHex(cx + Math.cos(a) * r, cz + Math.sin(a) * r), this.width, this.height);
+        if (i >= 0 && this.fog[i] !== FOG_UNEXPLORED) return false;
+      }
+      return true;
+    };
+    let pick: [number, number] = candidates[0] ?? [3.4, -5.6];
+    search: for (const scale of [1, 1.3, 1.6]) {
+      for (const c of candidates) {
+        if (clear(w.x + c[0] * scale, w.z + c[1] * scale)) {
+          pick = [c[0] * scale, c[1] * scale];
+          break search;
+        }
+      }
+    }
+    const u = this.uniforms.uCompass.value;
+    u.set(w.x + pick[0], w.z + pick[1], u.z, u.w);
+  }
+
   private resize(width: number, height: number): void {
     const n = width * height;
     this.width = width;
@@ -793,11 +825,14 @@ export class World {
     const b = mapBounds(width, height);
     this.uniforms.uCompass.value.set(b.maxX * 0.22, b.maxZ * 0.3, b.maxX * 0.78, b.maxZ * 0.72);
     // Plinth: a rectangle that contains every hex, from the water line down.
-    const pw = b.maxX - b.minX + 2.2;
-    const pd = b.maxZ - b.minZ + 2.6;
+    // The sheet runs well past the last hex row, so a start near the map edge still sits in the
+    // middle of an old chart (rhumb lines and sea glyphs continue) instead of an empty void.
+    const pw = b.maxX - b.minX + 40;
+    const pd = b.maxZ - b.minZ + 40;
     const cx = (b.minX + b.maxX) / 2;
     const cz = (b.minZ + b.maxZ) / 2;
-    this.plinth.scale.set(pw, 0.8, pd);
+    this.plinth.scale.set(pw, 0.22, pd);
+    // Below the water line: the sheet's top shows only past the ragged edge rows.
     this.plinth.position.set(cx, WATER_TOP - 0.03, cz);
     this.plinth.updateMatrixWorld();
     this.plinth.visible = n > 0;
@@ -806,6 +841,7 @@ export class World {
     this.plinthTop.updateMatrixWorld();
     this.plinthTop.visible = n > 0;
     this.riverTiles = null;
+    this.roseKey = '';
   }
 
   /** Relief, vegetation, rocks and resources for explored tiles. */
@@ -835,6 +871,7 @@ export class World {
       const spin = unit01(h) * Math.PI * 2;
       const tc: Rgb = [this.tileColor[i * 3] ?? 0, this.tileColor[i * 3 + 1] ?? 0, this.tileColor[i * 3 + 2] ?? 0];
       const settled = this.settledTile[i] === 1;
+      const unitHere = this.settledTile[i] === 2;
       const isMountain = this.terrainMountain.get(tile.terrain) ?? false;
       const hasRes = !!tile.resource;
       const clear: [number, number, number] | undefined = hasRes ? [RESOURCE_SPOT[0], RESOURCE_SPOT[1], 0.24] : undefined;
@@ -859,7 +896,7 @@ export class World {
         const jungle = feature === 'jungle';
         const base = jungle ? 4 : 5;
         const count = treeCount(base, this.quality, settled);
-        const k = scatterInHex(tile.q, tile.r, 5, count, pts, { radius: 0.72, minDist: jungle ? 0.34 : 0.28, clearCenter: settled ? 0.62 : 0, clear });
+        const k = scatterInHex(tile.q, tile.r, 5, count, pts, { radius: 0.72, minDist: jungle ? 0.34 : 0.28, clearCenter: settled ? 0.62 : unitHere ? 0.58 : 0, clear });
         const climate = tile.climate;
         for (let j = 0; j < k; j++) {
           const hj = hashTile(tile.q, tile.r, 60 + j);
@@ -950,7 +987,7 @@ export class World {
         let tuftCol: Rgb = tc;
         if (kind === SURFACE.grass) {
           tufts = wooded ? 2 : 5;
-          tuftCol = scaleRgb(mix(tc, [0.4, 0.55, 0.26], 0.25), 1.0);
+          tuftCol = scaleRgb(mix(tc, [0.56, 0.68, 0.33], 0.35), 1.04);
         } else if (kind === SURFACE.dry) {
           tufts = wooded ? 2 : 4;
           tuftCol = mix(tc, [0.78, 0.68, 0.42], 0.35);
@@ -962,7 +999,7 @@ export class World {
         const k = scatterInHex(tile.q, tile.r, 21, tufts, pts, opts);
         for (let j = 0; j < k; j++) {
           const hj = hashTile(tile.q, tile.r, 200 + j);
-          const s = 1.2 + unit01(hj) * 0.8;
+          const s = 1.0 + unit01(hj) * 0.6;
           this.tufts.push(x + (pts[j * 2] ?? 0), top - 0.004, z + (pts[j * 2 + 1] ?? 0), s, s * (0.8 + unit01(hj >>> 6) * 0.5), s, unit01(hj >>> 12) * 6.28, tuftCol, mem);
         }
         if (kind === SURFACE.grass && !wooded && unit01(hashTile(tile.q, tile.r, 31)) < 0.55 * density) {
@@ -984,12 +1021,21 @@ export class World {
             this.drifts.push(x + (pts[j * 2] ?? 0), top - 0.01, z + (pts[j * 2 + 1] ?? 0), s, s, s, 0.5 + j, scaleRgb(tc, 1.02), mem);
           }
         }
+        if (kind === SURFACE.sand && !wooded && !settled) {
+          // Desert: a couple of wind-shaped dunes, all lying the same way (one prevailing wind
+          // across the map), sun-bleached on their crests.
+          const kd = scatterInHex(tile.q, tile.r, 71, Math.max(1, Math.round(2 * density)), pts, { ...opts, minDist: 0.45 });
+          for (let j = 0; j < kd; j++) {
+            const hs = hashTile(tile.q, tile.r, 600 + j);
+            const sz = 0.75 + unit01(hs) * 0.45;
+            this.drifts.push(x + (pts[j * 2] ?? 0), top - 0.012, z + (pts[j * 2 + 1] ?? 0), sz * 1.25, sz * 1.1, sz, 0.35 + unit01(hs >>> 7) * 0.3, scaleRgb(tc, 1.04), mem);
+          }
+        }
         if (kind === SURFACE.sand || kind === SURFACE.tundra) {
-          const kp = scatterInHex(tile.q, tile.r, 61, Math.round((kind === SURFACE.sand ? 2 : 2) * density), pts, opts);
+          // Scattered pebbles / dry scrub.
+          const kp = scatterInHex(tile.q, tile.r, 61, Math.round(2 * density), pts, opts);
           for (let j = 0; j < kp; j++) {
-            const s = 0.05 + unit01(hashTile(tile.q, tile.r, 500 + j)) * 0.05;
-            this.tufts.push(x + (pts[j * 2] ?? 0), top - 0.004, z + (pts[j * 2 + 1] ?? 0), 0.9, 0.6, 0.9, j, mix(tc, [0.45, 0.4, 0.3], 0.5), mem);
-            void s;
+            this.tufts.push(x + (pts[j * 2] ?? 0), top - 0.004, z + (pts[j * 2 + 1] ?? 0), 0.9, 0.6, 0.9, j, mix(tc, [0.5, 0.44, 0.32], 0.45), mem);
           }
         }
       }
@@ -1004,8 +1050,8 @@ export class World {
     const k = this.propScale;
     for (const r of this.resourceList) {
       // Class-colored soft halo keeps the bonus / luxury / strategic legend readable.
-      this.resourceHalos.push(r.x, r.y + 0.006, r.z, 0.24 * k, 1, 0.24 * k, 0, RESOURCE_RGB[r.cls], r.mem, SOFT.glow, 0.9, 0);
-      if (r.prop) this.resourceProps[r.prop].push(r.x, r.y, r.z, k * 1.25, k * 1.25, k * 1.25, r.spin, r.accent, r.mem);
+      this.resourceHalos.push(r.x, r.y + 0.006, r.z, 0.27 * k, 1, 0.27 * k, 0, RESOURCE_RGB[r.cls], r.mem, SOFT.glow, 0.9, 0);
+      if (r.prop) this.resourceProps[r.prop].push(r.x, r.y, r.z, k * 1.5, k * 1.5, k * 1.5, r.spin, r.accent, r.mem);
       else this.resourceMarkers[r.cls].push(r.x, r.y + 0.02, r.z, k, k, k, r.cls === 'bonus' ? 0 : r.spin, r.accent, r.mem);
     }
     for (const kk of RESOURCE_PROPS) this.resourceProps[kk].end();
@@ -1077,9 +1123,6 @@ export class World {
 
   private updateTerritory(state: GameState): void {
     this.territoryFill.begin();
-    this.borderKey.begin();
-    this.borderPrimary.begin();
-    this.borderSecondary.begin();
     const { width, height } = this;
     const n = width * height;
     const order = state.playerOrder;
@@ -1090,36 +1133,30 @@ export class World {
       const col = parseHexColor(ownerColors(state, owner).primary);
       this.territoryFill.push(this.tileX[i] ?? 0, (this.shownTop[i] ?? 0) + 0.008, this.tileZ[i] ?? 0, 1, 1, 1, 0, col, fog === FOG_EXPLORED ? 1 : 0, SOFT.territory, 0.2, 0);
     }
-    const edges = computeBorderEdges(this.owners, width, height, (i) => this.fog[i] !== FOG_UNEXPLORED, this.edges);
-    let lastOwner: string | null = null;
-    let primary: Rgb = C.keyline;
-    let secondary: Rgb = C.keyline;
-    let pattern = 0;
-    for (let k = 0; k < edges.count; k++) {
-      const i = edges.tile[k] ?? 0;
-      const d = edges.dir[k] ?? 0;
-      const owner = this.owners[i] ?? null;
-      if (owner === null) continue;
-      if (owner !== lastOwner) {
-        const oc = ownerColors(state, owner);
-        primary = parseHexColor(oc.primary);
-        secondary = parseHexColor(oc.secondary);
-        pattern = patternFor(owner, order);
-        lastOwner = owner;
-      }
+    const include = (i: number): boolean => this.fog[i] !== FOG_UNEXPLORED;
+    const edges = computeBorderEdges(this.owners, width, height, include, this.edges);
+    // Owner colors resolved once per owner (and per memory state), not per edge.
+    const cache = new Map<string, BorderColors>();
+    const colorsFor = (i: number): BorderColors => {
+      const owner = this.owners[i] ?? '';
       const fog = (this.fog[i] ?? FOG_UNEXPLORED) as FogClass;
-      const x = this.tileX[i] ?? 0;
-      const z = this.tileZ[i] ?? 0;
-      const top = (this.shownTop[i] ?? 0) + 0.01;
-      const rot = EDGE_ROTATION[d] ?? 0;
-      this.borderKey.push(x, top, z, 1, 1, 1, rot, propColor(C.keyline, fog));
-      this.borderPrimary.push(x, top + 0.002, z, 1, 1, 1, rot, propColor(primary, fog), pattern);
-      this.borderSecondary.push(x, top + 0.001, z, 1, 1, 1, rot, propColor(secondary, fog));
-    }
+      const key = `${owner}|${fog}`;
+      let c = cache.get(key);
+      if (!c) {
+        const oc = ownerColors(state, owner);
+        c = {
+          primary: propColor(parseHexColor(oc.primary), fog),
+          secondary: propColor(parseHexColor(oc.secondary), fog),
+          ink: propColor(C.keyline, fog),
+          pattern: patternFor(owner, order),
+        };
+        cache.set(key, c);
+      }
+      return c;
+    };
+    this.borderData = buildBorderMesh(edges, this.owners, width, height, include, { x: this.tileX, z: this.tileZ, top: this.shownTop }, colorsFor, this.borderData);
+    this.borders.set(this.borderData);
     this.territoryFill.end();
-    this.borderKey.end();
-    this.borderPrimary.end();
-    this.borderSecondary.end();
   }
 
   private atWarWithViewer(state: GameState, owner: PlayerId): boolean {
@@ -1235,7 +1272,7 @@ export class World {
       cityState: cs,
       wall: wallFraction(s.hp, s.maxHp),
     });
-    this.labels.push(spec, x, y + (s.kind === 'city' || cs ? 1.0 : 0.78), z, priority);
+    this.labels.push(spec, x, y + (s.kind === 'city' || cs ? 0.9 : 0.7), z, priority);
   }
 
   /** Push every settlement piece; pop-in and banner flourishes scale them. Returns true while animating. */
@@ -1263,6 +1300,10 @@ export class World {
           animating = true;
         }
       }
+      if (flourish >= 0) {
+        // Captured: the town settles under its new banner with a small bounce.
+        s *= 1 + 0.07 * Math.sin(flourish * Math.PI * 3) * (1 - flourish);
+      }
       for (let k = 0; k < d.pieces.length; k++) {
         const p = d.pieces[k];
         if (!p) continue;
@@ -1272,9 +1313,12 @@ export class World {
         let rot = p.r;
         if (k === d.flag && flourish >= 0) {
           // Banner swap: the cloth spins in and unfurls.
+          // Banner swap: the new cloth spins in, unfurls oversized, then settles.
           const e = easeOutBack(flourish);
-          sx *= e;
-          sy *= Math.min(1, flourish * 2);
+          const swell = 1 + 0.9 * Math.sin(Math.min(1, flourish * 1.4) * Math.PI);
+          sx *= e * swell;
+          sy *= Math.min(1, flourish * 2) * swell;
+          sz *= swell;
           rot += (1 - flourish) * Math.PI * 4;
         }
         this.pieces[p.k].push(d.x + p.x * s, d.y + p.y * s, d.z + p.z * s, sx, sy, sz, rot, p.c, d.mem, p.k === 'flag' ? d.pattern : 0, k * 0.37);
@@ -1412,6 +1456,7 @@ export class World {
           fortified: u.fortified,
           scale,
           water: this.waterTile[i] === 1,
+          skin: packedSkin(state.players[u.owner]?.skinTone ?? hashString(u.owner) % SKIN_TONES.length),
         });
         seen.add(id);
       });
@@ -1476,7 +1521,7 @@ export class World {
       if (!d.water) this.unitBases.push(x, y, z, S, 1, S, 0, d.primary, 0);
       this.unitRims.push(x, y + (d.water ? 0 : 0.012), z, S, 1, S, 0, d.rim);
       this.unitShadows.push(x + 0.03, y + 0.004, z + 0.02, 0.3 * S, 1, 0.3 * S, 0, C.white, 0, SOFT.shadow, 0.55, 0);
-      this.figures[d.figure].push(x, y + (d.water ? 0.01 : 0.04) + lift, z, S, S, S, d.heading, d.primary, 0);
+      this.figures[d.figure].push(x, y + (d.water ? 0.01 : 0.04) + lift, z, S, S, S, d.heading, d.primary, 0, 0, 0, d.skin);
       if (d.ring) this.goldRings.push(x, y + 0.012, z, S, 1, S, 0, C.gold);
       if (selected) this.unitGlow.push(x, y + 0.02, z, 0.42 * S * pulse, 1, 0.42 * S * pulse, 0, C.selectUnit, 0, SOFT.glow, 0.9, amb ? 1 : 0);
       let topY = y + 0.042 + top + lift + 0.03 * S;
@@ -1490,7 +1535,7 @@ export class World {
         this.hpFront.push(x + rx * shift, by + 0.014 * k, z + rz * shift, Math.max(0.02, f) * k, k, k, this.yaw, col);
         topY = by + 0.09 * k;
       }
-      if (d.own && this.ready.has(d.id)) this.readyMarks.push(x, topY + 0.04, z, S, S, S, 0, C.ready);
+      if (d.own && this.ready.has(d.id)) this.readyMarks.push(x, topY + 0.03, z, S * 0.9, S * 0.9, S * 0.9, 0.3, C.white, 0);
       if (d.fortified) {
         // Shield on the unit's camera-facing side so it reads from the default view.
         this.shields.push(x + 0.17 * S * rx, y + 0.03, z + 0.17 * S * rz + 0.12 * S, S, S, S, this.yaw, C.shield, 0);
@@ -1519,11 +1564,18 @@ export class World {
   // -------------------------------------------------------------------------------------------
 
   /** Re-run label de-overlap when the camera or the labels changed. */
-  layoutLabels(camera: PerspectiveCamera | Camera, viewW: number, viewH: number, cameraChanged: boolean): void {
+  layoutLabels(
+    camera: PerspectiveCamera | Camera,
+    viewW: number,
+    viewH: number,
+    cameraChanged: boolean,
+    hud: { top: number; bottom: number } = { top: 0, bottom: 0 },
+  ): void {
     if (!this.detail.visible) return;
     if (!cameraChanged && !this.labelsDirty) return;
     this.labelsDirty = false;
-    this.labels.layout(camera as PerspectiveCamera, viewW, viewH);
+    // Labels stay out of the HUD bars (a little slack: the bars' lower edge is translucent).
+    this.labels.layout(camera as PerspectiveCamera, viewW, viewH, hud.top * 0.85, viewH - hud.bottom * 0.5);
   }
 
   // -------------------------------------------------------------------------------------------
@@ -1600,18 +1652,24 @@ export class World {
       const settlement = this.state.map.tiles[i]?.settlement ?? null;
       if (kind === 'combat') {
         for (const d of this.unitDraws) if (Math.abs(d.tx - w.x) < 0.6 && Math.abs(d.tz - w.z) < 0.6) this.shakeAt.set(d.id, now);
-        this.emit(w.x, top, w.z, 9, C.dust, now, 0.5, 0.09);
+        this.emit(w.x, top, w.z, 12, C.dust, now, 0.8, 0.24);
       } else if (kind === 'found') {
         if (settlement) {
           const b = this.bornAt.get(settlement);
           if (b === undefined || now - b > POP_MS) this.bornAt.set(settlement, now);
         }
-        this.emit(w.x, top, w.z, 12, C.dust, now, 0.7, 0.1);
+        this.emit(w.x, top, w.z, 16, C.dust, now, 0.9, 0.26);
       } else if (kind === 'capture') {
         if (settlement) this.flourishAt.set(settlement, now);
-        this.emit(w.x, top + 0.4, w.z, 6, FLASH_COLORS.capture, now, 0.3, 0.05);
+        // Confetti in the NEW owner's colors bursts from the banner.
+        const owner = settlement ? this.state.settlements[settlement]?.owner : undefined;
+        const oc = owner ? ownerColors(this.state, owner) : null;
+        const c1 = oc ? parseHexColor(oc.primary) : FLASH_COLORS.capture;
+        const c2 = oc ? parseHexColor(oc.secondary) : C.gold;
+        this.emit(w.x, top + 0.5, w.z, 10, c1, now, 0.7, 0.11, true);
+        this.emit(w.x, top + 0.5, w.z, 7, c2, now + 60, 0.6, 0.09, true);
       } else if (kind === 'recruit') {
-        this.emit(w.x, top + 0.1, w.z, 14, C.sparkle, now, 0.35, 0.05, true);
+        this.emit(w.x, top + 0.1, w.z, 18, C.sparkle, now, 0.5, 0.1, true);
       }
     }
     this.animateFlashes(now);
@@ -1625,9 +1683,11 @@ export class World {
       const h = hashTile(Math.round(now), made, count);
       const a = unit01(h) * Math.PI * 2;
       const sp = (0.4 + unit01(h >>> 8) * 0.6) * spread;
-      p.x = x + Math.cos(a) * 0.15;
+      // Dust kicks up around the base ring (not hidden under the figure); sparkles start closer.
+      const r0 = rise ? 0.12 : 0.26;
+      p.x = x + Math.cos(a) * r0;
       p.y = y + 0.05;
-      p.z = z + Math.sin(a) * 0.15;
+      p.z = z + Math.sin(a) * r0;
       p.vx = Math.cos(a) * sp;
       p.vz = Math.sin(a) * sp;
       p.vy = rise ? 0.6 + unit01(h >>> 16) * 0.6 : 0.25 + unit01(h >>> 16) * 0.3;
@@ -1635,6 +1695,7 @@ export class World {
       p.life = rise ? 1100 : 650;
       p.size = size * (0.7 + unit01(h >>> 4) * 0.6);
       p.color = color;
+      p.rise = rise;
       p.active = true;
       made++;
     }
@@ -1652,9 +1713,9 @@ export class World {
         continue;
       }
       any = true;
-      const s = this.reduceMotion ? 1 : 0.6 + t * 0.9;
+      const s = this.reduceMotion ? 1 : 0.62 + 0.55 * easeOut(t);
       f.mesh.scale.set(s, 1, s);
-      f.material.opacity = this.reduceMotion ? (t < 0.6 ? 0.85 : 0) : 0.9 * (1 - t);
+      f.material.opacity = this.reduceMotion ? (t < 0.6 ? 0.85 : 0) : 0.95 * (1 - t) * (1 - t);
     }
     // Particles.
     this.puffs.begin();
@@ -1670,9 +1731,9 @@ export class World {
       const sec = (t * p.life) / 1000;
       const x = p.x + p.vx * sec;
       const z = p.z + p.vz * sec;
-      const y = p.y + p.vy * sec - (p.color === C.sparkle ? 0 : sec * sec * 0.6);
-      const s = p.size * (p.color === C.sparkle ? 1 - t * 0.6 : 1 + t * 1.6);
-      this.puffs.push(x, y, z, s, s, s, t * 3, p.color, 0, (1 - t) * (p.color === C.sparkle ? 1 : 0.7));
+      const y = p.y + p.vy * sec - (p.rise ? 0 : sec * sec * 0.6);
+      const s = p.size * (p.rise ? 1 - t * 0.6 : 1 + t * 1.6);
+      this.puffs.push(x, y, z, s, s, s, t * 3, p.color, 0, (1 - t) * (p.rise ? 1 : 0.7));
     }
     this.puffs.end();
     if (this.bornAt.size > 0 || this.flourishAt.size > 0) {
@@ -1696,6 +1757,7 @@ export class World {
       }
     });
     for (const l of this.allInstances()) l.touch();
+    this.borders.touch();
     this.uniforms.uDetail.value.needsUpdate = true;
     this.uniforms.uMapField.value.needsUpdate = true;
     this.labels.clearCache();
@@ -1717,6 +1779,7 @@ export class World {
 
   dispose(): void {
     for (const l of this.allInstances()) l.dispose();
+    this.borders.dispose();
     this.labels.dispose();
     for (const f of this.flashes) this.root.remove(f.mesh);
     this.base.remove(this.plinth, this.plinthTop);
@@ -1735,9 +1798,6 @@ export class World {
       this.riverRibbons,
       this.riverNodes,
       this.territoryFill,
-      this.borderKey,
-      this.borderPrimary,
-      this.borderSecondary,
       this.staticShadows,
       this.resourceHalos,
       this.hlFill,

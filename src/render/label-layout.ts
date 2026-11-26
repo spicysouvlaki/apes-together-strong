@@ -1,12 +1,15 @@
 /**
  * Settlement label de-overlap (GDD §11 readability). Pure and allocation-free after setup:
  * labels are screen rectangles anchored at their bottom center; in priority order each label
- * tries its home slot, then one slot up, one down, two up, and is hidden if all collide.
+ * tries its home slot, then one and two slots up, and is hidden if all collide. Labels only
+ * ever move UP: each hangs on a leader above its settlement, and moving one down would cover
+ * the buildings it names. A label whose slot would fall under the HUD (outside minY..maxY) is
+ * not placed there either.
  * Called on camera changes with at most ~64 labels, so O(n²) is fine.
  */
 
 /** Candidate vertical shifts, in label heights (positive = up on screen). */
-export const LABEL_SHIFTS: readonly number[] = [0, 1.05, -1.05, 2.1];
+export const LABEL_SHIFTS: readonly number[] = [0, 1.05, 2.1];
 
 export class LabelLayout {
   /** Inputs per label: screen anchor x, bottom y (px, y down), width, height, priority. */
@@ -34,8 +37,11 @@ export class LabelLayout {
     this.placedTop = new Float32Array(capacity);
   }
 
-  /** Lay out labels 0..count-1. `pad` = extra px kept between labels. */
-  solve(pad = 2): void {
+  /**
+   * Lay out labels 0..count-1. `pad` = extra px kept between labels; a label must fit between
+   * screen rows `minY` and `maxY` (HUD-free band, px from the top).
+   */
+  solve(pad = 2, minY = -Infinity, maxY = Infinity): void {
     const n = Math.min(this.count, this.capacity);
     const { order } = this;
     for (let i = 0; i < n; i++) order[i] = i;
@@ -64,7 +70,7 @@ export class LabelLayout {
       for (const s of LABEL_SHIFTS) {
         const bottom = (this.y[i] ?? 0) - s * h + pad;
         const top = bottom - h - pad * 2;
-        let hit = false;
+        let hit = top + pad < minY || bottom - pad > maxY;
         for (let p = 0; p < placed; p++) {
           const j = order[p] ?? 0;
           if (!this.visible[j]) continue;

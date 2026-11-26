@@ -12,12 +12,14 @@ export interface ToastSpec {
   text: string;
   tone: Toast['tone'];
   action: Modal | null;
+  /** Where it happened: tapping the toast centers the map there. */
+  at?: Hex;
 }
 
 export interface EventNames {
   owner(id: PlayerId): string;
   figure(id: string): string;
-  settlement(id: string): { name: string; owner: PlayerId } | null;
+  settlement(id: string): { name: string; owner: PlayerId; at?: Hex } | null;
   /** Unit, building or wonder (one shared namespace). */
   item(id: string): string;
   research(id: string): string;
@@ -42,7 +44,7 @@ const combatToast = (ev: Extract<SimEvent, { type: 'combat' }>, me: PlayerId, n:
       ? `${target} ${plural ? 'were breached' : 'was destroyed'}`
       : `${target} lost ${Math.round(ev.damageToDefender)} HP`;
     const cost = ev.attackerDied ? `; our ${unitName(ev.attacker)} fell` : ev.damageToAttacker > 0 ? `; ours lost ${Math.round(ev.damageToAttacker)}` : '';
-    return { text: `${result}${cost}.`, tone: ev.attackerDied ? 'bad' : 'good', action: null };
+    return { text: `${result}${cost}.`, tone: ev.attackerDied ? 'bad' : 'good', action: null, at: ev.at };
   }
   if (ev.defenderOwner === me) {
     const ours = ev.defender ? `our ${unitName(ev.defender)}` : 'our walls';
@@ -50,7 +52,7 @@ const combatToast = (ev: Extract<SimEvent, { type: 'combat' }>, me: PlayerId, n:
       ? `${ours} ${ev.defender ? 'was destroyed' : 'were breached'}`
       : `${ours} lost ${Math.round(ev.damageToDefender)} HP`;
     const back = ev.attackerDied ? ' The attacker fell.' : '';
-    return { text: `${n.owner(ev.attackerOwner)} attacked: ${what}.${back}`, tone: 'bad', action: null };
+    return { text: `${n.owner(ev.attackerOwner)} attacked: ${what}.${back}`, tone: 'bad', action: null, at: ev.at };
   }
   return null;
 };
@@ -95,14 +97,15 @@ export const eventToToast = (ev: SimEvent, me: PlayerId, n: EventNames): ToastSp
         : { text: `${n.owner(ev.player)} built ${n.item(ev.wonder)}.`, tone: 'info', action: null };
     case 'settlementGrew': {
       const s = n.settlement(ev.settlement);
-      return s && s.owner === me ? { text: `${s.name} grew to ${ev.population}.`, tone: 'info', action: null } : null;
+      return s && s.owner === me ? withAt({ text: `${s.name} grew to ${ev.population}.`, tone: 'info', action: null }, s.at) : null;
     }
     case 'settlementFounded':
       return null; // the founder saw it happen; rivals' foundings are not news
     case 'settlementCaptured': {
-      const name = n.settlement(ev.settlement)?.name ?? 'A settlement';
+      const st = n.settlement(ev.settlement);
+      const name = st?.name ?? 'A settlement';
       if (ev.to === me) return { text: `We took ${name}!`, tone: 'good', action: { kind: 'city', settlement: ev.settlement } };
-      if (ev.from === me) return { text: `${name} fell to ${n.owner(ev.to)}.`, tone: 'bad', action: null };
+      if (ev.from === me) return withAt({ text: `${name} fell to ${n.owner(ev.to)}.`, tone: 'bad', action: null }, st?.at);
       return null;
     }
     case 'warDeclared':
@@ -131,12 +134,22 @@ export const eventToToast = (ev: SimEvent, me: PlayerId, n: EventNames): ToastSp
         : { text: `${n.owner(ev.player)} has fallen.`, tone: 'info', action: null };
     case 'notice':
       return ev.player === null || ev.player === me ? { text: ev.text, tone: 'info', action: null } : null;
+    case 'tradeRouteOpened': {
+      if (ev.player !== me) return null;
+      const to = n.settlement(ev.to);
+      return withAt({ text: `Trade route opened to ${to?.name ?? 'a far city'}: gold every turn.`, tone: 'good', action: null }, to?.at);
+    }
     case 'ageStarted':
-      return null; // the transition screen covers it
+      // Shown when the transition screen closes (toasts wait under full screens).
+      return { text: `The ${AGE_WORD[ev.age]} age begins. New figures, new trees, a new meter.`, tone: 'culture', action: null };
     default:
       return null;
   }
 };
+
+const AGE_WORD: Record<string, string> = { ancient: 'Ancient', classical: 'Classical', exploration: 'Exploration', modern: 'Modern' };
+
+const withAt = (t: ToastSpec, at: Hex | undefined): ToastSpec => (at ? { ...t, at } : t);
 
 export type FlashKindSpec = 'combat' | 'found' | 'capture' | 'recruit';
 
@@ -214,7 +227,7 @@ export const rankToasts = (specs: readonly ToastSpec[], max: number = MAX_TOASTS
   if (sorted.length <= max) return sorted;
   const shown = sorted.slice(0, Math.max(0, max - 1));
   const rest = sorted.length - shown.length;
-  return [...shown, { text: `+${rest} more ${rest === 1 ? 'update' : 'updates'} this turn.`, tone: 'info', action: null }];
+  return [...shown, { text: `+${rest} more ${rest === 1 ? 'update' : 'updates'} this turn.`, tone: 'info', action: { kind: 'log' } }];
 };
 
 /** Two modals are "the same place" for a toast's purposes (opening one answers the toast). */

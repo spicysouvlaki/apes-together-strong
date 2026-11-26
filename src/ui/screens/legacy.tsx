@@ -1,4 +1,5 @@
 /** Legacy tracks (GDD §8) and the age meter (GDD §5). */
+import { GlossText } from '../shell/GlossarySheet';
 import {
   CRISIS_START,
   SCORE_PER_FIGURE,
@@ -64,7 +65,7 @@ export const LegacyScreen = (_: ScreenProps<'legacy'>) => {
           ))}
         </ul>
       </Section>
-      <Section title="Legacy score" note={`Legacy points, plus ${SCORE_PER_FIGURE} per figure kept, ${SCORE_PER_TRADITION} per tradition (${SCORE_PER_TRADITION + SCORE_PER_SIGNATURE_EXTRA} for a signature), ${SCORE_PER_HYBRID} per hybrid and ${SCORE_PER_SEATED_FIGURE} more per seated figure. Highest score when the final age ends wins.`}>
+      <Section title="Legacy score" note={<GlossText text={`Your legacy score is legacy points, plus ${SCORE_PER_FIGURE} per figure kept, ${SCORE_PER_TRADITION} per tradition (${SCORE_PER_TRADITION + SCORE_PER_SIGNATURE_EXTRA} for a signature), ${SCORE_PER_HYBRID} per hybrid and ${SCORE_PER_SEATED_FIGURE} more per seated figure. Highest score when the final age ends wins.`} />}>
         <ul class="scr-list">
           {ranking.map((r) => (
             <li class="row">

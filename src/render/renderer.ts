@@ -19,6 +19,8 @@ import {
   REGIONAL_MAX,
   clampDistance,
   clampTarget,
+  defaultDistanceFor,
+  softHalfExtent,
   viewHalfExtents,
   cameraOffset,
   maxDistanceFor,
@@ -45,14 +47,19 @@ const FOCUS_MS = 380;
 const INERTIA_DECAY_MS = 260;
 const YAW_RATE = 12; // 1/s, exponential approach to the snapped yaw
 /**
- * Normalized (see shortAxisFactor) starting distance: ~8 hexes across a portrait phone at the
- * focus point (GDD §11: start where you can see your surroundings, not one tile).
+ * Starting distance: DEFAULT_HEXES_ACROSS (~7) hexes across the short screen axis at the focus
+ * point (GDD §11: start close enough that the diorama reads, with the surroundings in view).
  */
-const DEFAULT_DISTANCE = 25;
-/** Ambient animation (water, flags, pulses) runs this long after the last interaction. */
+const defaultDistance = (aspect: number): number => defaultDistanceFor(aspect, FOV_Y);
+/** Ambient animation (water, flags, pulses) runs at the full ambient rate this long after the last interaction. */
 const AMBIENT_MS = 9000;
 /** Ambient frames are throttled to ~30 fps (battery). */
 const AMBIENT_FRAME_MS = 33;
+/**
+ * After that the map never freezes: a very cheap perpetual idle (~13 fps) keeps water and
+ * banners alive. Off under reduceMotion and quality 'low' (then the map sleeps between inputs).
+ */
+const IDLE_FRAME_MS = 75;
 /** Default HUD padding (CSS px) that focus() keeps targets out of (top bar, bottom sheet). */
 export const DEFAULT_SAFE_AREA: SafeArea = { top: 100, right: 0, bottom: 180, left: 0 };
 
@@ -107,7 +114,7 @@ export function createRendererImpl(
   let bounds: MapBounds = mapBounds(1, 1);
   let tx = 0;
   let tz = 0;
-  let distance = DEFAULT_DISTANCE;
+  let distance = defaultDistance(9 / 19.5);
   let maxDistance = REGIONAL_MAX * 2;
   let yaw = 0;
   let yawTarget = 0;
@@ -142,6 +149,7 @@ export function createRendererImpl(
   let lpYaw = NaN;
   let lpAspect = NaN;
   let lastSeed: number | null = null;
+  let hudChanged = true;
 
   const tapListeners = new Set<(h: Hex) => void>();
   const longListeners = new Set<(h: Hex) => void>();
@@ -168,7 +176,7 @@ export function createRendererImpl(
     const a = (norm - REGIONAL_MAX * 0.85) / (REGIONAL_MAX * 0.35);
     world.uniforms.uAtlas.value = a <= 0 ? 0 : a >= 1 ? 1 : a * a * (3 - 2 * a);
     const ext = viewHalfExtents(distance, camera.aspect || 1, FOV_Y);
-    const c = clampTarget(tx, tz, bounds, 2, ext.w, ext.h);
+    const c = clampTarget(tx, tz, bounds, 2, softHalfExtent(ext.w, bounds.maxX - bounds.minX), softHalfExtent(ext.h, bounds.maxZ - bounds.minZ));
     tx = c.x;
     tz = c.z;
     const off = cameraOffset(distance, pitchFor(norm), yaw);
@@ -287,7 +295,8 @@ export function createRendererImpl(
       again = again || unitsMoving;
     }
     if (world.animateFlashes(t)) again = true;
-    const ambient = animOn() && t < ambientUntil;
+    const ambient = animOn();
+    const active = t < ambientUntil;
     world.setAmbient(ambient);
     if (ambient) {
       world.uniforms.uTime.value = t / 1000;
@@ -308,7 +317,8 @@ export function createRendererImpl(
       lpYaw = yaw;
       lpAspect = camera.aspect;
     }
-    world.layoutLabels(camera, canvas.clientWidth || 1, canvas.clientHeight || 1, camChanged);
+    world.layoutLabels(camera, canvas.clientWidth || 1, canvas.clientHeight || 1, camChanged || hudChanged, safeArea);
+    hudChanged = false;
 
     gl.render(scene, camera);
     const spent = now() - t;
@@ -324,10 +334,13 @@ export function createRendererImpl(
     else {
       lastFrame = 0;
       if (ambient && ambientTimer === null) {
-        ambientTimer = setTimeout(() => {
-          ambientTimer = null;
-          requestRender();
-        }, AMBIENT_FRAME_MS);
+        ambientTimer = setTimeout(
+          () => {
+            ambientTimer = null;
+            requestRender();
+          },
+          active ? AMBIENT_FRAME_MS : IDLE_FRAME_MS,
+        );
       }
     }
   }
@@ -493,7 +506,7 @@ export function createRendererImpl(
         tx = w.x;
         tz = w.z;
         tween = null;
-        distance = DEFAULT_DISTANCE / shortAxisFactor(camera.aspect || 1);
+        distance = defaultDistance(camera.aspect || 1);
         applyCamera();
         api.focus(start, { instant: true });
       }
@@ -522,6 +535,10 @@ export function createRendererImpl(
       const cw = canvas.clientWidth || 1;
       const ch = canvas.clientHeight || 1;
       const sa = opts?.safeArea ? { ...safeArea, ...opts.safeArea } : safeArea;
+      if (opts?.zoom === 'default') {
+        distance = defaultDistance(camera.aspect || 1);
+        applyCamera();
+      }
       const scx = (sa.left + (cw - sa.right)) / 2;
       const scy = (sa.top + (ch - sa.bottom)) / 2;
       let aimX = w.x;
@@ -542,7 +559,7 @@ export function createRendererImpl(
         placeCamera();
       }
       const ext = viewHalfExtents(distance, camera.aspect || 1, FOV_Y);
-      const c = clampTarget(aimX, aimZ, bounds, 2, ext.w, ext.h);
+      const c = clampTarget(aimX, aimZ, bounds, 2, softHalfExtent(ext.w, bounds.maxX - bounds.minX), softHalfExtent(ext.h, bounds.maxZ - bounds.minZ));
       vx = 0;
       vz = 0;
       if (opts?.instant || reduceMotion) {
@@ -604,6 +621,8 @@ export function createRendererImpl(
 
     setSafeArea(area: Partial<SafeArea>) {
       safeArea = { ...safeArea, ...area };
+      hudChanged = true;
+      requestRender();
     },
 
     setQuality(q: RenderQuality) {
@@ -674,6 +693,9 @@ export function createRendererImpl(
       return { ms, drawCalls, triangles };
     },
   });
+
+  // Debug-only: the scene graph, for the demo's inspection helpers.
+  Object.defineProperty(api, 'debugScene', { enumerable: false, value: scene });
 
   if (typeof ResizeObserver !== 'undefined') {
     ro = new ResizeObserver(() => api.resize());

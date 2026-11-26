@@ -30,7 +30,10 @@ import {
 } from './store';
 import { eventFlash, eventToToast, rankToasts, type EventNames, type FlashKindSpec, type ToastSpec } from './shell/event-toasts';
 import { tileIndexOf } from './shell/hexutil';
-import { endTurnSent, idleConfirmedTurn, lastTap, loading, settings, skipped, updateReady } from './shell/shell-state';
+import { endTurnSent, enemyConfirmedTurn, idleSheetTurn, lastTap, loading, pushLog, settings, turnLog, skipped, updateReady } from './shell/shell-state';
+import { continueStandingOrders, initStandingOrders, runStandingOrders } from './shell/standing-orders';
+import { initGuide } from './shell/guide-state';
+import { idleSheetOpen } from './shell/IdleSheet';
 import { RESUME_SLOT } from './shell/saves-logic';
 import { audio } from '../audio';
 import { commandSound, initUiAudio } from './ui-audio';
@@ -51,7 +54,8 @@ const eventNames = (state: GameState, prev: GameState | null): EventNames => ({
   figure: (id) => lookup.figures[id]?.name ?? 'A figure',
   settlement: (id) => {
     const s = state.settlements[id];
-    return s ? { name: s.name, owner: s.owner } : null;
+    const s2 = s ?? prev?.settlements[id];
+    return s2 ? { name: s2.name, owner: s2.owner, at: s2.at } : null;
   },
   item: (id) => lookup.units[id]?.name ?? lookup.buildings[id]?.name ?? lookup.wonders[id]?.name ?? id,
   research: (id) => lookup.techs[id]?.name ?? id,
@@ -76,6 +80,7 @@ const isMyTurnStart = (prev: GameState | null, next: GameState, my: PlayerId | n
 
 const onState = (state: GameState, events: SimEvent[]): void => {
   const prev = game.value;
+  if (!prev || prev.seed !== state.seed) turnLog.value = [];
   snapshotCount++;
   game.value = state;
   lastEvents.value = events;
@@ -87,9 +92,11 @@ const onState = (state: GameState, events: SimEvent[]): void => {
   const my = me.value;
   if (!my) return;
 
-  if (isMyTurnStart(prev, state, my)) {
+  const turnStart = isMyTurnStart(prev, state, my);
+  if (turnStart) {
     skipped.value = new Set();
     lastTap.value = null;
+    idleSheetOpen.value = false;
     if (updateReady.value) pendingUpdateApply = true; // applied after the autosave lands
   }
 
@@ -105,6 +112,11 @@ const onState = (state: GameState, events: SimEvent[]): void => {
     if (t) specs.push(t);
   }
   pushToasts(rankToasts(specs));
+  pushLog(state.turn, specs);
+
+  // Standing orders: start this turn's moves, or continue a run waiting on this snapshot.
+  if (turnStart) runStandingOrders();
+  else continueStandingOrders();
 
   // Flashes only where the player can see (never leak hidden positions).
   const visible = new Set(q.visibleTiles(state, my, content));
@@ -144,6 +156,7 @@ const onMessage = (msg: FromWorker): void => {
       lastError.value = msg.message;
       audio.play('error');
       pushToast(msg.message, 'bad');
+      continueStandingOrders();
       return;
   }
 };
@@ -214,6 +227,8 @@ export const initApp = (): void => {
   c.listSaves();
   applySettingsEffect();
   initUiAudio();
+  initStandingOrders();
+  initGuide();
 
   void registerServiceWorker({
     onUpdateReady: () => {
@@ -230,7 +245,8 @@ export const initApp = (): void => {
   effect(() => {
     if (route.value !== 'game') {
       modal.value = null;
-      idleConfirmedTurn.value = -1;
+      idleSheetTurn.value = -1;
+      enemyConfirmedTurn.value = -1;
     }
   });
 };

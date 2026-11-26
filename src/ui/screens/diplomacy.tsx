@@ -1,5 +1,6 @@
 /** Diplomacy (GDD §7 "Diplomacy", "City-states"): rivals, war and peace, envoys. */
 import { useState } from 'preact/hooks';
+import { GlossText } from '../shell/GlossarySheet';
 import { warKey, type PlayerId } from '@contracts/sim-api';
 import { MIN_WAR_TURNS, PEACE_INFLUENCE_COST, SUZERAIN_MIN_ENVOYS } from '../../sim/constants';
 import { signed } from '../shell/format';
@@ -107,7 +108,7 @@ export const DiplomacyScreen = (_: ScreenProps<'diplomacy'>) => {
 
       <Section
         title="City-states"
-        note={`Envoys win a city-state's favor, and famous people of its culture are drawn to your court. Whoever has the most envoys (at least ${SUZERAIN_MIN_ENVOYS}) is its suzerain, its protector, and gets the bonus shown.`}
+        note={<GlossText text={`Envoys win a city-state's favor, and famous people of its culture are drawn to your court. Whoever has the most envoys (at least ${SUZERAIN_MIN_ENVOYS}) is its suzerain, its protector, and gets the bonus shown.`} />}
       >
         {Object.keys(g.cityStates).length === 0 && <Empty>No city-states known.</Empty>}
         <ul class="scr-list">
