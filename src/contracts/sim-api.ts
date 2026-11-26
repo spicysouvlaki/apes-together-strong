@@ -481,6 +481,8 @@ export type SimEvent =
       settlement?: SettlementId;
       /** Gold lost or gained, progress refunded, etc., when the notice is about a number. */
       amount?: number;
+      /** The player speaking, for leader-voiced notices. */
+      from?: PlayerId;
     };
 
 export type NoticeKind =
@@ -492,6 +494,10 @@ export type NoticeKind =
   | 'firstContact'
   | 'offerWithdrawn'
   | 'queueSkipped'
+  /** A rival leader threatens war; `from` speaks, `settlement` is the city named, `amount` = turns left. */
+  | 'warWarning'
+  /** The threat was withdrawn, bought off, or lapsed. */
+  | 'warStandDown'
   | 'other';
 
 export type CommandResult =
