@@ -14,7 +14,16 @@ export const hashTile = (q: number, r: number, salt = 0): number => {
 };
 
 /** Hash -> [0, 1). */
-export const unit01 = (h: number): number => (h >>> 0) / 4294967296;
+/**
+ * Hash -> [0, 1). Re-mixes its input first: callers routinely pass shifted hashes
+ * (`unit01(h >>> 8)`), which with a plain division only ever reached [0, 2^-8) (art pass 4 found
+ * jungle tiles drawing only palms and temperate woods only broadleaf because of this).
+ */
+export const unit01 = (h: number): number => {
+  let x = Math.imul((h >>> 0) ^ 0x9e3779b9, 0x85ebca6b);
+  x = Math.imul(x ^ (x >>> 13), 0xc2b2ae35);
+  return ((x ^ (x >>> 16)) >>> 0) / 4294967296;
+};
 
 const COS30 = Math.cos(Math.PI / 6);
 

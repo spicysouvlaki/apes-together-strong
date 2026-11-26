@@ -12,6 +12,7 @@
  *   ?patterns=1      colorblind patterns on
  *   ?quality=low     low render quality (no micro-detail, shadows or water animation)
  *   ?age=classical   materials shift by age
+ *   ?units=1         figurine gallery (every unit look, relations, stack, fortify, damage, embark)
  *   ?bench=1         scripted pan/zoom across all zoom bands; reports frame times per band
  * Scenario extras: p1 is at war with p2 (red rims/rings), a fortified unit, a damaged city,
  * a p1 trade route, ready-unit hints, and the "Scout" button walks a unit away so the rival
@@ -19,7 +20,7 @@
  * Not part of the game bundle.
  */
 import { Resource, Terrain, type ContentBundle } from '@contracts/content-schemas';
-import { hexDistance, hexEquals, hexesInRange, offsetToAxial, type Hex } from '@contracts/hex';
+import { axialToOffset, hexDistance, hexEquals, hexesInRange, offsetToAxial, type Hex } from '@contracts/hex';
 import type { GameState, MapState, PlayerState, Settlement, Tile, Unit, UnitId } from '@contracts/sim-api';
 import '@fontsource-variable/fraunces';
 import { loadContent, rawContent } from '../content';
@@ -211,6 +212,8 @@ const isLand = (content: ContentBundle, t: Tile | undefined): boolean => {
   return !!def && !def.water && def.moveCost !== null;
 };
 
+const pickWater = (content: ContentBundle): string => (has(content, 'coast') ? 'coast' : (content.terrain.find((t) => t.water)?.id ?? 'ocean'));
+
 const buildState = (map: MapState, content: ContentBundle, seed: number, starts?: Hex[]): GameState => {
   const n = map.width * map.height;
   const rnd = mulberry32(seed ^ 0x5bd1e995);
@@ -334,6 +337,50 @@ const buildState = (map: MapState, content: ContentBundle, seed: number, starts?
   }
   addUnit('p2', 'spearman', 'infantry', { q: c1.q + 6, r: c1.r - 2 }, { hp: 20 });
   addUnit('raiders', 'warrior_band', 'infantry', { q: c1.q + 4, r: c1.r + 3 });
+
+  // ?units=1: a figurine gallery on a cleared meadow south of p1's capital (art review of every
+  // unit look, base relation, stacking, fortify, damage pips and embarking).
+  if (new URLSearchParams(location.search).get('units') === '1') {
+    for (const k of Object.keys(units)) delete units[k];
+    const c = cap('p1');
+    const o0 = axialToOffset(c);
+    const o = { col: o0.col, row: o0.row + 3 };
+    const types = content.units.map((u) => u);
+    const put = (owner: string, type: string, col: number, row: number, extra: Partial<Unit> = {}, water = false): void => {
+      const h = offsetToAxial({ col: o.col + col, row: o.row + row });
+      const t = at(h);
+      if (!t) return;
+      t.terrain = water ? pickWater(content) : 'grassland';
+      t.feature = null;
+      t.resource = null;
+      t.river = false;
+      t.elevation = 0;
+      t.settlement = null;
+      const def = types.find((u) => u.id === type);
+      const id = `u${uid++}`;
+      units[id] = { id, owner, type, unitClass: def?.unitClass ?? 'infantry', at: h, hp: 100, movesLeft: 2, fortified: false, hasAttacked: false, figure: def?.unitClass === 'commander' ? 'demo_fig' : null, ...extra };
+    };
+    // Row 0-1: every type, yours (naval on water).
+    types.forEach((u, k) => put('p1', u.id, (k % 7) * 1 - 3, Math.floor(k / 7), {}, u.unitClass === 'naval'));
+    // Row 2: at war (p2); row 3: rival (p3), city-state, raiders.
+    ['warrior_band', 'spearman', 'slinger', 'archer', 'chariot', 'horse_archer', 'catapult'].forEach((id, k) => put('p2', id, k - 3, 2));
+    put('p3', 'warrior_band', -3, 3);
+    put('p3', 'spearman', -2, 3);
+    put('cs:demo', 'spearman', -1, 3);
+    put('cs:demo', 'archer', 0, 3);
+    put('raiders', 'warrior_band', 1, 3);
+    put('raiders', 'spearman', 2, 3);
+    // Row 4: stack, fortified, damaged, embarked, figure + soldier.
+    put('p1', 'spearman', -3, 4);
+    put('p1', 'settler', -3, 4);
+    put('p1', 'spearman', -2, 4, { fortified: true });
+    put('p1', 'archer', -1, 4, { hp: 45 });
+    put('p1', 'warrior_band', 0, 4, {}, true);
+    put('p1', 'spearman', 1, 4, { hp: 75, fortified: true });
+    put('p2', 'spearman', 1, 5, { hp: 30 });
+    put('p1', 'figure_general', 2, 4);
+    put('p1', 'catapult', 2, 4);
+  }
 
   // A damaged rival city (walls hp < maxHp) and a p1 trade route between its first two cities.
   const p2City = Object.values(settlements).find((s) => s.owner === 'p2' && s.kind === 'city');
@@ -733,6 +780,22 @@ const main = async (): Promise<void> => {
     },
     move: (id: string, q: number, r: number): void => {
       if (apply('p1', { type: 'moveUnit', unit: id, to: { q, r } })) push();
+    },
+    /**
+     * Combat as the UI shows it: `attacker` selected, the snapshot with the target damaged (or
+     * removed when hp <= 0) is pushed, then the combat flash fires on the next frame.
+     */
+    strike: (attacker: string, target: string, damage = 40, sync = false): void => {
+      const t = state.units[target];
+      if (!t) return;
+      select(attacker);
+      const units = { ...state.units };
+      if (t.hp - damage <= 0) delete units[target];
+      else units[target] = { ...t, hp: t.hp - damage };
+      state = { ...state, units };
+      push();
+      if (sync) renderer.flash(t.at, 'combat');
+      else requestAnimationFrame(() => renderer.flash(t.at, 'combat'));
     },
     /** Select a unit by id (settlers show their site markers). */
     select: (id: string | null): void => select(id),

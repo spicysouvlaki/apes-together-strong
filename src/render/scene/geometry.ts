@@ -241,7 +241,7 @@ export const riverNodeGeometry = (radius: number): BufferGeometry => {
  */
 export const hillMoundGeometry = (): BufferGeometry => {
   const knoll = (r: number, h: number, x: number, z: number, seed: number): BufferGeometry => {
-    const g = new SphereGeometry(r, 7, 3, seed * 0.7, Math.PI * 2, 0, Math.PI / 2);
+    const g = new SphereGeometry(r, 10, 3, seed * 0.7, Math.PI * 2, 0, Math.PI / 2);
     const p = g.getAttribute('position');
     for (let i = 0; i < p.count; i++) {
       const kx = Math.round(p.getX(i) * 1000);
@@ -261,8 +261,15 @@ export const hillMoundGeometry = (): BufferGeometry => {
       const cy = (pos.getY(f) + pos.getY(f + 1) + pos.getY(f + 2)) / 3;
       const t = Math.min(1, cy / h);
       const rocky = t > 0.3 && t < 0.8 && unit01(hashTile(f, seed, 17)) < 0.16;
+      // Dark cliff seams (art pass 4): two narrow scarps per knoll, one facing the default camera
+      // (+z), running from the shoulder down the flank, so hills read as rocky relief.
+      const cx = (pos.getX(f) + pos.getX(f + 1) + pos.getX(f + 2)) / 3 - x;
+      const cz = (pos.getZ(f) + pos.getZ(f + 1) + pos.getZ(f + 2)) / 3 - z;
+      const ang = Math.atan2(cz, cx);
+      const seamAt = [Math.PI / 2 + (seed - 2.5) * 0.35, -0.6 + seed * 1.3];
+      const seam = t > 0.12 && t < 0.85 && seamAt.some((a) => Math.abs(Math.atan2(Math.sin(ang - a), Math.cos(ang - a))) < 0.2);
       const k = 0.8 + t * 0.3;
-      const c: Rgb = rocky ? [0.78, 0.72, 0.64] : [k, k, k * 0.96];
+      const c: Rgb = seam ? [0.5 + t * 0.1, 0.45 + t * 0.1, 0.41 + t * 0.08] : rocky ? [0.78, 0.72, 0.64] : [k, k, k * 0.96];
       for (let v = 0; v < 3; v++) col.set(c, (f + v) * 3);
     }
     ng.setAttribute('color', new Float32BufferAttribute(col, 3));
@@ -399,24 +406,83 @@ export const broadleafGeometry = (): BufferGeometry => {
 };
 
 /** Jungle canopy: wide, layered, darker crowns. */
+/**
+ * Jungle (art pass 4: it read as a generic blob forest): an emergent rainforest giant with
+ * buttress roots and a flat umbrella crown standing over a lower, darker canopy layer, vines
+ * hanging from the crowns and a few bright blossoms. Understory ferns are their own layer.
+ */
 export const jungleGeometry = (): BufferGeometry => {
-  const trunk = paint(baseAt0(new CylinderGeometry(0.035, 0.05, 0.3, 5), 0.3), TRUNK);
-  const blob = (r: number, x: number, y: number, z: number, c: Rgb): BufferGeometry => {
+  const parts: BufferGeometry[] = [];
+  const blob = (r: number, x: number, y: number, z: number, c: Rgb, flat = 0.6): void => {
     const g = new IcosahedronGeometry(r, 0);
-    g.scale(1.25, 0.6, 1.25);
+    g.scale(1.25, flat, 1.25);
     g.translate(x, y, z);
-    return paint(g, c);
+    parts.push(paint(g, c));
   };
-  return assemble([
-    trunk,
-    blob(0.2, 0, 0.34, 0, JUNGLE_M),
-    blob(0.15, 0.12, 0.28, -0.08, JUNGLE_D),
-    blob(0.13, -0.1, 0.44, 0.06, JUNGLE_L),
-    blob(0.12, -0.06, 0.24, -0.12, JUNGLE_D),
-  ]);
+  // Emergent: tall pale trunk with buttresses, umbrella crown.
+  parts.push(paint(baseAt0(new CylinderGeometry(0.026, 0.042, 0.56, 5), 0.56), lin('#8a7258')));
+  for (let k = 0; k < 4; k++) {
+    const fin = new BoxGeometry(0.012, 0.11, 0.08);
+    fin.translate(0, 0.055, 0.04);
+    fin.rotateY((k / 4) * Math.PI * 2 + 0.4);
+    parts.push(paint(fin, lin('#7a6248')));
+  }
+  blob(0.2, 0.0, 0.6, 0.0, JUNGLE_L, 0.42);
+  blob(0.14, 0.12, 0.57, 0.06, JUNGLE_M, 0.45);
+  // Lower canopy layer, offset, darker.
+  parts.push(paint(baseAt0(new CylinderGeometry(0.03, 0.04, 0.26, 5), 0.26).translate(-0.17, 0, 0.1), TRUNK));
+  blob(0.17, -0.17, 0.3, 0.1, JUNGLE_M, 0.62);
+  blob(0.13, -0.05, 0.25, 0.17, JUNGLE_D, 0.62);
+  blob(0.12, -0.27, 0.24, 0.0, JUNGLE_D, 0.62);
+  // Vines: thin hanging strands from both crowns.
+  for (const [x, y, z, len] of [
+    [0.13, 0.55, 0.12, 0.26],
+    [-0.12, 0.55, -0.08, 0.32],
+    [-0.27, 0.22, 0.12, 0.16],
+    [-0.06, 0.22, 0.27, 0.14],
+  ] as const) {
+    const v = new BoxGeometry(0.008, len, 0.008);
+    v.translate(x, y - len / 2, z);
+    parts.push(paint(v, lin('#3b6a34')));
+    const leaf = new IcosahedronGeometry(0.018, 0);
+    leaf.translate(x, y - len, z);
+    parts.push(paint(leaf, JUNGLE_L));
+  }
+  // Blossoms (kapok red, orchid gold) on the crowns.
+  for (const [x, y, z, c] of [
+    [0.1, 0.66, -0.06, '#e2513a'],
+    [-0.09, 0.64, 0.1, '#f2b23a'],
+    [-0.2, 0.37, 0.2, '#e2513a'],
+  ] as const) {
+    const f = new IcosahedronGeometry(0.026, 0);
+    f.translate(x, y, z);
+    parts.push(paint(f, lin(c)));
+  }
+  return assemble(parts);
 };
 
-/** Palm: leaning segmented trunk and drooping fronds (oasis, arid kits). Height ≈ 1. */
+/** Understory: a clump of broad fern fronds and a big-leaf plant (jungle floor). */
+export const fernGeometry = (): BufferGeometry => {
+  const parts: BufferGeometry[] = [];
+  for (let k = 0; k < 6; k++) {
+    const frond = new ConeGeometry(0.04, 0.2, 3);
+    frond.scale(1, 1, 0.2);
+    frond.rotateZ(-Math.PI / 2 + 0.75 + (k % 2) * 0.25);
+    frond.translate(0.09, 0.05, 0);
+    frond.rotateY((k / 6) * Math.PI * 2 + (k % 3) * 0.3);
+    parts.push(paint(frond, k % 2 ? JUNGLE_L : JUNGLE_M));
+  }
+  for (let k = 0; k < 3; k++) {
+    const leaf = new SphereGeometry(0.06, 5, 2);
+    leaf.scale(1, 0.18, 0.55);
+    leaf.rotateZ(0.5);
+    leaf.translate(0.06, 0.09, 0);
+    leaf.rotateY(k * 2.1 + 1);
+    parts.push(paint(leaf, lin('#2f6b3c')));
+  }
+  return assemble(parts);
+};
+
 export const palmGeometry = (): BufferGeometry => {
   const parts: BufferGeometry[] = [];
   let x = 0;
@@ -643,10 +709,11 @@ export const resourcePropGeometry = (kind: ResourcePropKind): BufferGeometry => 
         const neck = new BoxGeometry(0.035, 0.06, 0.04);
         neck.rotateX(0.5);
         neck.translate(0, 0.12, -0.07);
-        add(neck, team(0.95));
+        // Neck and head carry a graze weight in -g (materials GRAZE dips them to the grass).
+        add(neck, [-0.95, -0.25, 0]);
         const head = new BoxGeometry(0.035, 0.035, 0.06);
         head.translate(0, 0.15, -0.1);
-        add(head, team(0.9));
+        add(head, [-0.9, -0.45, 0]);
         for (const [lx, lz] of [
           [-0.02, -0.045],
           [0.02, -0.045],
@@ -986,7 +1053,8 @@ export const birdGeometry = (): BufferGeometry => {
   }
   const body = new OctahedronGeometry(0.012);
   body.scale(0.8, 0.7, 1.8);
-  return assemble([paint(flatGeometry(pos), lin('#3a2f28')), paint(body, lin('#4a3c31'))]);
+  // Team-marked (instanceColor): inked dark for ordinary birds, bright for jungle parrots.
+  return assemble([paint(flatGeometry(pos), team(1)), paint(body, team(0.85))]);
 };
 
 /**
@@ -1007,4 +1075,45 @@ export const boatGeometry = (): BufferGeometry => {
   sail.rotateZ(-0.35);
   sail.translate(-0.03, 0.13, 0);
   return assemble([paint(hull, lin('#7a5536')), paint(wale, lin('#4e3524')), paint(mast, lin('#5d4029')), paint(sail, lin('#efe4cc'))]);
+};
+
+/**
+ * Little humped plank bridge (~0.46 long along +x, deck 0.13 wide): where a road crosses a
+ * river (rivers.ts roadRiverCrossings). Stone abutments, wooden deck, two rails.
+ */
+export const bridgeGeometry = (): BufferGeometry => {
+  const parts: BufferGeometry[] = [];
+  const n = 7;
+  for (let i = 0; i < n; i++) {
+    const t = i / (n - 1) - 0.5;
+    const plank = new BoxGeometry(0.068, 0.018, 0.13);
+    plank.rotateZ(-t * 0.7);
+    plank.translate(t * 0.42, 0.03 + (0.25 - t * t) * 0.18, 0);
+    parts.push(paint(plank, i % 2 === 0 ? lin('#8a6440') : lin('#76552f')));
+  }
+  for (const sz of [-1, 1]) {
+    for (let i = 0; i < n; i++) {
+      const t = i / (n - 1) - 0.5;
+      const post = new BoxGeometry(0.012, 0.05, 0.012);
+      post.translate(t * 0.42, 0.06 + (0.25 - t * t) * 0.18, sz * 0.06);
+      parts.push(paint(post, lin('#5a3e26')));
+    }
+    for (let i = 0; i < n - 1; i++) {
+      const t0 = i / (n - 1) - 0.5;
+      const t1 = (i + 1) / (n - 1) - 0.5;
+      const y0 = 0.085 + (0.25 - t0 * t0) * 0.18;
+      const y1 = 0.085 + (0.25 - t1 * t1) * 0.18;
+      const len = Math.hypot((t1 - t0) * 0.42, y1 - y0);
+      const rail = new BoxGeometry(len, 0.01, 0.01);
+      rail.rotateZ(Math.atan2(y1 - y0, (t1 - t0) * 0.42));
+      rail.translate(((t0 + t1) / 2) * 0.42, (y0 + y1) / 2, sz * 0.06);
+      parts.push(paint(rail, lin('#5a3e26')));
+    }
+  }
+  for (const sx of [-1, 1]) {
+    const ab = new BoxGeometry(0.08, 0.05, 0.16);
+    ab.translate(sx * 0.23, 0.02, 0);
+    parts.push(paint(ab, lin('#a79d8c')));
+  }
+  return assemble(parts);
 };

@@ -63,6 +63,8 @@ export interface SceneUniforms {
   uMapSize: IUniform<Vector2>;
   /** Two compass-rose centers on the parchment (x1, z1, x2, z2). */
   uCompass: IUniform<Vector4>;
+  /** Map bounds (minX, minZ, maxX, maxZ) for the atlas frame and cartouche. */
+  uFrame: IUniform<Vector4>;
   uPatterns: IUniform<number>;
   /**
    * Mood grade (mood.ts): rgb = channel multiply, w = saturation. The new grade wipes in over
@@ -123,6 +125,7 @@ export const createSceneUniforms = (patterns: boolean): SceneUniforms => {
     uMapField: { value: field },
     uMapSize: { value: new Vector2(1, 1) },
     uCompass: { value: new Vector4(0, 0, 0, 0) },
+    uFrame: { value: new Vector4(0, 0, 0, 0) },
     uPatterns: { value: patterns ? 1 : 0 },
     uGradeFrom: { value: new Vector4(1, 1, 1, 1) },
     uGradeTo: { value: new Vector4(1, 1, 1, 1) },
@@ -282,9 +285,12 @@ const make = (name: string, u: SceneUniforms, vertexShader: string, fragmentShad
  */
 export const propMaterial = (
   u: SceneUniforms,
-  opts: { tint?: boolean; sway?: boolean; flag?: boolean; alpha?: boolean; bob?: boolean; orbit?: boolean } = {},
+  opts: { tint?: boolean; sway?: boolean; flag?: boolean; alpha?: boolean; bob?: boolean; orbit?: boolean; second?: boolean; idle?: boolean; graze?: boolean } = {},
 ): ShaderMaterial => {
   const defines: Record<string, number> = {};
+  if (opts.second) defines.SECOND = 1;
+  if (opts.idle) defines.IDLE = 1;
+  if (opts.graze) defines.GRAZE = 1;
   if (opts.bob) defines.BOB = 1;
   if (opts.orbit) defines.ORBIT = 1;
   if (opts.tint) defines.TINT = 1;
@@ -310,6 +316,33 @@ void main() {
   // Moored/fishing boats ride the swell: a slow heave plus pitch and roll (aInst.z = phase).
   float tb = uTime * uAnim;
   p.y += sin(tb * 1.7 + aInst.z) * 0.012 + p.z * sin(tb * 1.3 + aInst.z * 1.7) * 0.16 + p.x * sin(tb * 1.1 + aInst.z) * 0.06;
+#endif
+#ifdef IDLE
+  // Figurines (art pass 4): cloth marked with a flutter weight in -g (0.06..0.46, figurines.ts)
+  // ripples from the pole outward; the whole toy breathes with a slow lean, stronger toward the
+  // head (p.y), phase per instance. Frozen when uAnim = 0 (reduceMotion, low, idle off).
+  float tI = uTime * uAnim;
+  float phI = aInst.z + im[3].x * 2.3 + im[3].z * 1.7;
+  vec3 vcI = vertColor();
+  if (vcI.g < -0.03 && vcI.g > -0.5) {
+    float wf = (-vcI.g - 0.06) / 0.4;
+    p.z += sin(tI * 3.4 - p.x * 16.0 + phI) * 0.02 * wf * uAnim;
+    p.y += sin(tI * 2.6 - p.x * 11.0 + phI) * 0.006 * wf * uAnim;
+  }
+  p.x += sin(tI * 1.5 + phI) * 0.035 * p.y * uAnim;
+  p.z += sin(tI * 1.1 + phI * 1.3) * 0.022 * p.y * uAnim;
+#endif
+#ifdef GRAZE
+  // Pasture animals (resource props): head and neck (graze weight in -g) dip to the grass now
+  // and then, each beast on its own beat (phase from its local x and the instance position).
+  vec3 vcG = vertColor();
+  if (vcG.g < -0.1 && vcG.g > -0.5) {
+    float wg = (-vcG.g - 0.1) / 0.35;
+    float tg = uTime * uAnim * 0.55 + position.x * 23.0 + im[3].x * 1.9 + im[3].z * 2.7;
+    float dip = smoothstep(0.2, 0.75, sin(tg)) * uAnim;
+    p.y -= dip * wg * 0.075;
+    p.z -= dip * wg * 0.02;
+  }
 #endif
 #ifdef ORBIT
   // Birds: wingtips flap (|x| = distance from the body), and the whole bird circles the
@@ -344,6 +377,16 @@ void main() {
     }
     vCol = sk * vc.r;
   }
+#ifdef SECOND
+  // Owner secondary color (figurine trims, base rule): b < -0.5, packed 0xRRGGBB in aInst.y.
+  if (vc.b < -0.5 && vc.r >= 0.0) {
+    float pk2 = aInst.y;
+    float r2 = floor(pk2 / 65536.0);
+    float g2 = floor((pk2 - r2 * 65536.0) / 256.0);
+    float b2 = pk2 - r2 * 65536.0 - g2 * 256.0;
+    vCol = pow(vec3(r2, g2, b2) / 255.0, vec3(2.2)) * vc.r;
+  }
+#endif
   vN = instNormal(im, normal);
   vW = w.xyz;
   vInst = aInst;
@@ -586,8 +629,12 @@ void main() {
   float deep = smoothstep(0.08, 1.0, depth);
   deep = deep * deep * (3.0 - 2.0 * deep);
   // Open sea stops short of the darkest blue so it never reads as murky blotches.
-  vec3 c = mix(uShallow, uDeep, deep * 0.82);
-  c = mix(c, vCol, 0.15);
+  // Tropical seas (aInst.z = 1, art pass 4): turquoise shallows over pale sand, a sandy beach
+  // lip at the shore instead of grey-green, deeper water still blue.
+  float trop = vInst.z;
+  vec3 shallow = mix(uShallow, vec3(0.06, 0.52, 0.47), trop * 0.6);
+  vec3 c = mix(shallow, uDeep, deep * (0.82 + trop * 0.05));
+  c = mix(c, vCol, 0.15 * (1.0 - trop));
   // Open-sea ripples: fine wind streaks (stretched noise, two drifting layers), not blotches.
   vec2 q = vW.xz;
   float r1 = texture2D(uDetail, q * vec2(0.55, 1.9) + vec2(t * 0.012, t * 0.004)).r;
@@ -599,7 +646,8 @@ void main() {
   float sd = mask > 0 ? edgeDist(vLocal.xz, mask) : 9.0;
   float wob = 0.03 * sin(t * 1.4 + (vW.x * 2.3 + vW.z * 3.1)) + (r1 - 0.5) * 0.05;
   float lip = 1.0 - smoothstep(0.0, 0.42, sd);
-  c = mix(c, uShallow * 1.1, lip * 0.55);
+  c = mix(c, shallow * 1.1, lip * 0.55);
+  c = mix(c, vec3(0.86, 0.76, 0.55), (1.0 - smoothstep(0.0, 0.09 + wob, sd)) * trop * 0.85);
   float foam = 1.0 - smoothstep(0.05 + wob, 0.11 + wob, sd);
   float line2 = 1.0 - smoothstep(0.0, 0.035, abs(sd - 0.2 - wob * 1.6));
   c = mix(c, uFoam, max(foam, line2 * 0.4) * 0.92);
@@ -632,6 +680,7 @@ ${FRAG_COMMON}
 ${EDGE_GLSL}
 uniform sampler2D uDetail;
 uniform vec4 uCompass;
+uniform vec4 uFrame;
 varying vec3 vN;
 varying vec3 vW;
 varying float vDepth;
@@ -700,12 +749,64 @@ float serpent(vec2 p) {
   float neck = stroke(abs(q.y - 0.2 * smoothstep(0.55, 0.85, q.x)), 0.03) * step(0.52, q.x) * step(q.x, 0.84);
   return max(max(body, water), max(head, neck));
 }
+// Strategic atlas frame (art pass 4): a double ink rule with a hatched band between, a corner
+// lozenge at each corner, and a scrolled cartouche (bottom left) holding a scale bar. Faded in
+// with uAtlas only. Returns the ink amount; fill = the cartouche's lighter paper.
+vec2 atlasFrame(vec2 p) {
+  if (uFrame.z <= uFrame.x) return vec2(0.0);
+  vec2 lo = uFrame.xy - vec2(2.6);
+  vec2 hi = uFrame.zw + vec2(2.6);
+  vec2 dlo = p - lo;
+  vec2 dhi = hi - p;
+  float d = min(min(dlo.x, dlo.y), min(dhi.x, dhi.y));
+  // Outer heavy rule, inner fine rule, and a band of hatching between (only outside the map).
+  float ink = stroke(abs(d + 1.6), 0.3) + stroke(abs(d), 0.14);
+  float band = step(-1.6, d) * step(d, 0.0);
+  float horiz = step(min(dlo.y, dhi.y), min(dlo.x, dhi.x));
+  float along = horiz > 0.5 ? p.x : p.y;
+  ink = max(ink, band * stroke(abs(fract(along * 0.55) - 0.5), 0.12) * 0.7);
+  // Corner lozenges sitting on the band.
+  vec2 cn = vec2(min(dlo.x, dhi.x), min(dlo.y, dhi.y)) + vec2(0.8);
+  float loz = abs(cn.x) + abs(cn.y);
+  ink = max(ink, stroke(abs(loz - 1.4), 0.2) + stroke(loz, 0.45));
+  float fill = step(loz, 1.4) * 0.6;
+  // Cartouche centred in the bottom margin (in view on a portrait phone): a rounded box with
+  // scrolled ends and a scale bar, drawn at 1.5x.
+  vec2 cc = vec2((lo.x + hi.x) * 0.5, hi.y + 5.0);
+  vec2 q = (p - cc) / 1.5;
+  p = cc + q;
+  vec2 bs = vec2(6.5, 1.8);
+  vec2 dq = abs(q) - bs;
+  float box = length(max(dq, 0.0)) + min(max(dq.x, dq.y), 0.0) - 0.4;
+  float inside = 1.0 - smoothstep(-0.05, 0.05, box);
+  ink = max(ink, stroke(abs(box), 0.22) + stroke(abs(box + 0.45), 0.1) * 0.8);
+  for (int k = 0; k < 2; k++) {
+    vec2 sc = cc + vec2(k == 0 ? -bs.x - 0.9 : bs.x + 0.9, 0.0);
+    float r = length(p - sc);
+    ink = max(ink, stroke(abs(r - 0.75), 0.18) + stroke(abs(r - 0.32), 0.14));
+  }
+  // Scale bar: alternating filled / open blocks, outlined.
+  vec2 sb = q - vec2(0.0, -0.3);
+  float onBar = step(abs(sb.x), 4.8) * step(abs(sb.y), 0.32);
+  float blk = step(0.5, fract((sb.x + 4.8) / 1.6 * 0.5));
+  ink = max(ink, onBar * max(blk, stroke(abs(abs(sb.y) - 0.32), 0.08)));
+  ink = max(ink, step(abs(sb.x), 4.85) * step(abs(sb.y), 0.5) * stroke(abs(fract((sb.x + 4.8) / 1.6 + 0.5) - 0.5) * 1.6, 0.08));
+  // Flourish rules above and below.
+  ink = max(ink, step(abs(q.x), 5.2) * (stroke(abs(q.y - 0.85), 0.08) + stroke(abs(q.y + 1.2), 0.08)) * 0.8);
+  return vec2(clamp(ink, 0.0, 1.0), max(fill, inside * 0.7));
+}
 void main() {
   vec4 d = texture2D(uDetail, vW.xz * 0.19);
   vec4 d2 = texture2D(uDetail, vW.xz * 1.1 + 0.5);
-  float stain = texture2D(uDetail, vW.xz * 0.035 + 0.2).r;
+  // Stains from two scales at unrelated angles (art pass 4: one scale tiled visibly into a grid
+  // of blotches at strategic zoom); the product only peaks where both agree, so blots are rarer
+  // and irregular, and the repeat period is effectively gone.
+  vec2 sp = mat2(0.83, -0.56, 0.56, 0.83) * vW.xz;
+  float st1 = texture2D(uDetail, sp * 0.031 + 0.2).r;
+  float st2 = texture2D(uDetail, vW.xz * 0.0117 + vec2(0.37, 0.71)).r;
+  float stain = st1 * 0.6 + st2 * 0.55 - 0.08;
   vec3 c = uPaper * (0.94 + 0.09 * d.r) * (0.97 + 0.05 * d2.a);
-  c = mix(c, uPaperShade, smoothstep(0.5, 0.78, stain) * 0.45);
+  c = mix(c, uPaperShade, smoothstep(0.5, 0.8, stain) * 0.42);
   // Ink is applied with a little paper grain so strokes look drawn, not vector-perfect.
   float grain = 0.75 + 0.25 * d2.r;
   float lines = max(rays(vW.xz, uCompass.xy), rays(vW.xz, uCompass.zw));
@@ -727,6 +828,11 @@ void main() {
     float rule = stroke(abs(fract(sd * 6.5 - 0.15) - 0.5) / 6.5, 0.012) * (1.0 - smoothstep(0.08, 0.5, sd)) * step(0.06, sd);
     c = mix(c, uInk, rule * 0.3 * grain);
     c = mix(c, uInk, (1.0 - smoothstep(0.0, 0.035, sd)) * 0.65);
+  }
+  if (uAtlas > 0.01) {
+    vec2 fr = atlasFrame(vW.xz);
+    c = mix(c, uPaper * 1.04, fr.y * uAtlas);
+    c = mix(c, uInk, fr.x * 0.7 * grain * uAtlas);
   }
   c = finish(c * 0.98, vDepth);
   ${OUT}
@@ -799,7 +905,7 @@ void main() {
 
 // --- Soft overlays: territory, highlights, glows, blob shadows -------------------------------------
 
-export const SOFT = { wash: 0, reach: 1, attack: 2, ring: 3, territory: 4, glow: 5, shadow: 6, ink: 7 } as const;
+export const SOFT = { wash: 0, reach: 1, attack: 2, ring: 3, territory: 4, glow: 5, shadow: 6, ink: 7, mist: 8 } as const;
 
 /**
  * Soft-edged translucent overlays on flat hex/disc geometry (radius 1 at scale 1).
@@ -844,9 +950,13 @@ void main() {
     float s = 1.0 - smoothstep(0.15, 1.0, rc);
     a *= s * s;
     c = uShadow;
-  } else {
+  } else if (mode < 7.5) {
     // Ink: a drawn stroke (roads, tracks) with a soft, slightly ragged rim; bolder on the atlas.
     a *= (1.0 - smoothstep(0.7, 1.0, rc)) * (1.0 + uAtlas * 0.4);
+  } else {
+    // Mist: a soft round haze (jungle), gone on the atlas.
+    float m = 1.0 - smoothstep(0.05, 1.0, rc);
+    a *= m * m * (1.0 - uAtlas);
   }
   if (a < 0.004) discard;
   a *= 1.0 - vInst.x * 0.4;
@@ -871,6 +981,7 @@ varying float vA;
 varying float vDepth;
 varying vec3 vN;
 varying float vMem;
+varying float vDust;
 void main() {
 #ifdef USE_INSTANCING
   mat4 im = instanceMatrix;
@@ -881,9 +992,13 @@ void main() {
   float size = length(im[0].xyz);
   vec3 base = (modelMatrix * vec4(im[3].xyz, 1.0)).xyz;
   // Prevailing wind (same quarter the dunes face): the column leans as it rises.
-  vec3 drift = vec3(0.32, 0.0, 0.12) * t * t + vec3(sin(t * 7.0 + aInst.y * 23.0), 0.0, cos(t * 5.0 + aInst.y * 11.0)) * 0.025;
-  vec3 w = base + position * size * (0.4 + t * 1.3) + vec3(0.0, t * aInst.z, 0.0) + drift;
-  vA = smoothstep(0.0, 0.14, t) * (1.0 - smoothstep(0.4, 1.0, t)) * 0.62;
+  // aInst.w = 1: crisis dust, blown flat and fast along the ground instead of rising.
+  float dust = step(0.5, aInst.w);
+  vec3 drift = vec3(0.32, 0.0, 0.12) * (t * t * (1.0 - dust) + t * dust * 4.5) + vec3(sin(t * 7.0 + aInst.y * 23.0), 0.0, cos(t * 5.0 + aInst.y * 11.0)) * 0.025;
+  vec3 shape = position * vec3(1.0 + dust * 0.8, 1.0 - dust * 0.55, 1.0);
+  vec3 w = base + shape * size * (0.4 + t * 1.3) + vec3(0.0, t * aInst.z, 0.0) + drift;
+  vA = smoothstep(0.0, 0.14, t) * (1.0 - smoothstep(0.4, 1.0, t)) * (0.62 - dust * 0.1);
+  vDust = dust;
   vN = normalize(position);
   vMem = aInst.x;
   vec4 mv = viewMatrix * vec4(w, 1.0);
@@ -897,10 +1012,12 @@ varying float vA;
 varying float vDepth;
 varying vec3 vN;
 varying float vMem;
+varying float vDust;
 void main() {
   vec3 n = normalize(vN);
   // Warm grey smoke, lit from the key side; reads on grass, sand and parchment alike.
   vec3 c = mix(vec3(0.5, 0.47, 0.44), vec3(0.93, 0.9, 0.85), clamp(dot(n, uSunDir) * 0.5 + 0.55, 0.0, 1.0));
+  c = mix(c, vec3(0.62, 0.47, 0.3), vDust * 0.75);
   c = memoryTint(c, vMem);
   c = finish(c, vDepth);
   gl_FragColor = linearToOutputTexel(vec4(c, vA * (1.0 - vMem * 0.5)));

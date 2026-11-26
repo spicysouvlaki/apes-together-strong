@@ -61,3 +61,48 @@ export const computeRiverSegments = (
   }
   return out;
 };
+
+/** A 2D segment (world x/z): a road's drawn stretch or a river ribbon's center line. */
+export interface Seg2 {
+  ax: number;
+  az: number;
+  bx: number;
+  bz: number;
+}
+
+/** Where a road crosses a river: bridge position and the road's direction (radians, atan2(dz, dx)). */
+export interface Bridge {
+  x: number;
+  z: number;
+  angle: number;
+}
+
+/**
+ * Bridges where roads cross rivers (art pass 4). Proper crossings only: touching end points (a
+ * road leaving a riverside town along its own river) are not bridges, and two bridges closer than
+ * `minGap` merge into one. Pure; O(roads × rivers), both small.
+ */
+export const roadRiverCrossings = (roads: readonly Seg2[], rivers: readonly Seg2[], minGap = 0.4): Bridge[] => {
+  const out: Bridge[] = [];
+  const eps = 0.04;
+  for (const r of roads) {
+    const rx = r.bx - r.ax;
+    const rz = r.bz - r.az;
+    for (const v of rivers) {
+      const vx = v.bx - v.ax;
+      const vz = v.bz - v.az;
+      const den = rx * vz - rz * vx;
+      if (Math.abs(den) < 1e-6) continue;
+      const wx = v.ax - r.ax;
+      const wz = v.az - r.az;
+      const t = (wx * vz - wz * vx) / den;
+      const u = (wx * rz - wz * rx) / den;
+      if (t <= eps || t >= 1 - eps || u <= eps || u >= 1 - eps) continue;
+      const x = r.ax + rx * t;
+      const z = r.az + rz * t;
+      if (out.some((b) => Math.hypot(b.x - x, b.z - z) < minGap)) continue;
+      out.push({ x, z, angle: Math.atan2(rz, rx) });
+    }
+  }
+  return out;
+};

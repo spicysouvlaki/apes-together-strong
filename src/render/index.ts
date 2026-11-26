@@ -94,6 +94,29 @@
  *   once its founding pop-in has landed. Trees on the two tiles in front of a visible unit are
  *   thinned and cleared toward it. Desert carries crescent dunes (lit crest, shaded slip face).
  *
+ * UNITS (art pass 4; pure rules in unit-look.ts, geometry in scene/figurines.ts)
+ *   Chunky toy-soldier figurines, one look per class and age so upgrades show: warband (two
+ *   warriors, clubs, hide shields) -> spearman (crested bronze helm, big aspis, long spear);
+ *   slinger (whirling sling loop) -> archer (tall bow, quiver); chariot (horse, spoked wheels,
+ *   driver) -> horse archer; ram (hide-roofed shed, bronze head) -> catapult (cocked arm, stone);
+ *   war canoe (paddlers, carved prow) -> galley (oar banks, banded square sail); settler (ox cart,
+ *   parent and child); scout (hooded cloak, staff); merchant (camel with striped bales); general
+ *   (taller, gilded plume, square standard) vs explorer (wide hat, swallowtail pennant). Looks are
+ *   chosen from content data (class + age, canFound / canTrade / vision, figureKind), never ids.
+ *   Owner primary AND secondary are painted on figures and bases (materials SECOND). Base: team
+ *   band, secondary rule, rim white = yours, dark = rival, red = at war, grey = city-state, dark
+ *   red + a fluttering pennon = raiders; famous people add a gold ring. Idle: a gentle per-figure
+ *   sway and cloth flutter in the vertex shader (IDLE; ships BOB broadside-on). Figures face the
+ *   viewer at rest (folded travel heading), face an adjacent hostile across the edge, march in
+ *   their travel direction with a dust trail. Fortified = stake palisade with shields (not in
+ *   towns: the walls say it). Damaged = five billboarded HP pips; lost pips flash and drop.
+ *   Embarked land units ride a raft. Stacks: soldier in front full size, civilian behind smaller;
+ *   in a settlement units step onto a paved forecourt at the front edge (smaller), offsets follow
+ *   the view rotation. COMBAT: flash(hex, 'combat') infers the attacker (selected unit in range,
+ *   else the latest mover; unit-look pickAttacker): melee lunges in and back, ranged recoils and
+ *   lobs a shot; defenders shake as the blow lands; a unit gone from that hex (the snapshot comes
+ *   first) topples backward away from the blow, then sinks into the ground with a dust puff.
+ *
  * SETTLEMENTS AND DISTRICTS
  *   Growth spills onto the settlement's own neighbor tiles (districts.ts, by population
  *   milestone): fields (pop 2, 4, 8), a harbor quay on water (3), an orchard (5, 12), workshop
@@ -111,6 +134,16 @@
  *   Rival settlements seen once stay on explored-but-not-visible tiles as faded "ghosts" with a
  *   dashed label, as last seen (ghosts.ts). Memory is keyed by game seed + viewer + map size and
  *   resets on a new game; it lives only in the renderer.
+ *
+ * MAP FINISH (art pass 4): bridges where roads cross rivers (rivers.ts roadRiverCrossings);
+ *   pasture animals graze (materials GRAZE); dark cliff seams on hill knolls; parchment stains
+ *   from two unrelated scales (no visible tiling at strategic zoom); the strategic atlas gets an
+ *   inked double-rule frame with hatching, corner lozenges and a scale-bar cartouche under the
+ *   map; jungle = emergent giants over a lower canopy with vines and blossoms, understory ferns,
+ *   low mist patches, a darker floor and bright parrots; tropical seas turquoise over a sandy
+ *   shore lip, with palms leaning out over tropical beaches; crisis = wind-blown dust (wisps).
+ *   scatter.ts unit01 now re-mixes its input: shifted hashes were stuck near 0, so jungles drew
+ *   only palms and temperate woods only broadleaf.
  *
  * LIVING WORLD AND MOOD (art pass 3; quality 'low' drops all of these)
  *   Hearth-smoke columns over visible settlements (more chimneys with population) and workshop
@@ -150,6 +183,8 @@
  *   Trade routes owned by the viewer draw as a dotted line between their settlements.
  *
  * PERFORMANCE
+ *   Art pass 4, ?game=1&turns=40 (turn 41, crisis, raiders), 375x812 @2x: default framing
+ *   59 draws / 191k tris high, 48 / 112k low; regional 59 / 170k; strategic 15 / 31k.
  *   ~50-60 draw calls at close/regional zoom regardless of map size (everything is instanced;
  *   empty layers cost nothing; labels are one atlas-backed instanced draw; the territory band
  *   is one merged mesh), ~15 at strategic. Measured turn 41, AI-played (375x812 @2x,
@@ -165,6 +200,8 @@
  *   Demo: /render-demo.html?real=1 (&bench=1, &quality=low, &age=classical, &reveal=1);
  *   ?game=1 is a real sim game at turn 1 (window.demo.found(), .endTurns(n), .move(id, q, r));
  *   ?game=1&turns=N lets the sim AI play every seat for N turns (also demo.autoplay(n));
+ *   ?units=1 is a figurine gallery (every look, relations, stack, fortify, damage, embark);
+ *   demo.strike(attackerId, targetId, damage) plays a combat exactly as the UI does;
  *   window.film(start, [ms…], [x, y, w, h]) freezes the clock and composites canvas crops at
  *   those times into a film strip (inspects motion even when the tab is hidden).
  */

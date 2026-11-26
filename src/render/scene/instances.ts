@@ -102,6 +102,28 @@ export class Instances {
     }
   }
 
+  /**
+   * Like push, but the instance is also tipped over by `tilt` radians about its own x axis
+   * (applied before the y rotation): +tilt tips the top toward local +z (a figure facing −z
+   * falls on its back). Used for defeated units toppling.
+   */
+  pushTilted(x: number, y: number, z: number, s: number, rotY: number, tilt: number, color: Rgb, a0 = 0, a1 = 0, a2 = 0, a3 = 0): void {
+    this.push(x, y, z, s, s, s, rotY, color, a0, a1, a2, a3);
+    const m = this.mesh.instanceMatrix.array as Float32Array;
+    const o = (this.n - 1) * 16;
+    const c = Math.cos(rotY);
+    const sn = Math.sin(rotY);
+    const ca = Math.cos(tilt);
+    const sa = Math.sin(tilt);
+    // M = Ry(rotY) · Rx(tilt) · S (column-major).
+    m[o + 4] = sn * sa * s;
+    m[o + 5] = ca * s;
+    m[o + 6] = c * sa * s;
+    m[o + 8] = sn * ca * s;
+    m[o + 9] = -sa * s;
+    m[o + 10] = c * ca * s;
+  }
+
   end(): void {
     this.mesh.count = this.n;
     this.mesh.visible = this.n > 0;

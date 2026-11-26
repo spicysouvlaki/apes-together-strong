@@ -51,7 +51,7 @@ import { labelSpec, sealSpec, wallFraction, type LabelSpec } from '../labels';
 import type { ZoomBand } from '../camera-math';
 import { DIR_BUCKET, buildBorderMesh, computeBorderEdges, createBorderMeshData, createEdgeList, type BorderColors } from '../borders';
 import { BorderMesh } from './border-mesh';
-import { computeRiverSegments, type RiverSegment } from '../rivers';
+import { computeRiverSegments, roadRiverCrossings, type RiverSegment, type Seg2 } from '../rivers';
 import { GhostMemory, type GhostSettlement } from '../ghosts';
 import { patternFor } from '../patterns';
 import { RESOURCE_CLASS_STYLE, gradeTerrainColors, resourceClassOf, type ResourceClass } from '../terrain-style';
@@ -77,6 +77,7 @@ import {
   hexRingGeometry,
   hillMoundGeometry,
   jungleGeometry,
+  fernGeometry,
   landTileGeometry,
   mountainGeometry,
   palmGeometry,
@@ -89,14 +90,35 @@ import {
   ribbonGeometry,
   riverNodeGeometry,
   rockGeometry,
-  shieldGeometry,
   tuftGeometry,
   boxGeometry,
   birdGeometry,
   boatGeometry,
+  bridgeGeometry,
   type ResourcePropKind,
 } from './geometry';
-import { FIGURES, FIGURE_TOP, figureFor, figureGeometry, unitBaseGeometry, type FigureKind } from './figurines';
+import { LOOKS, LOOK_TOP, allFigureGeometries, forecourtGeometry, palisadeGeometry, pennonGeometry, raftGeometry, unitBaseGeometry, type Look } from './figurines';
+import {
+  HP_PIPS,
+  LUNGE_MS,
+  cameraToWorld,
+  facingTarget,
+  headingToward,
+  hpPips,
+  isFigureLook,
+  isHostile,
+  isShipLook,
+  lerpAngle,
+  lungeCurve,
+  pickAttacker,
+  restHeading,
+  stackLayout,
+  unitLook,
+  unitRelation,
+  type AttackCandidate,
+  type UnitArtDef,
+  type UnitRelation,
+} from '../unit-look';
 import { Instances } from './instances';
 import { LabelLayer } from './label-layer';
 import { createPatternUniforms, type PatternUniforms } from './pattern-material';
@@ -155,14 +177,22 @@ const FLASH_MS = 700;
 const FLASH_POOL = 6;
 const POP_MS = 650;
 const SHAKE_MS = 360;
+/** A defeated unit's topple + sink. */
+const DIE_MS = 1100;
+/** Lost HP pips flash and fall. */
+const PIP_DROP_MS = 750;
+/** Ranged shot flight time. */
+const SHOT_MS = 380;
 const FLOURISH_MS = 900;
 /** Figurines read better a bit larger than their geometry's nominal size. */
-const UNIT_SCALE = 2.2;
+const UNIT_SCALE = 2.75;
 /** Selected-unit ring pulses this long after a selection change, then rests (battery). */
 const PULSE_MS = 1800;
-const PARTICLES = 64;
+const PARTICLES = 96;
 
 const RIVER_WIDTH = 0.26;
+const BIRD_SCALE = 1.8;
+const JUNGLE_FLOOR: Rgb = [0.36, 0.55, 0.3];
 /** Inked road/track dashes: spacing and dash length (world units). */
 const ROAD_STEP = 0.21;
 const ROAD_DASH = 0.12;
@@ -173,6 +203,7 @@ const C = {
   parchment: rgb(PALETTE.parchment),
   gold: rgb(PALETTE.gold),
   hpBack: rgb('#2f2620'),
+  hpEmpty: rgb('#5b4c40'),
   hpGood: rgb('#7cc35a'),
   hpMid: rgb('#e8c64a'),
   hpLow: rgb('#de5a43'),
@@ -193,6 +224,19 @@ const C = {
   white: [1, 1, 1] as Rgb,
   dust: rgb('#bfa57c'),
   sparkle: rgb('#ffd85a'),
+  shot: rgb('#4a3c31'),
+  birdInk: rgb('#3a2f28'),
+  mist: rgb('#f4f6ef'),
+};
+/** Jungle parrots: scarlet, gold, turquoise. */
+const PARROTS: Rgb[] = [rgb('#d8432f'), rgb('#f0b62f'), rgb('#2ca6a4'), rgb('#3f6fd0')];
+/** Base rim per owner relation (GDD §11 readability: white = yours, dark = rival, red = war). */
+const RELATION_RIM: Record<UnitRelation, Rgb> = {
+  own: rgb('#fff8ea'),
+  rival: rgb('#2a2522'),
+  war: rgb('#e0453a'),
+  cityState: rgb('#a8a49b'),
+  raider: rgb('#5c1212'),
 };
 const FLASH_COLORS: Record<FlashKind, Rgb> = {
   combat: rgb('#e0453a'),
@@ -244,10 +288,26 @@ const GLYPH_HILLS = 3;
 
 interface UnitDraw {
   id: UnitId;
-  figure: FigureKind;
+  look: Look;
+  owner: PlayerId;
+  hex: Hex;
+  unitClass: string;
   primary: Rgb;
+  /** Owner secondary packed 0xRRGGBB (materials SECOND). */
+  second: number;
   rim: Rgb;
+  relation: UnitRelation;
   own: boolean;
+  /** Land unit standing on water (raft under it). */
+  embarked: boolean;
+  /** Stands on a settlement's forecourt. */
+  settled: boolean;
+  /** Absolute heading toward an adjacent hostile (two fronts face each other), else null. */
+  face: number | null;
+  /** Idle sway phase. */
+  phase: number;
+  /** Last dust puff of the move trail. */
+  dustAt: number;
   fx: number;
   fy: number;
   fz: number;
@@ -296,6 +356,8 @@ interface Particle {
   color: Rgb;
   /** Floats up and shrinks (sparkles, confetti) instead of puffing out and settling (dust). */
   rise: boolean;
+  /** A projectile lobbed from (x,y,z) to (vx,vy,vz). */
+  shot: boolean;
   active: boolean;
 }
 
@@ -378,6 +440,8 @@ export class World {
   private readonly pathBack: Instances;
   private readonly pathDots: Instances;
   private readonly tradeDots: Instances;
+  /** Bridges where roads cross rivers. */
+  private readonly bridges: Instances;
   /** Living world (quality 'high' only): hearth smoke, birds, fishing boats. */
   private readonly wisps: Instances;
   private readonly birds: Instances;
@@ -393,6 +457,10 @@ export class World {
   private readonly conifers: Instances;
   private readonly broadleaf: Instances;
   private readonly jungle: Instances;
+  /** Jungle floor ferns and low mist patches (art pass 4). */
+  private readonly ferns: Instances;
+  private readonly mists: Instances;
+  private jungleTile = new Uint8Array(0);
   private readonly palms: Instances;
   private readonly rocks: Instances;
   private readonly tufts: Instances;
@@ -406,14 +474,17 @@ export class World {
   private readonly pieces: Record<PieceKind, Instances>;
   private readonly warRings: Instances;
   // --- Units
-  private readonly figures: Record<FigureKind, Instances>;
+  private readonly figures: Record<Look, Instances>;
+  private readonly rafts: Instances;
+  private readonly pennons: Instances;
+  private readonly forecourts: Instances;
   private readonly unitBases: Instances;
   private readonly unitRims: Instances;
   private readonly goldRings: Instances;
   private readonly unitGlow: Instances;
   private readonly unitShadows: Instances;
   private readonly readyMarks: Instances;
-  private readonly shields: Instances;
+  private readonly palisades: Instances;
   private readonly hpBack: Instances;
   private readonly hpFront: Instances;
   private readonly puffs: Instances;
@@ -441,6 +512,22 @@ export class World {
   private unitDraws: UnitDraw[] = [];
   private readonly displayed = new Map<UnitId, { x: number; y: number; z: number; heading: number }>();
   private readonly shakeAt = new Map<UnitId, number>();
+  /** Content unit definitions the art reads (look by class/age/abilities, attack range). */
+  private readonly unitDefs = new Map<string, UnitArtDef & { range: number }>();
+  /** When each unit last moved (attacker inference for combat flashes). */
+  private readonly movedAt = new Map<UnitId, number>();
+  /** Attack lunges in progress: start, unit direction to the target and reach. */
+  private readonly lungeAt = new Map<UnitId, { start: number; dx: number; dz: number; reach: number }>();
+  /** Units that vanished from a still-visible tile recently (a combat flash may claim them). */
+  private removed: { d: UnitDraw; x: number; y: number; z: number; heading: number; at: number }[] = [];
+  /** Defeated units toppling over and sinking away. */
+  private dying: { d: UnitDraw; x: number; y: number; z: number; heading: number; start: number; dusted: boolean }[] = [];
+  /** Recent combat flashes (hex + time), for units removed after the flash. */
+  private recentCombat: { q: number; r: number; t: number }[] = [];
+  /** Last HP seen per unit, and pip-drop animations (lost pips flash and fall). */
+  private readonly lastHp = new Map<UnitId, number>();
+  private readonly pipDrop = new Map<UnitId, { from: number; at: number }>();
+  private lastNow = 0;
   private selection: Selection = { unit: null, tile: null, reachable: [], attackable: [], path: [], pathTurns: [] };
   private sites: SiteMark[] = [];
   private labelEntries: LabelEntry[] = [];
@@ -516,6 +603,7 @@ export class World {
     this.pathDots = new Instances(g(discGeometry(1, 0.035, 12)), unlit, 256, B, 'path-dots', 7);
     // Roads and trade tracks: inked dashes (unit disc scaled per instance), like a drawn map.
     this.tradeDots = I(discGeometry(1, 0.02, 8), soft(-3), 256, B, 'roads', 3);
+    this.bridges = I(bridgeGeometry(), propFixed, 32, D, 'bridges');
     this.wisps = I(new IcosahedronGeometry(0.5, 1), this.mat(wispMaterial(U)), 256, D, 'wisps', 8);
     this.birds = I(birdGeometry(), this.mat(propMaterial(U, { orbit: true })), 64, D, 'birds');
     this.boats = I(boatGeometry(), this.mat(propMaterial(U, { bob: true })), 64, D, 'boats');
@@ -525,6 +613,8 @@ export class World {
     this.conifers = I(coniferGeometry(), propTint, 1024, D, 'conifers');
     this.broadleaf = I(broadleafGeometry(), propTint, 1024, D, 'broadleaf');
     this.jungle = I(jungleGeometry(), propTint, 512, D, 'jungle');
+    this.ferns = I(fernGeometry(), propTint, 1024, D, 'ferns');
+    this.mists = I(flatDiscGeometry(16), soft(-1), 256, D, 'mists', 9);
     this.palms = I(palmGeometry(), propTint, 256, D, 'palms');
     this.rocks = I(rockGeometry(), propTint, 1024, D, 'rocks');
     this.tufts = I(tuftGeometry(), propTint, 4096, D, 'tufts');
@@ -535,7 +625,8 @@ export class World {
     this.siteStakes = I(surveyStakeGeometry(), this.mat(propMaterial(U, { sway: true, flag: true })), 8, D, 'site-stakes');
     this.flowers = I(flowerGeometry(), propTint, 1024, D, 'flowers');
     const props: Partial<Record<ResourcePropKind, Instances>> = {};
-    for (const k of RESOURCE_PROPS) props[k] = I(resourcePropGeometry(k), propFixed, 64, D, `resource-${k}`);
+    const grazeMat = this.mat(propMaterial(U, { graze: true }));
+    for (const k of RESOURCE_PROPS) props[k] = I(resourcePropGeometry(k), k === 'animal' ? grazeMat : propFixed, 64, D, `resource-${k}`);
     this.resourceProps = props as Record<ResourcePropKind, Instances>;
     const markers: Partial<Record<ResourceClass, Instances>> = {};
     for (const cls of RESOURCE_CLASSES) markers[cls] = I(resourceShapeGeometry(cls), propFixed, 64, D, `resource-marker-${cls}`);
@@ -546,16 +637,25 @@ export class World {
     this.pieces = pieces as Record<PieceKind, Instances>;
     this.warRings = new Instances(g(hexRingGeometry(0.88, 0.97)), decal(-5), 32, D, 'war-rings', 6);
 
-    const figs: Partial<Record<FigureKind, Instances>> = {};
-    for (const k of FIGURES) figs[k] = I(figureGeometry(k), propFixed, 64, D, `figure-${k}`);
-    this.figures = figs as Record<FigureKind, Instances>;
-    this.unitBases = I(unitBaseGeometry(), propFixed, 128, D, 'unit-bases');
+    // Figurines: owner secondary trims (SECOND) and a gentle idle sway + cloth flutter (IDLE);
+    // ships ride the swell instead (BOB).
+    const figMat = this.mat(propMaterial(U, { second: true, idle: true }));
+    const shipMat = this.mat(propMaterial(U, { second: true, idle: true, bob: true }));
+    const baseMat = this.mat(propMaterial(U, { second: true }));
+    const figGeo = allFigureGeometries();
+    const figs: Partial<Record<Look, Instances>> = {};
+    for (const k of LOOKS) figs[k] = I(figGeo[k], isShipLook(k) ? shipMat : figMat, 32, D, `figure-${k}`);
+    this.figures = figs as Record<Look, Instances>;
+    this.rafts = I(raftGeometry(), shipMat, 16, D, 'unit-rafts');
+    this.pennons = I(pennonGeometry(), figMat, 16, D, 'unit-pennons');
+    this.forecourts = I(forecourtGeometry(), propFixed, 32, D, 'unit-forecourts');
+    this.unitBases = I(unitBaseGeometry(), baseMat, 128, D, 'unit-bases');
     this.unitRims = new Instances(g(baseRingGeometry(0.172, 0.02)), unlit, 128, D, 'unit-rims');
     this.goldRings = new Instances(g(baseRingGeometry(0.255, 0.022)), unlit, 32, D, 'gold-rings');
     this.unitGlow = I(flatDiscGeometry(20), soft(-6), 8, D, 'unit-glow', 6);
     this.unitShadows = I(flatDiscGeometry(14), soft(-2), 128, D, 'unit-shadows', 2);
     this.readyMarks = I(readyMarkerGeometry(), propFixed, 64, D, 'ready-marks');
-    this.shields = I(shieldGeometry(), propFixed, 64, D, 'fortify-shields');
+    this.palisades = I(palisadeGeometry(), propFixed, 32, D, 'fortify-palisades');
     this.hpBack = new Instances(g(boxGeometry(0.5, 0.085, 0.02)), unlit, 64, D, 'hp-back');
     this.hpFront = new Instances(g(boxGeometry(0.46, 0.055, 0.03)), unlit, 64, D, 'hp-front');
     this.puffs = I(new IcosahedronGeometry(0.5, 0), puffMat, PARTICLES, this.root, 'puffs', 60);
@@ -597,7 +697,7 @@ export class World {
       this.flashes.push({ mesh, material, start: 0, active: false });
     }
     for (let i = 0; i < PARTICLES; i++) {
-      this.particles.push({ x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, start: 0, life: 1, size: 0, color: C.dust, rise: false, active: false });
+      this.particles.push({ x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, start: 0, life: 1, size: 0, color: C.dust, rise: false, shot: false, active: false });
     }
     this.applyQuality();
   }
@@ -619,6 +719,10 @@ export class World {
       this.resourceClass.set(r.id, resourceClassOf(r.class));
     }
     this.cultures = buildCultureIndex(content);
+    this.unitDefs.clear();
+    for (const u of content.units ?? []) {
+      this.unitDefs.set(u.id, { unitClass: u.unitClass, age: u.age, figureKind: u.figureKind, canFound: u.canFound, canTrade: u.canTrade, vision: u.vision, range: u.range ?? 1 });
+    }
   }
 
   setBand(band: ZoomBand): void {
@@ -666,6 +770,7 @@ export class World {
     if (Math.abs(yaw - snapped) < 0.003 && Math.abs(snapped - this.vegYaw) > 0.01) {
       this.vegYaw = snapped;
       this.refreshVegetation();
+      this.relayoutUnits();
     }
   }
 
@@ -772,7 +877,9 @@ export class World {
       if (fog !== FOG_UNEXPLORED && !isWater) top += v.dy;
       this.shownTop[i] = top;
       const base = this.terrainColor.get(tile.terrain) ?? [0.6, 0.6, 0.6];
-      const c = isWater ? base : scaleRgb(base, v.tint);
+      let c = isWater ? base : scaleRgb(base, v.tint);
+      // Jungle floor (art pass 4): deeper, wetter green under the canopy than open grassland.
+      if (tile.feature === 'jungle') c = mix(c, JUNGLE_FLOOR, 0.38);
       this.tileColor[i * 3] = c[0];
       this.tileColor[i * 3 + 1] = c[1];
       this.tileColor[i * 3 + 2] = c[2];
@@ -819,7 +926,7 @@ export class World {
           const j = this.neighbors[i * 6 + d] ?? -1;
           if (j >= 0 && !this.waterTile[j] && this.fog[j] !== FOG_UNEXPLORED) mask |= 1 << (DIR_BUCKET[d] ?? 0);
         }
-        this.water.push(x, top, z, 1, 1, 1, 0, c, mem, mask, 0, 0);
+        this.water.push(x, top, z, 1, 1, 1, 0, c, mem, mask, tile.climate === 'tropical' ? 1 : 0, 0);
         continue;
       }
       const isMountain = this.terrainMountain.get(tile.terrain) ?? false;
@@ -995,6 +1102,7 @@ export class World {
     this.uniforms.uMapSize.value.set(Math.max(1, width), Math.max(1, height));
     const b = mapBounds(width, height);
     this.uniforms.uCompass.value.set(b.maxX * 0.22, b.maxZ * 0.3, b.maxX * 0.78, b.maxZ * 0.72);
+    this.uniforms.uFrame.value.set(b.minX, b.minZ, b.maxX, b.maxZ);
     // Plinth: a rectangle that contains every hex, from the water line down.
     // The sheet runs well past the last hex row, so a start near the map edge still sits in the
     // middle of an old chart (rhumb lines and sea glyphs continue) instead of an empty void.
@@ -1024,7 +1132,9 @@ export class World {
   private updateProps(state: GameState, ageIdx: number, high: boolean): void {
     const tiles = state.map.tiles;
     const n = this.width * this.height;
-    const L = [this.mountains[0], this.mountains[1], this.hills, this.conifers, this.broadleaf, this.jungle, this.palms, this.rocks, this.staticShadows];
+    const L = [this.mountains[0], this.mountains[1], this.hills, this.conifers, this.broadleaf, this.jungle, this.ferns, this.mists, this.palms, this.rocks, this.staticShadows];
+    if (this.jungleTile.length !== n) this.jungleTile = new Uint8Array(n);
+    this.jungleTile.fill(0);
     for (const l of L) l?.begin();
     this.resourceList = [];
     const pts = this.scatter;
@@ -1095,6 +1205,26 @@ export class World {
           layer.push(px, top - 0.005, pz, ps, ps, ps, unit01(hj >>> 12) * 6.28, col, mem);
           shadow(px, top, pz, 0.22 * s, 0.4, mem);
         }
+        if (jungle) {
+          this.jungleTile[i] = 1;
+          // Understory ferns fill the floor between the giants (high quality only).
+          if (high) {
+            const kf = scatterInHex(tile.q, tile.r, 17, settled ? 2 : 5, pts, { radius: 0.78, minDist: 0.2, clearCenter: settled ? 0.62 : unitHere ? 0.58 : 0, clear: frontClear });
+            for (let j = 0; j < kf; j++) {
+              const hf = hashTile(tile.q, tile.r, 90 + j);
+              const fs = 0.9 + unit01(hf) * 0.6;
+              this.ferns.push(x + (pts[j * 2] ?? 0), top - 0.005, z + (pts[j * 2 + 1] ?? 0), fs, fs, fs, unit01(hf >>> 6) * 6.28, scaleRgb(mix([1, 1, 1], tc, 0.1), 0.9 + unit01(hf >>> 12) * 0.2), mem);
+            }
+          }
+          // A drift of low mist between the canopy layers on some tiles.
+          const hm = hashTile(tile.q, tile.r, 23);
+          if (high && !settled && unit01(hm) < 0.45) {
+            const ox = (unit01(hm >>> 4) - 0.5) * 0.5;
+            const oz = (unit01(hm >>> 9) - 0.5) * 0.5;
+            const r = 0.55 + unit01(hm >>> 14) * 0.3;
+            this.mists.push(x + ox, top + 0.34, z + oz, r, 1, r * 0.8, 0, C.mist, mem, SOFT.mist, 0.42, 0);
+          }
+        }
       } else if (feature === 'oasis') {
         const k = scatterInHex(tile.q, tile.r, 9, 3, pts, { radius: 0.66, minDist: 0.3, clearCenter: 0.32, clear });
         for (let j = 0; j < k; j++) {
@@ -1105,6 +1235,28 @@ export class World {
       } else if (feature && feature !== 'marsh') {
         // Unknown feature id: a small boulder cluster so it still reads as "something here".
         for (let j = 0; j < 2; j++) this.rocks.push(x - 0.2 + j * 0.3, top, z + 0.1, 0.18, 0.18, 0.18, spin + j, mix(tc, [0.55, 0.53, 0.5], 0.5), mem);
+      }
+      // Tropical shores (art pass 4): open coastal land leans a couple of palms out over the beach.
+      if (tile.climate === 'tropical' && !feature && !settled && !unitHere && !isMountain) {
+        let placed = 0;
+        for (let d = 0; d < 6 && placed < 2; d++) {
+          const dd = (d + (h % 6)) % 6;
+          const j = this.neighbors[i * 6 + dd] ?? -1;
+          if (j < 0 || this.waterTile[j] !== 1) continue;
+          const dx = (this.tileX[j] ?? 0) - x;
+          const dz = (this.tileZ[j] ?? 0) - z;
+          const hp = hashTile(tile.q, tile.r, 120 + d);
+          const t = 0.36 + unit01(hp) * 0.12;
+          const side = (unit01(hp >>> 5) - 0.5) * 0.5;
+          const px = x + dx * t - dz * side * 0.5;
+          const pz = z + dz * t + dx * side * 0.5;
+          if (hasRes && Math.hypot(px - x - RESOURCE_SPOT[0], pz - z - RESOURCE_SPOT[1]) < 0.3) continue;
+          const ps = 0.46 + unit01(hp >>> 9) * 0.14;
+          // Palm geometry leans toward +x: aim the lean at the sea.
+          this.palms.push(px, top, pz, ps, ps, ps, -Math.atan2(dz, dx), C.white, mem);
+          shadow(px, top, pz, 0.2, 0.35, mem);
+          placed++;
+        }
       }
       if (feature === 'hills' && !settled) {
         const k = scatterInHex(tile.q, tile.r, 13, 2, pts, { radius: 0.7, minDist: 0.3, clearCenter: 0.35, clear });
@@ -1517,7 +1669,8 @@ export class World {
           const h = hashTile(seed, b, 29);
           const r = 0.55 + unit01(h) * 0.45;
           const speed = (0.32 + unit01(h >>> 8) * 0.2) * (unit01(seed) < 0.5 ? 1 : -1);
-          this.birds.push(cx, cy + unit01(h >>> 16) * 0.2, cz, 1, 1, 1, 0, C.white, 0, r, unit01(h >>> 4), speed);
+          // Art pass 4: birds were too small to notice at default zoom (1.0 -> 1.8).
+          this.birds.push(cx, cy + unit01(h >>> 16) * 0.2, cz, BIRD_SCALE, BIRD_SCALE, BIRD_SCALE, 0, C.birdInk, 0, r, unit01(h >>> 4), speed);
         }
       };
       for (const id of Object.keys(state.settlements).sort()) {
@@ -1554,6 +1707,31 @@ export class World {
         }
         if (!coast || unit01(hashTile(i, 3, 43)) > 0.06) continue;
         flock(this.tileX[i] ?? 0, (this.shownTop[i] ?? 0) + 0.8, this.tileZ[i] ?? 0, hashTile(i, 4, 47), 2);
+      }
+      // Jungle: a pair of bright parrots skimming low over the canopy of some visible jungle tiles.
+      let parrots = 0;
+      for (let i = 0; i < n && parrots < 12; i++) {
+        if (this.jungleTile[i] !== 1 || this.fog[i] !== FOG_VISIBLE || this.settledTile[i] !== 0) continue;
+        const h0 = hashTile(i, 9, 61);
+        if (unit01(h0) > 0.22) continue;
+        for (let b = 0; b < 2; b++, parrots++) {
+          const h = hashTile(i, b, 67);
+          const col = PARROTS[(h >>> 3) % PARROTS.length] ?? C.birdInk;
+          this.birds.push(this.tileX[i] ?? 0, (this.shownTop[i] ?? 0) + 0.62 + unit01(h) * 0.12, this.tileZ[i] ?? 0, 1.5, 1.5, 1.5, 0, col, 0, 0.32 + unit01(h >>> 8) * 0.2, unit01(h >>> 4), (0.5 + unit01(h >>> 12) * 0.3) * (b === 0 ? 1 : -1));
+        }
+      }
+      // Crisis (GDD §5): wind-blown dust skims over the land in sight, all from one instanced
+      // wisp layer (aInst.w = 1: flat, tan, fast sideways drift). Cheap: at most 36 puffs.
+      if (state.crisis) {
+        let dust = 0;
+        for (let i = 0; i < n && dust < 36; i++) {
+          if (this.waterTile[i] === 1 || this.fog[i] !== FOG_VISIBLE) continue;
+          const h = hashTile(i, 5, 71);
+          if (unit01(h) > 0.14) continue;
+          for (let p = 0; p < 3; p++, dust++) {
+            this.wisps.push((this.tileX[i] ?? 0) - 0.5, (this.shownTop[i] ?? 0) + 0.04, (this.tileZ[i] ?? 0) + (unit01(h >>> 6) - 0.5) * 0.8, 0.36, 0.36, 0.36, 0, C.white, 0, (unit01(h >>> 10) + p / 3) % 1, 0.1, 1);
+          }
+        }
       }
     }
     this.wisps.end();
@@ -1744,7 +1922,9 @@ export class World {
    */
   private updateTradeRoutes(state: GameState, viewer: PlayerId | null): void {
     this.tradeDots.begin();
+    const roads: Seg2[] = [];
     const track = (ax: number, az: number, bx: number, bz: number, t0: number, t1: number, bold: number): void => {
+      roads.push({ ax: ax + (bx - ax) * t0, az: az + (bz - az) * t0, bx: ax + (bx - ax) * t1, bz: az + (bz - az) * t1 });
       const dx = bx - ax;
       const dz = bz - az;
       const len = Math.hypot(dx, dz);
@@ -1786,15 +1966,28 @@ export class World {
       track(wa.x, wa.z, wb.x, wb.z, 0.08, 0.92, 1.25);
     }
     this.tradeDots.end();
+    // Bridges where those roads cross a river ribbon (one small humped plank bridge each).
+    this.bridges.begin();
+    if (roads.length > 0 && this.riverSegs.length > 0) {
+      const rivers: Seg2[] = this.riverSegs.map((r) => ({ ax: this.tileX[r.a] ?? 0, az: this.tileZ[r.a] ?? 0, bx: this.tileX[r.b] ?? 0, bz: this.tileZ[r.b] ?? 0 }));
+      for (const b of roadRiverCrossings(roads, rivers)) {
+        const i = tileIndex(worldToHex(b.x, b.z), this.width, this.height);
+        if (i < 0 || this.fog[i] === FOG_UNEXPLORED || this.waterTile[i] === 1) continue;
+        this.bridges.push(b.x, (this.shownTop[i] ?? 0) - 0.01, b.z, 1, 1, 1, -b.angle, C.white, this.fog[i] === FOG_VISIBLE ? 0 : 1);
+      }
+    }
+    this.bridges.end();
   }
 
   // -------------------------------------------------------------------------------------------
   // Units
   // -------------------------------------------------------------------------------------------
 
-  private prepareUnits(state: GameState, viewer: PlayerId | null, now: number): void {
+  private prepareUnits(state: GameState, viewer: PlayerId | null, now: number, relayout = false): void {
     const byTile = new Map<number, UnitId[]>();
     const ids = Object.keys(state.units).sort();
+    const hostileHexes: Hex[] = [];
+    const ownHexes: Hex[] = [];
     for (const id of ids) {
       const u = state.units[id];
       if (!u) continue;
@@ -1804,14 +1997,17 @@ export class World {
       const list = byTile.get(i);
       if (list) list.push(id);
       else byTile.set(i, [id]);
+      if (viewer !== null && u.owner === viewer) ownHexes.push(u.at);
+      else if (viewer !== null && isHostile(unitRelation(viewer, u.owner, this.atWarWithViewer(state, u.owner)))) hostileHexes.push(u.at);
     }
     const draws: UnitDraw[] = [];
     const seen = new Set<UnitId>();
+    // Stack offsets are in the camera frame (military in front) for the settled view rotation.
+    const yaw = this.vegYaw;
     for (const [i, list] of byTile) {
       const settled = this.settledTile[i] === 1;
-      // In a settlement, units stand at the front edge rather than inside the buildings.
-      const x0 = (this.tileX[i] ?? 0) + (settled ? -0.06 : 0);
-      const z0 = (this.tileZ[i] ?? 0) + (settled ? 0.4 : 0);
+      const cx = this.tileX[i] ?? 0;
+      const cz = this.tileZ[i] ?? 0;
       const y = this.shownTop[i] ?? 0;
       // Military first (front, full size), civilians behind and a bit smaller: both readable.
       list.sort((a, b) => {
@@ -1819,38 +2015,53 @@ export class World {
         const cb = state.units[b]?.unitClass === 'civilian' ? 1 : 0;
         return ca - cb || (a < b ? -1 : a > b ? 1 : 0);
       });
+      const spots = stackLayout(list.length, settled);
       list.forEach((id, k) => {
         const u = state.units[id];
-        if (!u) return;
-        let x = x0;
-        let z = z0;
-        let scale = 1;
-        if (list.length === 2 && settled) {
-          x += k === 0 ? -0.18 : 0.2;
-          scale = k === 0 ? 1 : 0.82;
-        } else if (list.length === 2) {
-          x += k === 0 ? -0.16 : 0.24;
-          z += k === 0 ? 0.12 : -0.2;
-          scale = k === 0 ? 1 : 0.82;
-        } else if (list.length > 2) {
-          const a = (k / list.length) * Math.PI * 2 + Math.PI / 6;
-          x += Math.cos(a) * 0.3;
-          z += Math.sin(a) * 0.3;
-          scale = 0.82;
-        }
+        const spot = spots[k];
+        if (!u || !spot) return;
+        const off = cameraToWorld(spot.dx, spot.dz, yaw);
+        const x = cx + off.x;
+        const z = cz + off.z;
         const colors = ownerColors(state, u.owner);
         const prev = this.displayed.get(id);
-        const moved = prev !== undefined && (Math.abs(prev.x - x) > 1e-4 || Math.abs(prev.z - z) > 1e-4);
-        const heading = moved && prev ? Math.atan2(-(x - prev.x), -(z - prev.z)) : (prev?.heading ?? 0.4);
-        const animate = moved && !this.reduceMotion;
+        const moved = !relayout && prev !== undefined && (Math.abs(prev.x - x) > 0.3 || Math.abs(prev.z - z) > 0.3);
+        const shifted = prev !== undefined && (Math.abs(prev.x - x) > 1e-4 || Math.abs(prev.z - z) > 1e-4);
+        const heading = moved && prev ? headingToward(x - prev.x, z - prev.z) : (prev?.heading ?? Math.PI + 0.5);
+        const animate = shifted && !this.reduceMotion;
+        if (moved) this.movedAt.set(id, now);
         const own = viewer === null || u.owner === viewer;
-        const rim = own ? C.ownRim : this.atWarWithViewer(state, u.owner) ? C.warRim : C.rivalRim;
+        const relation = unitRelation(viewer, u.owner, this.atWarWithViewer(state, u.owner));
+        const water = this.waterTile[i] === 1;
+        const look = unitLook(u.unitClass, this.unitDefs.get(u.type));
+        // Square up to an adjacent hostile across the tile edge (yours face theirs and back).
+        const foes = own ? hostileHexes : isHostile(relation) ? ownHexes : [];
+        const tgt = foes.length > 0 ? facingTarget(u.at, foes) : null;
+        let face: number | null = null;
+        if (tgt) {
+          const w = hexToWorld(tgt);
+          face = headingToward(w.x - x, w.z - z);
+        }
+        // HP drop: lost pips flash and fall (one snapshot later than the hit itself).
+        const lastHp = this.lastHp.get(id);
+        if (lastHp !== undefined && u.hp < lastHp && !this.reduceMotion) this.pipDrop.set(id, { from: lastHp, at: now });
+        this.lastHp.set(id, u.hp);
         draws.push({
           id,
-          figure: figureFor(u.unitClass, u.type),
+          look,
+          owner: u.owner,
+          hex: { q: u.at.q, r: u.at.r },
+          unitClass: u.unitClass,
           primary: parseHexColor(colors.primary),
-          rim,
+          second: parseInt(colors.secondary.slice(1, 7), 16) || 0,
+          rim: RELATION_RIM[relation],
+          relation,
           own: viewer !== null && u.owner === viewer,
+          embarked: water && !isShipLook(look),
+          settled,
+          face,
+          phase: unit01(hashString(id)) * 6.28,
+          dustAt: -Infinity,
           fx: animate && prev ? prev.x : x,
           fy: animate && prev ? prev.y : y,
           fz: animate && prev ? prev.z : z,
@@ -1860,23 +2071,46 @@ export class World {
           start: animate ? now : -Infinity,
           heading,
           hp: u.hp,
-          ring: u.figure !== null || u.unitClass === 'commander',
+          ring: u.figure !== null || u.unitClass === 'commander' || isFigureLook(look),
           fortified: u.fortified,
-          scale,
-          water: this.waterTile[i] === 1,
+          scale: spot.scale,
+          water,
           skin: packedSkin(state.players[u.owner]?.skinTone ?? hashString(u.owner) % SKIN_TONES.length),
         });
         seen.add(id);
       });
     }
-    for (const id of [...this.displayed.keys()]) if (!seen.has(id)) this.displayed.delete(id);
+    // Units gone from a tile that is still in sight: keep them a moment, a combat flash at (or
+    // next to) their hex makes them topple instead of popping out. Founding settlers and units
+    // walking out of sight just leave.
+    if (!relayout) {
+      this.removed = this.removed.filter((r) => now - r.at < 1500);
+      for (const d of this.unitDraws) {
+        if (seen.has(d.id)) continue;
+        const i = tileIndex(d.hex, this.width, this.height);
+        const p = this.displayed.get(d.id);
+        if (i < 0 || !p || this.fog[i] !== FOG_VISIBLE || (d.unitClass === 'civilian' && this.settledTile[i] === 1)) continue;
+        const rec = { d, x: p.x, y: p.y, z: p.z, heading: p.heading, at: now };
+        const hit = this.recentCombat.find((c) => now - c.t < 1500 && hexDistance(c, d.hex) <= 1);
+        if (hit) this.startDying(rec, hit, now);
+        else this.removed.push(rec);
+      }
+    }
+    for (const id of [...this.displayed.keys()]) {
+      if (seen.has(id)) continue;
+      this.displayed.delete(id);
+      this.movedAt.delete(id);
+      this.lastHp.delete(id);
+      this.pipDrop.delete(id);
+      this.lungeAt.delete(id);
+    }
     this.unitDraws = draws;
     // Unit figure points labels must not cover (re-checked on the next label layout).
     if (this.obstacles.length < draws.length * 6) this.obstacles = new Float32Array(draws.length * 12);
     let k = 0;
     for (const d of draws) {
       const S = UNIT_SCALE * d.scale;
-      const h = FIGURE_TOP[d.figure] * S;
+      const h = LOOK_TOP[d.look] * S;
       for (const f of [0.45, 0.9]) {
         this.obstacles[k * 3] = d.tx;
         this.obstacles[k * 3 + 1] = d.ty + 0.04 + h * f;
@@ -1888,16 +2122,34 @@ export class World {
     this.labelsDirty = true;
   }
 
-  /** Per-frame unit pass. Returns true while anything (moves, pulse, shake) is animating. */
+  /** Re-place stacked units for a new settled view rotation (military stays in front). */
+  private relayoutUnits(): void {
+    if (this.state) this.prepareUnits(this.state, this.viewer, this.lastNow, true);
+  }
+
+  private startDying(r: { d: UnitDraw; x: number; y: number; z: number; heading: number }, from: Hex, now: number): void {
+    // Falls away from the blow: face the hex the hit came from (toppling backward).
+    const w = hexToWorld(from);
+    const same = Math.abs(w.x - r.x) < 0.3 && Math.abs(w.z - r.z) < 0.3;
+    const heading = same ? r.heading : headingToward(w.x - r.x, w.z - r.z);
+    this.dying.push({ d: r.d, x: r.x, y: r.y, z: r.z, heading, start: now, dusted: false });
+    if (this.dying.length > 8) this.dying.shift();
+  }
+
+  /** Per-frame unit pass. Returns true while anything (moves, lunges, pulse, shake, falls) animates. */
   drawUnits(now: number): boolean {
-    for (const k of FIGURES) this.figures[k].begin();
+    this.lastNow = now;
+    for (const k of LOOKS) this.figures[k].begin();
     this.unitBases.begin();
     this.unitRims.begin();
     this.goldRings.begin();
     this.unitGlow.begin();
     this.unitShadows.begin();
     this.readyMarks.begin();
-    this.shields.begin();
+    this.palisades.begin();
+    this.rafts.begin();
+    this.pennons.begin();
+    this.forecourts.begin();
     this.hpBack.begin();
     this.hpFront.begin();
     this.unitDots.begin();
@@ -1908,14 +2160,21 @@ export class World {
     const pulsing = !this.reduceMotion && pulseT >= 0 && pulseT < PULSE_MS;
     const pulse = pulsing ? 1 + 0.12 * Math.sin((pulseT / 1000) * Math.PI * 2 * 1.6) * (1 - pulseT / PULSE_MS) : 1;
     const amb = this.ambient && !this.reduceMotion;
+    const juice = !this.reduceMotion && this.quality === 'high';
     for (const d of this.unitDraws) {
       const t = clamp01((now - d.start) / MOVE_MS);
       if (t < 1) moving = true;
       const e = easeOut(t);
       let x = d.fx + (d.tx - d.fx) * e;
       let z = d.fz + (d.tz - d.fz) * e;
-      // Hop: a little arc every move, higher when crossing heights.
-      let y = d.fy + (d.ty - d.fy) * e + Math.sin(Math.PI * t) * (0.1 + Math.abs(d.ty - d.fy) * 0.5) * (t < 1 ? 1 : 0);
+      const far = Math.abs(d.tx - d.fx) + Math.abs(d.tz - d.fz) > 0.3;
+      // Hop: a little arc every move, higher when crossing heights (not for stack shuffles).
+      let y = d.fy + (d.ty - d.fy) * e + (far && t < 1 ? Math.sin(Math.PI * t) * (0.1 + Math.abs(d.ty - d.fy) * 0.5) : 0);
+      // Dust trail behind a marching land unit.
+      if (t < 1 && far && juice && !d.water && now - d.dustAt > 70) {
+        d.dustAt = now;
+        this.emit(x, y - 0.02, z, 1, C.dust, now, 0.12, 0.07);
+      }
       const prev = this.displayed.get(d.id);
       if (prev) {
         prev.x = x;
@@ -1928,58 +2187,148 @@ export class World {
       const sh = this.shakeAt.get(d.id);
       if (sh !== undefined) {
         const k = (now - sh) / SHAKE_MS;
+        moving = true;
         if (k >= 1) this.shakeAt.delete(d.id);
-        else {
+        else if (k > 0) {
           const a = Math.sin(k * Math.PI * 9) * 0.05 * (1 - k);
           x += a * rx;
           z += a * rz;
-          moving = true;
         }
       }
+      const lg = this.lungeAt.get(d.id);
+      if (lg) {
+        const k = (now - lg.start) / LUNGE_MS;
+        moving = true;
+        if (k >= 1) this.lungeAt.delete(d.id);
+        else {
+          const a = lungeCurve(k) * lg.reach;
+          x += lg.dx * a;
+          z += lg.dz * a;
+          y += Math.max(0, a) * 0.12;
+        }
+      }
+      // Heading: travel direction while moving, then turn to rest (face a foe, else the viewer).
+      const rest = d.face ?? restHeading(d.heading, this.yaw, isShipLook(d.look));
+      let heading = rest;
+      if (t < 1) heading = d.heading;
+      else if (d.start > -Infinity) {
+        const k = clamp01((now - d.start - MOVE_MS) / 260);
+        if (k < 1) moving = true;
+        heading = lerpAngle(d.heading, rest, easeOut(k));
+      }
+      if (lg && d.face === null) heading = headingToward(lg.dx, lg.dz);
       const selected = d.id === this.selection.unit;
       let lift = 0;
       if (selected && amb) lift = 0.025 + Math.sin(now * 0.005) * 0.02;
       const S = UNIT_SCALE * this.propScale * d.scale;
-      const top = FIGURE_TOP[d.figure] * S;
-      if (!d.water) this.unitBases.push(x, y, z, S, 1, S, 0, d.primary, 0);
+      const top = LOOK_TOP[d.look] * S;
+      const ship = isShipLook(d.look);
+      let fy = y + (d.water ? 0.01 : 0.044);
+      if (d.settled && !d.water) this.forecourts.push(x, y + 0.002, z, S, 1, S, this.yaw, C.white);
+      if (d.embarked) {
+        this.rafts.push(x, y + 0.02, z, S, S, S, heading, d.primary, 0, d.second, d.phase, 0);
+        fy = y + 0.02 + 0.03 * S;
+      } else if (!ship) {
+        this.unitBases.push(x, y, z, S, 1, S, 0, d.primary, 0, d.second);
+      }
       this.unitRims.push(x, y + (d.water ? 0 : 0.012), z, S, 1, S, 0, d.rim);
-      this.unitShadows.push(x + 0.03, y + 0.004, z + 0.02, 0.3 * S, 1, 0.3 * S, 0, C.white, 0, SOFT.shadow, 0.55, 0);
-      this.figures[d.figure].push(x, y + (d.water ? 0.01 : 0.04) + lift, z, S, S, S, d.heading, d.primary, 0, 0, 0, d.skin);
+      this.unitShadows.push(x + 0.03, y + 0.004, z + 0.02, (ship ? 0.36 : 0.3) * S, 1, (ship ? 0.36 : 0.3) * S, 0, C.white, 0, SOFT.shadow, 0.55, 0);
+      this.figures[d.look].push(x, fy + lift, z, S, S, S, heading, d.primary, 0, d.second, d.phase, d.skin);
+      if (d.relation === 'raider') {
+        // Behind-left of the base in the camera frame (cameraToWorld inlined: no per-frame allocation).
+        const ox = -0.12 * S * rx - 0.1 * S * Math.sin(this.yaw);
+        const oz = -0.12 * S * rz - 0.1 * S * Math.cos(this.yaw);
+        this.pennons.push(x + ox, y + 0.03, z + oz, S, S, S, this.yaw, d.primary, 0, d.second, d.phase, 0);
+      }
       if (d.ring) this.goldRings.push(x, y + 0.012, z, S, 1, S, 0, C.gold);
-      if (selected) this.unitGlow.push(x, y + 0.02, z, 0.42 * S * pulse, 1, 0.42 * S * pulse, 0, C.selectUnit, 0, SOFT.glow, 0.9, amb ? 1 : 0);
-      let topY = y + 0.042 + top + lift + 0.03 * S;
-      if (d.hp < UNIT_MAX_HP) {
-        const f = clamp01(d.hp / UNIT_MAX_HP);
-        const by = topY + 0.04;
-        const k = Math.max(1, this.propScale);
-        this.hpBack.push(x, by, z, k, k, k, this.yaw, C.hpBack);
-        const shift = -(1 - f) * 0.23 * k;
-        const col = f > 0.6 ? C.hpGood : f > 0.3 ? C.hpMid : C.hpLow;
-        this.hpFront.push(x + rx * shift, by + 0.014 * k, z + rz * shift, Math.max(0.02, f) * k, k, k, this.yaw, col);
-        topY = by + 0.09 * k;
+      if (selected) {
+        this.unitGlow.push(x, y + 0.02, z, 0.46 * S * pulse, 1, 0.46 * S * pulse, 0, C.selectUnit, 0, SOFT.glow, 0.9, amb ? 1 : 0);
+        const rs = S * (d.ring ? 1.12 : 0.86) * pulse;
+        this.goldRings.push(x, y + 0.016, z, rs, 1, rs, 0, C.selectUnit);
+      }
+      let topY = fy + top + lift + 0.03 * S;
+      const drop = this.pipDrop.get(d.id);
+      let dropK = -1;
+      if (drop) {
+        dropK = (now - drop.at) / PIP_DROP_MS;
+        if (dropK >= 1) {
+          this.pipDrop.delete(d.id);
+          dropK = -1;
+        } else moving = true;
+      }
+      if (d.hp < UNIT_MAX_HP || dropK >= 0) {
+        topY = this.drawPips(x, topY, z, d.hp, drop && dropK >= 0 ? drop.from : d.hp, dropK, rx, rz);
       }
       if (d.own && this.ready.has(d.id)) this.readyMarks.push(x, topY + 0.03, z, S * 0.9, S * 0.9, S * 0.9, 0.3, C.white, 0);
-      if (d.fortified) {
-        // Shield on the unit's camera-facing side so it reads from the default view.
-        this.shields.push(x + 0.17 * S * rx, y + 0.03, z + 0.17 * S * rz + 0.12 * S, S, S, S, this.yaw, C.shield, 0);
-      }
+      // In a settlement the walls already say "garrisoned"; the palisade would bury the town.
+      if (d.fortified && !ship && !d.settled) this.palisades.push(x, y + 0.01, z, S, S, S, this.yaw, d.primary, 0);
       const ds = this.iconScale;
       this.unitDots.push(x, y + 0.1, z, ds * 1.3, 1, ds * 1.3, 0, d.own ? C.ownRim : d.rim);
       this.unitDots.push(x, y + 0.12, z, ds, 1, ds, 0, d.primary);
     }
-    for (const k of FIGURES) this.figures[k].end();
+    // Defeated units: topple backward (away from the blow), then sink into the ground.
+    if (this.dying.length > 0) {
+      this.dying = this.dying.filter((f) => now - f.start < DIE_MS);
+      for (const f of this.dying) {
+        // Before the blow lands (k < 0) the defender still stands there.
+        const k = Math.max(0, (now - f.start) / DIE_MS);
+        moving = true;
+        const fall = clamp01(k / 0.42);
+        const tilt = fall * fall * 1.45;
+        const sink = clamp01((k - 0.5) / 0.5);
+        if (fall >= 1 && !f.dusted) {
+          f.dusted = true;
+          if (!this.reduceMotion) this.emit(f.x, f.y, f.z, 6, C.dust, now, 0.5, 0.16);
+        }
+        const S = UNIT_SCALE * this.propScale * f.d.scale * (1 - sink * 0.55);
+        const y = f.y - sink * 0.18;
+        if (!isShipLook(f.d.look)) this.unitBases.push(f.x, y, f.z, S, 1, S, 0, f.d.primary, 0, f.d.second);
+        this.figures[f.d.look].pushTilted(f.x, y + 0.04, f.z, S, f.heading, tilt, f.d.primary, 0, f.d.second, f.d.phase, f.d.skin);
+      }
+    }
+    for (const k of LOOKS) this.figures[k].end();
     this.unitBases.end();
     this.unitRims.end();
     this.goldRings.end();
     this.unitGlow.end();
     this.unitShadows.end();
     this.readyMarks.end();
-    this.shields.end();
+    this.palisades.end();
+    this.rafts.end();
+    this.pennons.end();
+    this.forecourts.end();
     this.hpBack.end();
     this.hpFront.end();
     this.unitDots.end();
     this.unitShadows.mesh.visible = this.quality === 'high' && this.unitShadows.count > 0;
     return moving || (pulsing && this.selection.unit !== null);
+  }
+
+  /**
+   * Billboarded HP pips over a damaged unit: an ink plate with five pips (20 HP each), colored by
+   * health. Pips just lost flash white, turn red and drop away (`dropK` 0..1). Returns the y above.
+   */
+  private drawPips(x: number, y0: number, z: number, hp: number, fromHp: number, dropK: number, rx: number, rz: number): number {
+    const k = Math.max(1, this.propScale);
+    const by = y0 + 0.03;
+    const n = hpPips(hp, UNIT_MAX_HP);
+    const was = dropK >= 0 ? hpPips(fromHp, UNIT_MAX_HP) : n;
+    const f = hp / UNIT_MAX_HP;
+    const col = f > 0.6 ? C.hpGood : f > 0.3 ? C.hpMid : C.hpLow;
+    this.hpBack.push(x, by, z, k, k, k, this.yaw, C.hpBack);
+    for (let i = 0; i < HP_PIPS; i++) {
+      const off = (i - (HP_PIPS - 1) / 2) * 0.091 * k;
+      const px = x + rx * off;
+      const pz = z + rz * off;
+      if (i < n) this.hpFront.push(px, by + 0.014 * k, pz, 0.17 * k, k, k, this.yaw, col);
+      else if (i < was) {
+        // Lost this hit: white flash, then red, falling and shrinking.
+        const c = dropK < 0.25 ? C.white : C.hpLow;
+        const s = 1 - dropK * 0.7;
+        this.hpFront.push(px, by + 0.014 * k - dropK * dropK * 0.22, pz + 0.01, 0.17 * k * s, k * s, k, this.yaw, c);
+      } else this.hpFront.push(px, by + 0.014 * k, pz, 0.17 * k, k, k, this.yaw, C.hpEmpty);
+    }
+    return by + 0.09 * k;
   }
 
   // -------------------------------------------------------------------------------------------
@@ -2135,8 +2484,7 @@ export class World {
       const i = tileIndex(hex, this.width, this.height);
       const settlement = this.state.map.tiles[i]?.settlement ?? null;
       if (kind === 'combat') {
-        for (const d of this.unitDraws) if (Math.abs(d.tx - w.x) < 0.6 && Math.abs(d.tz - w.z) < 0.6) this.shakeAt.set(d.id, now);
-        this.emit(w.x, top, w.z, 12, C.dust, now, 0.8, 0.24);
+        this.combat(hex, w.x, top, w.z, now);
       } else if (kind === 'found') {
         if (settlement) {
           const b = this.bornAt.get(settlement);
@@ -2161,14 +2509,87 @@ export class World {
       } else if (kind === 'wonder') {
         // Wonder completed: a gold-leaf shimmer of motes rising over the landmark, in waves.
         if (settlement) this.flourishAt.set(settlement, now);
-        this.emit(w.x - 0.3, top + 0.2, w.z + 0.2, 14, C.gold, now, 0.45, 0.12, true);
-        this.emit(w.x - 0.3, top + 0.35, w.z + 0.2, 12, C.sparkle, now + 220, 0.35, 0.1, true);
-        this.emit(w.x - 0.3, top + 0.5, w.z + 0.2, 10, C.gold, now + 480, 0.3, 0.085, true);
+        // Art pass 4 (filmed): the old 0.08-0.12 motes vanished against the town at default zoom.
+        this.emit(w.x - 0.3, top + 0.3, w.z + 0.2, 16, C.gold, now, 0.6, 0.2, true);
+        this.emit(w.x - 0.3, top + 0.45, w.z + 0.2, 14, C.sparkle, now + 220, 0.5, 0.17, true);
+        this.emit(w.x - 0.3, top + 0.6, w.z + 0.2, 12, C.gold, now + 480, 0.4, 0.15, true);
       } else if (kind === 'age') {
         this.emit(w.x, top + 0.3, w.z, 16, C.sparkle, now, 0.8, 0.07, true);
       }
     }
     this.animateFlashes(now);
+  }
+
+  /**
+   * Combat juice: the attacker (selected unit in range, else the one that moved last; see
+   * unit-look pickAttacker) lunges at the target and steps back, or, at range, recoils and looses
+   * a shot that arcs over; the defenders shake as the blow lands; a unit that vanished from that
+   * hex (or the attacker's, if it died attacking) topples over instead of popping out.
+   */
+  private combat(hex: Hex, wx: number, top: number, wz: number, now: number): void {
+    const state = this.state;
+    if (!state) return;
+    const defenders = this.unitDraws.filter((d) => d.hex.q === hex.q && d.hex.r === hex.r);
+    const defenderOwners = defenders.map((d) => d.owner);
+    for (const r of this.removed) if (r.d.hex.q === hex.q && r.d.hex.r === hex.r) defenderOwners.push(r.d.owner);
+    const i = tileIndex(hex, this.width, this.height);
+    const sid = state.map.tiles[i]?.settlement;
+    const sOwner = sid ? state.settlements[sid]?.owner : undefined;
+    if (sOwner) defenderOwners.push(sOwner);
+    const cands: AttackCandidate[] = [];
+    for (const d of this.unitDraws) {
+      if (hexDistance(d.hex, hex) > 2) continue;
+      cands.push({ id: d.id, at: d.hex, owner: d.owner, movedAt: this.movedAt.get(d.id) ?? -Infinity, range: this.unitDefs.get(state.units[d.id]?.type ?? '')?.range ?? 1 });
+    }
+    const atk = pickAttacker(hex, cands, this.selection.unit, defenderOwners);
+    let impact = 0;
+    let from: Hex = hex;
+    if (atk) {
+      from = atk.at;
+      const p = this.displayed.get(atk.id);
+      const ax = p?.x ?? hexToWorld(atk.at).x;
+      const az = p?.z ?? hexToWorld(atk.at).z;
+      const dx = wx - ax;
+      const dz = wz - az;
+      const len = Math.hypot(dx, dz) || 1;
+      const melee = hexDistance(atk.at, hex) <= 1;
+      this.lungeAt.set(atk.id, { start: now, dx: dx / len, dz: dz / len, reach: melee ? 0.55 : -0.08 });
+      if (melee) impact = LUNGE_MS * 0.28;
+      else {
+        impact = SHOT_MS;
+        this.shoot(ax, (p?.y ?? top) + 0.35, az, wx, top + 0.2, wz, now + 60);
+      }
+    }
+    for (const d of defenders) this.shakeAt.set(d.id, now + impact);
+    this.emit(wx, top, wz, 12, C.dust, now + impact, 0.8, 0.24);
+    // Units already gone from the board (the snapshot arrived before this flash).
+    this.recentCombat = this.recentCombat.filter((c) => now - c.t < 1500);
+    this.recentCombat.push({ q: hex.q, r: hex.r, t: now });
+    const keep: typeof this.removed = [];
+    for (const r of this.removed) {
+      if (now - r.at < 1500 && hexDistance(r.d.hex, hex) <= 1) this.startDying(r, r.d.hex.q === hex.q && r.d.hex.r === hex.r ? from : hex, now + impact);
+      else keep.push(r);
+    }
+    this.removed = keep;
+  }
+
+  /** A sling stone / arrow arcing from (ax, ay, az) to the target. */
+  private shoot(ax: number, ay: number, az: number, bx: number, by: number, bz: number, start: number): void {
+    const p = this.particles.find((q) => !q.active);
+    if (!p) return;
+    p.x = ax;
+    p.y = ay;
+    p.z = az;
+    p.vx = bx;
+    p.vy = by;
+    p.vz = bz;
+    p.start = start;
+    p.life = SHOT_MS;
+    p.size = 0.06;
+    p.color = C.shot;
+    p.rise = false;
+    p.shot = true;
+    p.active = true;
   }
 
   private emit(x: number, y: number, z: number, count: number, color: Rgb, now: number, spread: number, size: number, rise = false): void {
@@ -2192,6 +2613,7 @@ export class World {
       p.size = size * (0.7 + unit01(h >>> 4) * 0.6);
       p.color = color;
       p.rise = rise;
+      p.shot = false;
       p.active = true;
       made++;
     }
@@ -2224,6 +2646,14 @@ export class World {
       }
       any = true;
       if (t < 0) continue;
+      if (p.shot) {
+        // Shot: (x,y,z) -> (vx,vy,vz) on a lob.
+        const sx = p.x + (p.vx - p.x) * t;
+        const sz = p.z + (p.vz - p.z) * t;
+        const sy = p.y + (p.vy - p.y) * t + Math.sin(Math.PI * t) * 0.45;
+        this.puffs.push(sx, sy, sz, p.size, p.size, p.size, t * 9, p.color, 0, 1);
+        continue;
+      }
       const sec = (t * p.life) / 1000;
       const x = p.x + p.vx * sec;
       const z = p.z + p.vz * sec;
@@ -2235,7 +2665,7 @@ export class World {
     if (this.bornAt.size > 0 || this.flourishAt.size > 0) {
       if (this.drawSettlementPieces(now)) any = true;
     }
-    if (this.shakeAt.size > 0) {
+    if (this.shakeAt.size > 0 || this.lungeAt.size > 0 || this.dying.length > 0 || this.pipDrop.size > 0) {
       if (this.drawUnits(now)) any = true;
     }
     return any;
@@ -2301,6 +2731,7 @@ export class World {
       this.pathBack,
       this.pathDots,
       this.tradeDots,
+      this.bridges,
       this.wisps,
       this.birds,
       this.boats,
@@ -2309,6 +2740,8 @@ export class World {
       this.conifers,
       this.broadleaf,
       this.jungle,
+      this.ferns,
+      this.mists,
       this.palms,
       this.rocks,
       this.tufts,
@@ -2321,14 +2754,17 @@ export class World {
       ...RESOURCE_CLASSES.map((c) => this.resourceMarkers[c]),
       ...PIECE_KINDS.map((k) => this.pieces[k]),
       this.warRings,
-      ...FIGURES.map((k) => this.figures[k]),
+      ...LOOKS.map((k) => this.figures[k]),
+      this.rafts,
+      this.pennons,
+      this.forecourts,
       this.unitBases,
       this.unitRims,
       this.goldRings,
       this.unitGlow,
       this.unitShadows,
       this.readyMarks,
-      this.shields,
+      this.palisades,
       this.hpBack,
       this.hpFront,
       this.puffs,
